@@ -4,30 +4,22 @@
 Tests for model evaluation.
 Compare the results of some models with other programs.
 """
-
+# pylint: disable=invalid-name, no-member
 import pytest
 import numpy as np
 
 from numpy.testing import assert_allclose, assert_equal
 
-from .example_models import models_1D, models_2D
+from astropy import units as u
 from astropy.modeling import fitting, models
 from astropy.modeling.models import Gaussian2D
 from astropy.modeling.core import FittableModel
 from astropy.modeling.parameters import Parameter
 from astropy.modeling.polynomial import PolynomialBase
-from astropy import units as u
-from astropy.utils import minversion
 from astropy.tests.helper import assert_quantity_allclose
 from astropy.utils import NumpyRNGContext
-
-try:
-    import scipy
-    HAS_SCIPY = True
-except ImportError:
-    HAS_SCIPY = False
-
-HAS_SCIPY_14 = HAS_SCIPY and minversion(scipy, "0.14")
+from astropy.utils.compat.optional_deps import HAS_SCIPY  # noqa
+from .example_models import models_1D, models_2D
 
 
 @pytest.mark.skipif('not HAS_SCIPY')
@@ -96,12 +88,12 @@ def test_inconsistent_input_shapes():
     x = np.arange(-1., 1, .2)
     y = x.copy()
     # check scalar input broadcasting works
-    assert np.abs(g(x,0) - g(x, 0*x)).sum() == 0
+    assert np.abs(g(x, 0) - g(x, 0 * x)).sum() == 0
     # but not array broadcasting
     x.shape = (10, 1)
     y.shape = (1, 10)
-    with pytest.raises(ValueError):
-        g(x,y)
+    result = g(x, y)
+    assert result.shape == (10, 10)
 
 
 def test_custom_model_bounding_box():
@@ -296,9 +288,9 @@ class Fittable2DModelTester:
                                  use_constraints=False)
 
         # add 10% noise to the amplitude
-        rsn = np.random.RandomState(1234567890)
+        rsn = np.random.default_rng(0)
         amplitude = test_parameters['parameters'][0]
-        n = 0.1 * amplitude * (rsn.rand(self.M, self.N) - 0.5)
+        n = 0.1 * amplitude * (rsn.random((self.M, self.N)) - 0.5)
 
         data = model(xv, yv) + n
         fitter_with_deriv = fitting.LevMarLSQFitter()
@@ -454,9 +446,31 @@ class Fittable1DModelTester:
         model_no_deriv = create_model(model_class, test_parameters,
                                       use_constraints=False)
 
+        # NOTE: PR 10644 replaced deprecated usage of RandomState but could not
+        #       find a new seed that did not cause test failure, resorted to hardcoding.
         # add 10% noise to the amplitude
-        rsn = np.random.RandomState(1234567890)
-        n = 0.1 * parameters[0] * (rsn.rand(self.N) - 0.5)
+        rsn_rand_1234567890 = np.array([
+            0.61879477, 0.59162363, 0.88868359, 0.89165480, 0.45756748,
+            0.77818808, 0.26706377, 0.99610621, 0.54009489, 0.53752161,
+            0.40099938, 0.70540579, 0.40518559, 0.94999075, 0.03075388,
+            0.13602495, 0.08297726, 0.42352224, 0.23449723, 0.74743526,
+            0.65177865, 0.68998682, 0.16413419, 0.87642114, 0.44733314,
+            0.57871104, 0.52377835, 0.62689056, 0.34869427, 0.26209748,
+            0.07498055, 0.17940570, 0.82999425, 0.98759822, 0.11326099,
+            0.63846415, 0.73056694, 0.88321124, 0.52721004, 0.66487673,
+            0.74209309, 0.94083846, 0.70123128, 0.29534353, 0.76134369,
+            0.77593881, 0.36985514, 0.89519067, 0.33082813, 0.86108824,
+            0.76897859, 0.61343376, 0.43870907, 0.91913538, 0.76958966,
+            0.51063556, 0.04443249, 0.57463611, 0.31382006, 0.41221713,
+            0.21531811, 0.03237521, 0.04166386, 0.73109303, 0.74556052,
+            0.64716325, 0.77575353, 0.64599254, 0.16885816, 0.48485480,
+            0.53844248, 0.99690349, 0.23657074, 0.04119088, 0.46501519,
+            0.35739006, 0.23002665, 0.53420791, 0.71639475, 0.81857486,
+            0.73994342, 0.07948837, 0.75688276, 0.13240193, 0.48465576,
+            0.20624753, 0.02298276, 0.54257873, 0.68123230, 0.35887468,
+            0.36296147, 0.67368397, 0.29505730, 0.66558885, 0.93652252,
+            0.36755130, 0.91787687, 0.75922703, 0.48668067, 0.45967890])
+        n = 0.1 * parameters[0] * (rsn_rand_1234567890 - 0.5)
 
         data = model_with_deriv(x) + n
         fitter_with_deriv = fitting.LevMarLSQFitter()
@@ -542,7 +556,7 @@ def test_model_instance_repr():
     assert repr(m) == '<Gaussian1D(amplitude=1.5, mean=2.5, stddev=3.5)>'
 
 
-@pytest.mark.skipif("not HAS_SCIPY_14")
+@pytest.mark.skipif("not HAS_SCIPY")
 def test_tabular_interp_1d():
     """
     Test Tabular1D model.
@@ -582,14 +596,14 @@ def test_tabular_interp_1d():
                              [100, 10, 20, 30, 100] * u.nJy)
 
 
-@pytest.mark.skipif("not HAS_SCIPY_14")
+@pytest.mark.skipif("not HAS_SCIPY")
 def test_tabular_interp_2d():
     table = np.array([
-       [-0.04614432, -0.02512547, -0.00619557, 0.0144165, 0.0297525],
-       [-0.04510594, -0.03183369, -0.01118008, 0.01201388, 0.02496205],
-       [-0.05464094, -0.02804499, -0.00960086, 0.01134333, 0.02284104],
-       [-0.04879338, -0.02539565, -0.00440462, 0.01795145, 0.02122417],
-       [-0.03637372, -0.01630025, -0.00157902, 0.01649774, 0.01952131]])
+        [-0.04614432, -0.02512547, -0.00619557, 0.0144165, 0.0297525],
+        [-0.04510594, -0.03183369, -0.01118008, 0.01201388, 0.02496205],
+        [-0.05464094, -0.02804499, -0.00960086, 0.01134333, 0.02284104],
+        [-0.04879338, -0.02539565, -0.00440462, 0.01795145, 0.02122417],
+        [-0.03637372, -0.01630025, -0.00157902, 0.01649774, 0.01952131]])
 
     points = np.arange(0, 5)
     points = (points, points)
@@ -637,7 +651,7 @@ def test_tabular_interp_2d():
     assert model.bounding_box == bbox
 
 
-@pytest.mark.skipif("not HAS_SCIPY_14")
+@pytest.mark.skipif("not HAS_SCIPY")
 def test_tabular_nd():
     a = np.arange(24).reshape((2, 3, 4))
     x, y, z = np.mgrid[:2, :3, :4]
@@ -680,7 +694,7 @@ def test_with_bounding_box():
 
     t3 = models.Shift(10) & models.Scale(2) & models.Shift(-1)
     t3.bounding_box = ((4.3, 6.9), (6, 15), (-1, 10))
-    assert_allclose(t3([1, 1], [7, 7], [3, 5],with_bounding_box=True),
+    assert_allclose(t3([1, 1], [7, 7], [3, 5], with_bounding_box=True),
                     [[np.nan, 11], [np.nan, 14], [np.nan, 4]])
 
     trans3 = models.Shift(10) & models.Scale(2) & models.Shift(-1)
@@ -688,7 +702,7 @@ def test_with_bounding_box():
     assert_allclose(trans3(1, 7, 5, with_bounding_box=True), [11, 14, 4])
 
 
-@pytest.mark.skipif("not HAS_SCIPY_14")
+@pytest.mark.skipif("not HAS_SCIPY")
 def test_tabular_with_bounding_box():
     points = np.arange(5)
     values = np.array([1.5, 3.4, 6.7, 7, 32])
@@ -699,7 +713,7 @@ def test_tabular_with_bounding_box():
     assert t.inverse(result, with_bounding_box=True) == 1.
 
 
-@pytest.mark.skipif("not HAS_SCIPY_14")
+@pytest.mark.skipif("not HAS_SCIPY")
 def test_tabular_bounding_box_with_units():
     points = np.arange(5)*u.pix
     lt = np.arange(5)*u.AA
@@ -710,7 +724,7 @@ def test_tabular_bounding_box_with_units():
     assert t.inverse(result, with_bounding_box=True) == 1*u.pix
 
 
-@pytest.mark.skipif("not HAS_SCIPY_14")
+@pytest.mark.skipif("not HAS_SCIPY")
 def test_tabular1d_inverse():
     """Test that the Tabular1D inverse is defined"""
     points = np.arange(5)
@@ -740,6 +754,26 @@ def test_tabular1d_inverse():
     t3 = models.Tabular2D(points=points, lookup_table=table)
     with pytest.raises(NotImplementedError):
         t3.inverse((3, 3))
+
+    # Check that it uses the same kwargs as the original model
+    points = np.arange(5)
+    values = np.array([1.5, 3.4, 6.7, 7, 32])
+    t = models.Tabular1D(points, values)
+    with pytest.raises(ValueError):
+        t.inverse(100)
+    t = models.Tabular1D(points, values, bounds_error=False, fill_value=None)
+    result = t.inverse(100)
+    assert_allclose(t(result), 100)
+
+
+@pytest.mark.skipif("not HAS_SCIPY")
+def test_tabular_module_name():
+    """
+    The module name must be set manually because
+    these classes are created dynamically.
+    """
+    for model in [models.Tabular1D, models.Tabular2D]:
+        assert model.__module__ == "astropy.modeling.tabular"
 
 
 class classmodel(FittableModel):
@@ -771,5 +805,17 @@ def test_parameter_inheritance():
     b = subclassmodel()
     assert b.param_names == ('f', 'x', 'y', 'h')
     assert b.h == 5
-    assert b.f ==3
-    assert b.f.fixed == True
+    assert b.f == 3
+    assert b.f.fixed == True  # noqa: E712
+
+
+def test_parameter_description():
+
+    model = models.Gaussian1D(1.5, 2.5, 3.5)
+    assert model.amplitude._description == "Amplitude (peak value) of the Gaussian"
+    assert model.mean._description == "Position of peak (Gaussian)"
+
+    model = models.Voigt1D(x_0=5, amplitude_L=10, fwhm_L=0.5, fwhm_G=0.9)
+    assert model.amplitude_L._description == "The Lorentzian amplitude"
+    assert model.fwhm_L._description == "The Lorentzian full width at half maximum"
+    assert model.fwhm_G._description == "The Gaussian full width at half maximum"

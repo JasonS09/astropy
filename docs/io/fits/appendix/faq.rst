@@ -31,9 +31,7 @@ written in C that is required to read/write compressed image data. However,
 the rest of PyFITS functions without this extension module.
 
 .. _PyFITS: https://github.com/spacetelescope/pyfits
-.. _Python: https://www.python.org/
 .. _FITS: https://fits.gsfc.nasa.gov/
-.. _Numpy: https://www.numpy.org/
 
 
 What is the development status of PyFITS?
@@ -59,7 +57,7 @@ so patches and issue reports should be posted on the Astropy issue tracker.
 
 The current (and last) stable release is 3.4.0.
 
-.. _Space Telescope Science Institute: http://www.stsci.edu/
+.. _Space Telescope Science Institute: https://www.stsci.edu/
 .. _AURA: https://www.aura-astronomy.org/
 .. _3-clause BSD license: https://en.wikipedia.org/wiki/BSD_licenses#3-clause_license_.28.22New_BSD_License.22_or_.22Modified_BSD_License.22.29
 .. _GitHub project: https://github.com/spacetelescope/PyFITS
@@ -475,6 +473,15 @@ by calling :func:`gc.collect` at the end of the loop.
 In a future release it will be more convenient to automatically perform this
 sort of cleanup when closing FITS files, where needed.
 
+Using header['NAXIS2'] += 1 does not add another row to my Table
+----------------------------------------------------------------
+
+``NAXIS`` and similar keywords are FITS *structural* keywords and should not be
+modified by the user. They are automatically updated by :mod:`astropy.io.fits`
+when checking the validity of the data and headers. See :ref:`structural_keywords`
+for more information.
+
+To add rows to a table, you can modify the actual data.
 
 Comparison with Other FITS Readers
 ==================================

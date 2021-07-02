@@ -1,17 +1,14 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 
-
 from io import StringIO
 
 import pytest
 
 from astropy.io.ascii.ui import read
 from astropy.io.ascii.ipac import Ipac, IpacFormatError, IpacFormatErrorDBMS
-from astropy.tests.helper import catch_warnings
 from astropy.io import ascii
 from astropy.table import Table, Column
 from astropy.io.ascii.core import masked
-
 
 DATA = '''
 |   a  |   b   |
@@ -66,7 +63,9 @@ def test_too_long_colname_notstrict():
         ascii.write(table, out, Writer=Ipac, DBMS=False)
 
 
-@pytest.mark.parametrize(("strict_", "Err"), [(True, IpacFormatErrorDBMS), (False, IpacFormatError)])
+@pytest.mark.parametrize(("strict_", "Err"),
+                         [(True, IpacFormatErrorDBMS),
+                          (False, IpacFormatError)])
 def test_non_alfnum_colname(strict_, Err):
     table = Table([[3]], names=['a123456789 01234'])
     out = StringIO()
@@ -97,13 +96,13 @@ def test_reserved_colname_strict(colname):
 
 
 def test_too_long_comment():
-    with catch_warnings(UserWarning) as w:
+    with pytest.warns(UserWarning, match=r'Comment string > 78 characters was '
+                      r'automatically wrapped\.'):
         table = Table([[3]])
         table.meta['comments'] = ['a' * 79]
         out = StringIO()
         ascii.write(table, out, Writer=Ipac)
-    w = w[0]
-    assert 'Comment string > 78 characters was automatically wrapped.' == str(w.message)
+
     expected_out = """\
 \\ aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 \\ a

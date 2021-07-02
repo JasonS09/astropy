@@ -1,7 +1,5 @@
 # Licensed under a 3-clause BSD style license - see PYFITS.rst
 
-
-import bz2
 import gzip
 import itertools
 import os
@@ -17,21 +15,33 @@ from .groups import GroupsHDU
 from .image import PrimaryHDU, ImageHDU
 from astropy.io.fits.file import _File, FILE_MODES
 from astropy.io.fits.header import _pad_length
-from astropy.io.fits.util import (_is_int, _tmp_name, fileobj_closed, ignore_sigint,
-                    _get_array_mmap, _free_space_check, fileobj_mode, isfile)
+from astropy.io.fits.util import (_free_space_check, _get_array_mmap, _is_int,
+                                  _tmp_name, fileobj_closed, fileobj_mode,
+                                  ignore_sigint, isfile)
 from astropy.io.fits.verify import _Verify, _ErrList, VerifyError, VerifyWarning
 from astropy.utils import indent
 from astropy.utils.exceptions import AstropyUserWarning
 from astropy.utils.decorators import deprecated_renamed_argument
 
+# NOTE: Python can be built without bz2.
+from astropy.utils.compat.optional_deps import HAS_BZ2
+if HAS_BZ2:
+    import bz2
+
+__all__ = ["HDUList", "fitsopen"]
+
+# FITS file signature as per RFC 4047
+FITS_SIGNATURE = b'SIMPLE  =                    T'
+
 
 def fitsopen(name, mode='readonly', memmap=None, save_backup=False,
-             cache=True, lazy_load_hdus=None, **kwargs):
+             cache=True, lazy_load_hdus=None, ignore_missing_simple=False,
+             **kwargs):
     """Factory function to open a FITS file and return an `HDUList` object.
 
     Parameters
     ----------
-    name : file path, file object, file-like object or pathlib.Path object
+    name : str, file-like or `pathlib.Path`
         File to be opened.
 
     mode : str, optional
@@ -84,8 +94,14 @@ def fitsopen(name, mode='readonly', memmap=None, save_backup=False,
         integer convention is assumed.
 
     ignore_missing_end : bool, optional
-        Do not issue an exception when opening a file that is missing an
+        Do not raise an exception when opening a file that is missing an
         ``END`` card in the last header. Default is `False`.
+
+    ignore_missing_simple : bool, optional
+        Do not raise an exception when the SIMPLE keyword is missing.
+        Default is `False`.
+
+        .. versionadded:: 4.2
 
     checksum : bool, str, optional
         If `True`, verifies that both ``DATASUM`` and ``CHECKSUM`` card values
@@ -120,10 +136,17 @@ def fitsopen(name, mode='readonly', memmap=None, save_backup=False,
         back to integer values after performing floating point operations on
         the data. Default is `False`.
 
+    output_verify : str
+        Output verification option.  Must be one of ``"fix"``,
+        ``"silentfix"``, ``"ignore"``, ``"warn"``, or
+        ``"exception"``.  May also be any combination of ``"fix"`` or
+        ``"silentfix"`` with ``"+ignore"``, ``+warn``, or ``+exception"
+        (e.g. ``"fix+warn"``).  See :ref:`astropy:verify` for more info.
+
     Returns
     -------
-        hdulist : an `HDUList` object
-            `HDUList` containing all of the header data units in the file.
+    hdulist : `HDUList`
+        `HDUList` containing all of the header data units in the file.
 
     """
 
@@ -148,7 +171,7 @@ def fitsopen(name, mode='readonly', memmap=None, save_backup=False,
         raise ValueError(f'Empty filename: {name!r}')
 
     return HDUList.fromfile(name, mode, memmap, save_backup, cache,
-                            lazy_load_hdus, **kwargs)
+                            lazy_load_hdus, ignore_missing_simple, **kwargs)
 
 
 class HDUList(list, _Verify):
@@ -163,11 +186,11 @@ class HDUList(list, _Verify):
 
         Parameters
         ----------
-        hdus : sequence of HDU objects or single HDU, optional
+        hdus : BaseHDU or sequence thereof, optional
             The HDU object(s) to comprise the `HDUList`.  Should be
             instances of HDU classes like `ImageHDU` or `BinTableHDU`.
 
-        file : file object, bytes, optional
+        file : file-like, bytes, optional
             The opened physical file associated with the `HDUList`
             or a bytes object containing the contents of the FITS
             file.
@@ -179,8 +202,6 @@ class HDUList(list, _Verify):
         else:
             self._file = file
             self._data = None
-
-        self._save_backup = False
 
         # For internal use only--the keyword args passed to fitsopen /
         # HDUList.fromfile/string when opening the file
@@ -212,8 +233,7 @@ class HDUList(list, _Verify):
 
         for idx, hdu in enumerate(hdus):
             if not isinstance(hdu, _BaseHDU):
-                raise TypeError("Element {} in the HDUList input is "
-                                "not an HDU.".format(idx))
+                raise TypeError(f"Element {idx} in the HDUList input is not an HDU.")
 
         super().__init__(hdus)
 
@@ -341,8 +361,7 @@ class HDUList(list, _Verify):
         try:
             self._try_while_unread_hdus(super().__setitem__, _key, hdu)
         except IndexError:
-            raise IndexError('Extension {} is out of bound or not found.'
-                            .format(key))
+            raise IndexError(f'Extension {key} is out of bound or not found.')
 
         self._resize = True
         self._truncate = False
@@ -371,12 +390,13 @@ class HDUList(list, _Verify):
         return self
 
     def __exit__(self, type, value, traceback):
-        self.close()
+        output_verify = self._open_kwargs.get('output_verify', 'exception')
+        self.close(output_verify=output_verify)
 
     @classmethod
     def fromfile(cls, fileobj, mode=None, memmap=None,
                  save_backup=False, cache=True, lazy_load_hdus=True,
-                 **kwargs):
+                 ignore_missing_simple=False, **kwargs):
         """
         Creates an `HDUList` instance from a file-like object.
 
@@ -387,6 +407,7 @@ class HDUList(list, _Verify):
 
         return cls._readfrom(fileobj=fileobj, mode=mode, memmap=memmap,
                              save_backup=save_backup, cache=cache,
+                             ignore_missing_simple=ignore_missing_simple,
                              lazy_load_hdus=lazy_load_hdus, **kwargs)
 
     @classmethod
@@ -402,11 +423,13 @@ class HDUList(list, _Verify):
 
         Parameters
         ----------
-        data : str, buffer, memoryview, etc.
-            A string or other memory buffer containing an entire FITS file.  It
-            should be noted that if that memory is read-only (such as a Python
-            string) the returned :class:`HDUList`'s data portions will also be
-            read-only.
+        data : str, buffer-like, etc.
+            A string or other memory buffer containing an entire FITS file.
+            Buffer-like objects include :class:`~bytes`, :class:`~bytearray`,
+            :class:`~memoryview`, and :class:`~numpy.ndarray`.
+            It should be noted that if that memory is read-only (such as a
+            Python string) the returned :class:`HDUList`'s data portions will
+            also be read-only.
 
         kwargs : dict
             Optional keyword arguments.  See
@@ -541,7 +564,7 @@ class HDUList(list, _Verify):
 
         Returns
         -------
-        hdu : HDU object
+        hdu : BaseHDU
             The HDU object at position indicated by ``index`` or having name
             and version specified by ``index``.
         """
@@ -560,7 +583,7 @@ class HDUList(list, _Verify):
         index : int
             Index before which to insert the new HDU.
 
-        hdu : HDU object
+        hdu : BaseHDU
             The HDU object to insert
         """
 
@@ -622,7 +645,7 @@ class HDUList(list, _Verify):
 
         Parameters
         ----------
-        hdu : HDU object
+        hdu : BaseHDU
             HDU to add to the `HDUList`.
         """
 
@@ -669,7 +692,7 @@ class HDUList(list, _Verify):
 
         Parameters
         ----------
-        key : int, str, tuple of (string, int) or an HDU object
+        key : int, str, tuple of (string, int) or BaseHDU
            The key identifying the HDU.  If ``key`` is a tuple, it is of the
            form ``(name, ver)`` where ``ver`` is an ``EXTVER`` value that must
            match the HDU being searched for.
@@ -782,7 +805,7 @@ class HDUList(list, _Verify):
             ``"silentfix"``, ``"ignore"``, ``"warn"``, or
             ``"exception"``.  May also be any combination of ``"fix"`` or
             ``"silentfix"`` with ``"+ignore"``, ``+warn``, or ``+exception"
-            (e.g. ``"fix+warn"``).  See :ref:`verify` for more info.
+            (e.g. ``"fix+warn"``).  See :ref:`astropy:verify` for more info.
 
         verbose : bool
             When `True`, print verbose messages
@@ -790,10 +813,11 @@ class HDUList(list, _Verify):
 
         if self._file.mode not in ('append', 'update', 'ostream'):
             warnings.warn("Flush for '{}' mode is not supported."
-                         .format(self._file.mode), AstropyUserWarning)
+                          .format(self._file.mode), AstropyUserWarning)
             return
 
-        if self._save_backup and self._file.mode in ('append', 'update'):
+        save_backup = self._open_kwargs.get('save_backup', False)
+        if save_backup and self._file.mode in ('append', 'update'):
             filename = self._file.name
             if os.path.exists(filename):
                 # The the file doesn't actually exist anymore for some reason
@@ -874,7 +898,7 @@ class HDUList(list, _Verify):
 
         Parameters
         ----------
-        fileobj : file path, file object or file-like object
+        fileobj : str, file-like or `pathlib.Path`
             File to write to.  If a file object, must be opened in a
             writeable mode.
 
@@ -883,7 +907,7 @@ class HDUList(list, _Verify):
             ``"silentfix"``, ``"ignore"``, ``"warn"``, or
             ``"exception"``.  May also be any combination of ``"fix"`` or
             ``"silentfix"`` with ``"+ignore"``, ``+warn``, or ``+exception"
-            (e.g. ``"fix+warn"``).  See :ref:`verify` for more info.
+            (e.g. ``"fix+warn"``).  See :ref:`astropy:verify` for more info.
 
         overwrite : bool, optional
             If ``True``, overwrite the output file if it exists. Raises an
@@ -941,7 +965,7 @@ class HDUList(list, _Verify):
             ``"silentfix"``, ``"ignore"``, ``"warn"``, or
             ``"exception"``.  May also be any combination of ``"fix"`` or
             ``"silentfix"`` with ``"+ignore"``, ``+warn``, or ``+exception"
-            (e.g. ``"fix+warn"``).  See :ref:`verify` for more info.
+            (e.g. ``"fix+warn"``).  See :ref:`astropy:verify` for more info.
 
         verbose : bool
             When `True`, print out verbose messages.
@@ -971,7 +995,7 @@ class HDUList(list, _Verify):
 
         Parameters
         ----------
-        output : file, bool, optional
+        output : file-like or bool, optional
             A file-like object to write the output to.  If `False`, does not
             output to a file and instead returns a list of tuples representing
             the HDU info.  Writes to ``sys.stdout`` by default.
@@ -1014,9 +1038,10 @@ class HDUList(list, _Verify):
 
         Returns
         -------
-        filename : a string containing the file name associated with the
-                   HDUList object if an association exists.  Otherwise returns
-                   None.
+        filename : str
+            A string containing the file name associated with the HDUList
+            object if an association exists.  Otherwise returns None.
+
         """
         if self._file is not None:
             if hasattr(self._file, 'name'):
@@ -1024,9 +1049,9 @@ class HDUList(list, _Verify):
         return None
 
     @classmethod
-    def _readfrom(cls, fileobj=None, data=None, mode=None,
-                  memmap=None, save_backup=False, cache=True,
-                  lazy_load_hdus=True, **kwargs):
+    def _readfrom(cls, fileobj=None, data=None, mode=None, memmap=None,
+                  cache=True, lazy_load_hdus=True, ignore_missing_simple=False,
+                  **kwargs):
         """
         Provides the implementations from HDUList.fromfile and
         HDUList.fromstring, both of which wrap this method, as their
@@ -1052,7 +1077,22 @@ class HDUList(list, _Verify):
             # fromstring case; the data type of ``data`` will be checked in the
             # _BaseHDU.fromstring call.
 
-        hdulist._save_backup = save_backup
+        if (hdulist._file and hdulist._file.mode != 'ostream' and
+                hdulist._file.size > 0):
+            pos = hdulist._file.tell()
+            simple = hdulist._file.read(30)
+            match_sig = (simple[:-1] == FITS_SIGNATURE[:-1] and
+                         simple[-1:] in (b'T', b'F'))
+
+            if not match_sig and not ignore_missing_simple:
+                if hdulist._file.close_on_error:
+                    hdulist._file.close()
+                raise OSError('No SIMPLE card found, this file does not '
+                              'appear to be a valid FITS file')
+
+            hdulist._file.seek(pos)
+
+        # Store additional keyword args that were passed to fits.open
         hdulist._open_kwargs = kwargs
 
         if fileobj is not None and fileobj.writeonly:
@@ -1072,7 +1112,7 @@ class HDUList(list, _Verify):
 
             raise OSError('Empty or corrupt FITS file')
 
-        if not lazy_load_hdus:
+        if not lazy_load_hdus or kwargs.get('checksum') is True:
             # Go ahead and load all HDUs
             while hdulist._read_next_hdu():
                 pass
@@ -1222,8 +1262,7 @@ class HDUList(list, _Verify):
         # each element calls their own verify
         for idx, hdu in enumerate(self):
             if idx > 0 and (not isinstance(hdu, ExtensionHDU)):
-                err_text = ("HDUList's element {} is not an "
-                            "extension HDU.".format(str(idx)))
+                err_text = f"HDUList's element {str(idx)} is not an extension HDU."
 
                 err = self.run_option(option, err_text=err_text, fixable=False)
                 errs.append(err)
@@ -1279,6 +1318,9 @@ class HDUList(list, _Verify):
             if self._file.compression == 'gzip':
                 new_file = gzip.GzipFile(name, mode='ab+')
             elif self._file.compression == 'bzip2':
+                if not HAS_BZ2:
+                    raise ModuleNotFoundError(
+                        "This Python installation does not provide the bz2 module.")
                 new_file = bz2.BZ2File(name, mode='w')
             else:
                 new_file = name
@@ -1338,7 +1380,10 @@ class HDUList(list, _Verify):
                 # flushing (on Windows--again, this is no problem on Linux).
                 for idx, mmap, arr in mmaps:
                     if mmap is not None:
-                        arr.data = self[idx].data.data
+                        # https://github.com/numpy/numpy/issues/8628
+                        with warnings.catch_warnings():
+                            warnings.simplefilter('ignore', category=DeprecationWarning)
+                            arr.data = self[idx].data.data
                 del mmaps  # Just to be sure
 
         else:

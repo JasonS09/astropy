@@ -23,7 +23,7 @@ def make_skyoffset_cls(framecls):
 
     Parameters
     ----------
-    framecls : coordinate frame class (i.e., subclass of `~astropy.coordinates.BaseCoordinateFrame`)
+    framecls : `~astropy.coordinates.BaseCoordinateFrame` subclass
         The class to create the SkyOffsetFrame of.
 
     Returns
@@ -43,36 +43,17 @@ def make_skyoffset_cls(framecls):
     if framecls in _skyoffset_cache:
         return _skyoffset_cache[framecls]
 
-    # the class of a class object is the metaclass
-    framemeta = framecls.__class__
-
-    class SkyOffsetMeta(framemeta):
-        """
-        This metaclass renames the class to be "SkyOffset<framecls>" and also
-        adjusts the frame specific representation info so that spherical names
-        are always "lon" and "lat" (instead of e.g. "ra" and "dec").
-        """
-
-        def __new__(cls, name, bases, members):
-            # Only 'origin' is needed here, to set the origin frame properly.
-            members['origin'] = CoordinateAttribute(frame=framecls, default=None)
-
-            # This has to be done because FrameMeta will set these attributes
-            # to the defaults from BaseCoordinateFrame when it creates the base
-            # SkyOffsetFrame class initially.
-            members['_default_representation'] = framecls._default_representation
-            members['_default_differential'] = framecls._default_differential
-
-            newname = name[:-5] if name.endswith('Frame') else name
-            newname += framecls.__name__
-
-            return super().__new__(cls, newname, bases, members)
-
-    # We need this to handle the intermediate metaclass correctly, otherwise we could
-    # just subclass SkyOffsetFrame.
-    _SkyOffsetFramecls = SkyOffsetMeta('SkyOffsetFrame',
-                                       (SkyOffsetFrame, framecls),
-                                       {'__doc__': SkyOffsetFrame.__doc__})
+    # Create a new SkyOffsetFrame subclass for this frame class.
+    name = 'SkyOffset' + framecls.__name__
+    _SkyOffsetFramecls = type(
+        name, (SkyOffsetFrame, framecls),
+        {'origin': CoordinateAttribute(frame=framecls, default=None),
+         # The following two have to be done because otherwise we use the
+         # defaults of SkyOffsetFrame set by BaseCoordinateFrame.
+         '_default_representation': framecls._default_representation,
+         '_default_differential': framecls._default_differential,
+         '__doc__': SkyOffsetFrame.__doc__,
+         })
 
     @frame_transform_graph.transform(FunctionTransform, _SkyOffsetFramecls, _SkyOffsetFramecls)
     def skyoffset_to_skyoffset(from_skyoffset_coord, to_skyoffset_frame):
@@ -124,17 +105,17 @@ class SkyOffsetFrame(BaseCoordinateFrame):
     object's ``lat`` will be pointed in the direction of Dec, while ``lon``
     will point in the direction of RA.
 
-    For more on skyoffset frames, see :ref:`astropy-skyoffset-frames`.
+    For more on skyoffset frames, see :ref:`astropy:astropy-skyoffset-frames`.
 
     Parameters
     ----------
     representation : `~astropy.coordinates.BaseRepresentation` or None
         A representation object or None to have no data (or use the other keywords)
-    origin : `~astropy.coordinates.SkyCoord` or low-level coordinate object.
+    origin : coordinate-like
         The coordinate which specifies the origin of this frame. Note that this
         origin is used purely for on-sky location/rotation.  It can have a
         ``distance`` but it will not be used by this ``SkyOffsetFrame``.
-    rotation : `~astropy.coordinates.Angle` or `~astropy.units.Quantity` with angle units
+    rotation : angle-like
         The final rotation of the frame about the ``origin``. The sign of
         the rotation is the left-hand rule.  That is, an object at a
         particular position angle in the un-rotated system will be sent to
@@ -179,5 +160,20 @@ class SkyOffsetFrame(BaseCoordinateFrame):
         if self.origin is not None and not self.origin.has_data:
             raise ValueError('The origin supplied to SkyOffsetFrame has no '
                              'data.')
-        if self.has_data and hasattr(self.data, 'lon'):
-            self.data.lon.wrap_angle = 180*u.deg
+        if self.has_data:
+            self._set_skyoffset_data_lon_wrap_angle(self.data)
+
+    @staticmethod
+    def _set_skyoffset_data_lon_wrap_angle(data):
+        if hasattr(data, 'lon'):
+            data.lon.wrap_angle = 180. * u.deg
+        return data
+
+    def represent_as(self, base, s='base', in_frame_units=False):
+        """
+        Ensure the wrap angle for any spherical
+        representations.
+        """
+        data = super().represent_as(base, s, in_frame_units=in_frame_units)
+        self._set_skyoffset_data_lon_wrap_angle(data)
+        return data

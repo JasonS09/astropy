@@ -1,26 +1,20 @@
 # The purpose of these tests are to ensure that calling ufuncs with quantities
 # returns quantities with the right units, or raises exceptions.
 
-import sys
+import concurrent.futures
 import warnings
 from collections import namedtuple
 
 import pytest
 import numpy as np
 from numpy.testing import assert_allclose
+from erfa import ufunc as erfa_ufunc
 
 from astropy import units as u
 from astropy.units import quantity_helper as qh
-from astropy._erfa import ufunc as erfa_ufunc
-from astropy.tests.helper import raises, catch_warnings
-from astropy.utils.compat.context import nullcontext
-
-try:
-    import scipy  # pylint: disable=W0611 # noqa
-except ImportError:
-    HAS_SCIPY = False
-else:
-    HAS_SCIPY = True
+from astropy.units.quantity_helper.converters import UfuncHelpers
+from astropy.units.quantity_helper.helpers import helper_sqrt
+from astropy.utils.compat.optional_deps import HAS_SCIPY  # noqa
 
 
 testcase = namedtuple('testcase', ['f', 'q_in', 'q_out'])
@@ -30,13 +24,13 @@ testwarn = namedtuple('testwarn', ['f', 'q_in', 'wfilter'])
 
 @pytest.mark.skip
 def test_testcase(tc):
-        results = tc.f(*tc.q_in)
-        # careful of the following line, would break on a function returning
-        # a single tuple (as opposed to tuple of return values)
-        results = (results, ) if type(results) != tuple else results
-        for result, expected in zip(results, tc.q_out):
-            assert result.unit == expected.unit
-            assert_allclose(result.value, expected.value, atol=1.E-15)
+    results = tc.f(*tc.q_in)
+    # careful of the following line, would break on a function returning
+    # a single tuple (as opposed to tuple of return values)
+    results = (results, ) if type(results) != tuple else results
+    for result, expected in zip(results, tc.q_out):
+        assert result.unit == expected.unit
+        assert_allclose(result.value, expected.value, atol=1.E-15)
 
 
 @pytest.mark.skip
@@ -89,6 +83,26 @@ class TestUfuncHelpers:
         qh.UFUNC_HELPERS[np.add] = qh.UFUNC_HELPERS[np.subtract]
         assert np.add in qh.UFUNC_HELPERS
         assert np.add not in qh.UNSUPPORTED_UFUNCS
+
+    def test_thread_safety(self, fast_thread_switching):
+        def dummy_ufunc(*args, **kwargs):
+            return np.sqrt(*args, **kwargs)
+
+        def register():
+            return {dummy_ufunc: helper_sqrt}
+
+        workers = 8
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+            for p in range(10000):
+                helpers = UfuncHelpers()
+                helpers.register_module(
+                    'astropy.units.tests.test_quantity_ufuncs',
+                    ['dummy_ufunc'],
+                    register
+                )
+                futures = [executor.submit(lambda: helpers[dummy_ufunc]) for i in range(workers)]
+                values = [future.result() for future in futures]
+                assert values == [helper_sqrt] * workers
 
 
 class TestQuantityTrigonometricFuncs:
@@ -444,13 +458,13 @@ class TestQuantityMathFuncs:
         assert np.all(np.float_power(np.arange(4.) * u.m, 0.) ==
                       1. * u.dimensionless_unscaled)
 
-    @raises(ValueError)
     def test_power_array_array(self):
-        np.power(4. * u.m, [2., 4.])
+        with pytest.raises(ValueError):
+            np.power(4. * u.m, [2., 4.])
 
-    @raises(ValueError)
     def test_power_array_array2(self):
-        np.power([2., 4.] * u.m, [2., 4.])
+        with pytest.raises(ValueError):
+            np.power([2., 4.] * u.m, [2., 4.])
 
     def test_power_array_array3(self):
         # Identical unit fractions are converted automatically to dimensionless
@@ -685,12 +699,15 @@ class TestComparisonUfuncs:
                                     .to_value(u.dimensionless_unscaled), 2.))
         # comparison with 0., inf, nan is OK even for dimensional quantities
         # (though ignore numpy runtime warnings for comparisons with nan).
-        with catch_warnings(RuntimeWarning):
+        with pytest.warns(None) as warning_lines:
             for arbitrary_unit_value in (0., np.inf, np.nan):
                 ufunc(q_i1, arbitrary_unit_value)
                 ufunc(q_i1, arbitrary_unit_value*np.ones(len(q_i1)))
             # and just for completeness
             ufunc(q_i1, np.array([0., np.inf, np.nan]))
+        if len(warning_lines) > 0:
+            for w in warning_lines:
+                assert issubclass(w.category, RuntimeWarning)
 
     @pytest.mark.parametrize(('ufunc'), [np.greater, np.greater_equal,
                                          np.less, np.less_equal,
@@ -711,20 +728,16 @@ class TestComparisonUfuncs:
         assert out.dtype == bool
         assert np.all(out == ufunc(q.value))
 
+    # Ignore RuntimeWarning raised on Windows and s390.
+    @pytest.mark.filterwarnings('ignore:.*invalid value encountered in sign')
     def test_sign(self):
         q = [1., np.inf, -np.inf, np.nan, -1., 0.] * u.m
 
-        # Ignore "invalid value encountered in sign" warning on Windows.
-        if sys.platform.startswith('win'):
-            ctx = np.errstate(invalid='ignore')
-        else:
-            ctx = nullcontext()
-        with ctx:
-            out = np.sign(q)
-            assert not isinstance(out, u.Quantity)
-            assert out.dtype == q.dtype
-            assert np.all((out == np.sign(q.value)) |
-                          (np.isnan(out) & np.isnan(q.value)))
+        out = np.sign(q)
+        assert not isinstance(out, u.Quantity)
+        assert out.dtype == q.dtype
+        assert np.all((out == np.sign(q.value)) |
+                      (np.isnan(out) & np.isnan(q.value)))
 
 
 class TestInplaceUfuncs:
@@ -918,25 +931,21 @@ class TestInplaceUfuncs:
         assert out.dtype == bool
         assert np.all(out == ufunc(q.value))
 
+    # Ignore RuntimeWarning raised on Windows and s390.
+    @pytest.mark.filterwarnings('ignore:.*invalid value encountered in sign')
     def test_sign_inplace(self):
         q = [1., np.inf, -np.inf, np.nan, -1., 0.] * u.m
         check = np.empty(q.shape, q.dtype)
 
-        # Ignore "invalid value encountered in sign" warning on Windows.
-        if sys.platform.startswith('win'):
-            ctx = np.errstate(invalid='ignore')
-        else:
-            ctx = nullcontext()
-        with ctx:
-            np.sign(q.value, out=check)
+        np.sign(q.value, out=check)
 
-            result = np.empty(q.shape, q.dtype)
-            out = np.sign(q, out=result)
-            assert out is result
-            assert type(out) is np.ndarray
-            assert out.dtype == q.dtype
-            assert np.all((out == np.sign(q.value)) |
-                          (np.isnan(out) & np.isnan(q.value)))
+        result = np.empty(q.shape, q.dtype)
+        out = np.sign(q, out=result)
+        assert out is result
+        assert type(out) is np.ndarray
+        assert out.dtype == q.dtype
+        assert np.all((out == np.sign(q.value)) |
+                      (np.isnan(out) & np.isnan(q.value)))
 
 
 @pytest.mark.skipif(not hasattr(np.core.umath, 'clip'),
@@ -1231,19 +1240,26 @@ class TestUfuncOuter:
 if HAS_SCIPY:
     from scipy import special as sps
 
+    erf_like_ufuncs = (
+        sps.erf, sps.erfc, sps.erfcx, sps.erfi,
+        sps.gamma, sps.gammaln, sps.loggamma, sps.gammasgn, sps.psi,
+        sps.rgamma, sps.digamma, sps.wofz, sps.dawsn,
+        sps.entr, sps.exprel, sps.expm1, sps.log1p, sps.exp2, sps.exp10)
+
+    if isinstance(sps.erfinv, np.ufunc):
+        erf_like_ufuncs += (sps.erfinv, sps.erfcinv)
+
     def test_scipy_registration():
         """Check that scipy gets loaded upon first use."""
         assert sps.erf not in qh.UFUNC_HELPERS
         sps.erf(1. * u.percent)
         assert sps.erf in qh.UFUNC_HELPERS
+        if isinstance(sps.erfinv, np.ufunc):
+            assert sps.erfinv in qh.UFUNC_HELPERS
+        else:
+            assert sps.erfinv not in qh.UFUNC_HELPERS
 
     class TestScipySpecialUfuncs:
-
-        erf_like_ufuncs = (
-            sps.erf, sps.gamma, sps.loggamma, sps.gammasgn, sps.psi,
-            sps.rgamma, sps.erfc, sps.erfcx, sps.erfi, sps.wofz, sps.dawsn,
-            sps.entr, sps.exprel, sps.expm1, sps.log1p, sps.exp2, sps.exp10)
-
         @pytest.mark.parametrize('function', erf_like_ufuncs)
         def test_erf_scalar(self, function):
             TestQuantityMathFuncs.test_exp_scalar(None, function)

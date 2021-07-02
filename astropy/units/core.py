@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 
 """
@@ -27,7 +26,9 @@ __all__ = [
     'PrefixUnit', 'UnrecognizedUnit', 'def_unit', 'get_current_unit_registry',
     'set_enabled_units', 'add_enabled_units',
     'set_enabled_equivalencies', 'add_enabled_equivalencies',
-    'dimensionless_unscaled', 'one']
+    'set_enabled_aliases', 'add_enabled_aliases',
+    'dimensionless_unscaled', 'one',
+]
 
 UNITY = 1.0
 
@@ -108,13 +109,14 @@ class _UnitRegistry:
     Manages a registry of the enabled units.
     """
 
-    def __init__(self, init=[], equivalencies=[]):
+    def __init__(self, init=[], equivalencies=[], aliases={}):
 
         if isinstance(init, _UnitRegistry):
             # If passed another registry we don't need to rebuild everything.
             # but because these are mutable types we don't want to create
             # conflicts so everything needs to be copied.
             self._equivalencies = init._equivalencies.copy()
+            self._aliases = init._aliases.copy()
             self._all_units = init._all_units.copy()
             self._registry = init._registry.copy()
             self._non_prefix_units = init._non_prefix_units.copy()
@@ -127,8 +129,10 @@ class _UnitRegistry:
         else:
             self._reset_units()
             self._reset_equivalencies()
+            self._reset_aliases()
             self.add_enabled_units(init)
             self.add_enabled_equivalencies(equivalencies)
+            self.add_enabled_aliases(aliases)
 
     def _reset_units(self):
         self._all_units = set()
@@ -138,6 +142,9 @@ class _UnitRegistry:
 
     def _reset_equivalencies(self):
         self._equivalencies = set()
+
+    def _reset_aliases(self):
+        self._aliases = {}
 
     @property
     def registry(self):
@@ -160,7 +167,7 @@ class _UnitRegistry:
 
         Parameters
         ----------
-        units : list of sequences, dicts, or modules containing units, or units
+        units : list of sequence, dict, or module
             This is a list of things in which units may be found
             (sequences, dicts or modules), or units themselves.  The
             entire set will be "enabled" for searching through by
@@ -179,7 +186,7 @@ class _UnitRegistry:
 
         Parameters
         ----------
-        units : list of sequences, dicts, or modules containing units, or units
+        units : list of sequence, dict, or module
             This is a list of things in which units may be found
             (sequences, dicts or modules), or units themselves.  The
             entire set will be added to the "enabled" set for
@@ -235,8 +242,8 @@ class _UnitRegistry:
 
         Parameters
         ----------
-        equivalencies : list of equivalent pairs
-            E.g., as returned by
+        equivalencies : list of tuple
+            List of equivalent pairs, e.g., as returned by
             `~astropy.units.equivalencies.dimensionless_angles`.
         """
         self._reset_equivalencies()
@@ -254,13 +261,66 @@ class _UnitRegistry:
 
         Parameters
         ----------
-        equivalencies : list of equivalent pairs
-            E.g., as returned by
+        equivalencies : list of tuple
+            List of equivalent pairs, e.g., as returned by
             `~astropy.units.equivalencies.dimensionless_angles`.
         """
         # pre-normalize list to help catch mistakes
         equivalencies = _normalize_equivalencies(equivalencies)
         self._equivalencies |= set(equivalencies)
+
+    @property
+    def aliases(self):
+        return self._aliases
+
+    def set_enabled_aliases(self, aliases):
+        """
+        Set aliases for units.
+
+        Parameters
+        ----------
+        aliases : dict of str, Unit
+            The aliases to set. The keys must be the string aliases, and values
+            must be the `astropy.units.Unit` that the alias will be mapped to.
+
+        Raises
+        ------
+        ValueError
+            If the alias already defines a different unit.
+
+        """
+        self._reset_aliases()
+        self.add_enabled_aliases(aliases)
+
+    def add_enabled_aliases(self, aliases):
+        """
+        Add aliases for units.
+
+        Parameters
+        ----------
+        aliases : dict of str, Unit
+            The aliases to add. The keys must be the string aliases, and values
+            must be the `astropy.units.Unit` that the alias will be mapped to.
+
+        Raises
+        ------
+        ValueError
+            If the alias already defines a different unit.
+
+        """
+        for alias, unit in aliases.items():
+            if alias in self._registry and unit != self._registry[alias]:
+                raise ValueError(
+                    f"{alias} already means {self._registry[alias]}, so "
+                    f"cannot be used as an alias for {unit}.")
+            if alias in self._aliases and unit != self._aliases[alias]:
+                raise ValueError(
+                    f"{alias} already is an alias for {self._aliases[alias]}, so "
+                    f"cannot be used as an alias for {unit}.")
+
+        for alias, unit in aliases.items():
+            if alias not in self._registry and alias not in self._aliases:
+                self._aliases[alias] = unit
 
 
 class _UnitContext:
@@ -294,7 +354,7 @@ def set_enabled_units(units):
 
     Parameters
     ----------
-    units : list of sequences, dicts, or modules containing units, or units
+    units : list of sequence, dict, or module
         This is a list of things in which units may be found
         (sequences, dicts or modules), or units themselves.  The
         entire set will be "enabled" for searching through by methods
@@ -346,7 +406,7 @@ def add_enabled_units(units):
 
     Parameters
     ----------
-    units : list of sequences, dicts, or modules containing units, or units
+    units : list of sequence, dict, or module
         This is a list of things in which units may be found
         (sequences, dicts or modules), or units themselves.  The
         entire set will be added to the "enabled" set for searching
@@ -401,8 +461,8 @@ def set_enabled_equivalencies(equivalencies):
 
     Parameters
     ----------
-    equivalencies : list of equivalent pairs
-        E.g., as returned by
+    equivalencies : list of tuple
+        list of equivalent pairs, e.g., as returned by
         `~astropy.units.equivalencies.dimensionless_angles`.
 
     Examples
@@ -436,14 +496,87 @@ def add_enabled_equivalencies(equivalencies):
 
     Parameters
     ----------
-    equivalencies : list of equivalent pairs
-        E.g., as returned by
+    equivalencies : list of tuple
+        list of equivalent pairs, e.g., as returned by
         `~astropy.units.equivalencies.dimensionless_angles`.
     """
     # get a context with a new registry, which is a copy of the current one
     context = _UnitContext(get_current_unit_registry())
     # in this new current registry, enable the further equivalencies requested
     get_current_unit_registry().add_enabled_equivalencies(equivalencies)
+    return context
+
+
+def set_enabled_aliases(aliases):
+    """
+    Set aliases for units.
+
+    This is useful for handling alternate spellings for units, or
+    misspelled units in files one is trying to read.
+
+    Parameters
+    ----------
+    aliases : dict of str, Unit
+        The aliases to set. The keys must be the string aliases, and values
+        must be the `astropy.units.Unit` that the alias will be mapped to.
+
+    Raises
+    ------
+    ValueError
+        If the alias already defines a different unit.
+
+    Examples
+    --------
+    To temporarily allow for a misspelled 'Angstroem' unit::
+
+        >>> from astropy import units as u
+        >>> with u.set_enabled_aliases({'Angstroem': u.Angstrom}):
+        ...     print(u.Unit("Angstroem", parse_strict="raise") == u.Angstrom)
+        True
+
+    """
+    # get a context with a new registry, which is a copy of the current one
+    context = _UnitContext(get_current_unit_registry())
+    # in this new current registry, enable the further equivalencies requested
+    get_current_unit_registry().set_enabled_aliases(aliases)
+    return context
+
+
+def add_enabled_aliases(aliases):
+    """
+    Add aliases for units.
+
+    This is useful for handling alternate spellings for units, or
+    misspelled units in files one is trying to read.
+
+    Since no aliases are enabled by default, generally it is recommended
+    to use `set_enabled_aliases`.
+
+    Parameters
+    ----------
+    aliases : dict of str, Unit
+        The aliases to add. The keys must be the string aliases, and values
+        must be the `astropy.units.Unit` that the alias will be mapped to.
+
+    Raises
+    ------
+    ValueError
+        If the alias already defines a different unit.
+
+    Examples
+    --------
+    To temporarily allow for a misspelled 'Angstroem' unit::
+
+        >>> from astropy import units as u
+        >>> with u.add_enabled_aliases({'Angstroem': u.Angstrom}):
+        ...     print(u.Unit("Angstroem", parse_strict="raise") == u.Angstrom)
+        True
+
+    """
+    # get a context with a new registry, which is a copy of the current one
+    context = _UnitContext(get_current_unit_registry())
+    # in this new current registry, enable the further equivalencies requested
+    get_current_unit_registry().add_enabled_aliases(aliases)
     return context
 
 
@@ -620,7 +753,7 @@ class UnitBase:
 
         Parameters
         ----------
-        equivalencies : list of equivalency pairs, or `None`
+        equivalencies : list of equivalency pairs, or None
 
         Returns
         -------
@@ -737,6 +870,13 @@ class UnitBase:
             self._hash = hash(tuple(parts))
         return self._hash
 
+    def __getstate__(self):
+        # If we get pickled, we should *not* store the memoized hash since
+        # hashes of strings vary between sessions.
+        state = self.__dict__.copy()
+        state.pop('_hash', None)
+        return state
+
     def __eq__(self, other):
         if self is other:
             return True
@@ -746,7 +886,7 @@ class UnitBase:
         except (ValueError, UnitsError, TypeError):
             return NotImplemented
 
-        # Other is Unit-like, but the test below requires it is a UnitBase
+        # Other is unit-like, but the test below requires it is a UnitBase
         # instance; if it is not, give up (so that other can try).
         if not isinstance(other, UnitBase):
             return NotImplemented
@@ -782,13 +922,13 @@ class UnitBase:
 
         Parameters
         ----------
-        other : unit object or string or tuple
+        other : `~astropy.units.Unit`, str, or tuple
             The unit to convert to. If a tuple of units is specified, this
             method returns true if the unit matches any of those in the tuple.
 
-        equivalencies : list of equivalence pairs, optional
+        equivalencies : list of tuple
             A list of equivalence pairs to try if the units are not
-            directly convertible.  See :ref:`unit_equivalencies`.
+            directly convertible.  See :ref:`astropy:unit_equivalencies`.
             This list is in addition to possible global defaults set by, e.g.,
             `set_enabled_equivalencies`.
             Use `None` to turn off all equivalencies.
@@ -874,8 +1014,7 @@ class UnitBase:
             unit_str = unit.to_string('unscaled')
             physical_type = unit.physical_type
             if physical_type != 'unknown':
-                unit_str = "'{}' ({})".format(
-                    unit_str, physical_type)
+                unit_str = f"'{unit_str}' ({physical_type})"
             else:
                 unit_str = f"'{unit_str}'"
             return unit_str
@@ -884,11 +1023,15 @@ class UnitBase:
         other_str = get_err_str(other)
 
         raise UnitConversionError(
-            "{} and {} are not convertible".format(
-                unit_str, other_str))
+            f"{unit_str} and {other_str} are not convertible")
 
     def _get_converter(self, other, equivalencies=[]):
-        other = Unit(other)
+        """Get a converter for values in ``self`` to ``other``.
+
+        If no conversion is necessary, returns ``unit_scale_converter``
+        (which is used as a check in quantity helpers).
+
+        """
 
         # First see if it is just a scaling.
         try:
@@ -896,7 +1039,10 @@ class UnitBase:
         except UnitsError:
             pass
         else:
-            return lambda val: scale * _condition_arg(val)
+            if scale == 1.:
+                return unit_scale_converter
+            else:
+                return lambda val: scale * _condition_arg(val)
 
         # if that doesn't work, maybe we can do it with equivalencies?
         try:
@@ -956,16 +1102,16 @@ class UnitBase:
 
         Parameters
         ----------
-        other : unit object or string
+        other : unit-like
             The unit to convert to.
 
-        value : scalar int or float, or sequence convertible to array, optional
+        value : int, float, or scalar array-like, optional
             Value(s) in the current unit to be converted to the
             specified unit.  If not provided, defaults to 1.0
 
-        equivalencies : list of equivalence pairs, optional
+        equivalencies : list of tuple
             A list of equivalence pairs to try if the units are not
-            directly convertible.  See :ref:`unit_equivalencies`.
+            directly convertible.  See :ref:`astropy:unit_equivalencies`.
             This list is in addition to possible global defaults set by, e.g.,
             `set_enabled_equivalencies`.
             Use `None` to turn off all equivalencies.
@@ -984,7 +1130,8 @@ class UnitBase:
         if other is self and value is UNITY:
             return UNITY
         else:
-            return self._get_converter(other, equivalencies=equivalencies)(value)
+            return self._get_converter(Unit(other),
+                                       equivalencies=equivalencies)(value)
 
     def in_units(self, other, value=1.0, equivalencies=[]):
         """
@@ -1008,7 +1155,7 @@ class UnitBase:
 
         Returns
         -------
-        unit : CompositeUnit object
+        unit : `~astropy.units.CompositeUnit`
             New object containing only irreducible unit objects.
         """
         raise NotImplementedError()
@@ -1128,8 +1275,7 @@ class UnitBase:
 
         if not is_final_result(self):
             result = UnitsError(
-                "Cannot represent unit {} in terms of the given "
-                "units".format(self))
+                f"Cannot represent unit {self} in terms of the given units")
             cached_results[key] = result
             raise result
 
@@ -1145,14 +1291,14 @@ class UnitBase:
 
         Parameters
         ----------
-        equivalencies : list of equivalence pairs, optional
+        equivalencies : list of tuple
             A list of equivalence pairs to also list.  See
-            :ref:`unit_equivalencies`.
+            :ref:`astropy:unit_equivalencies`.
             This list is in addition to possible global defaults set by, e.g.,
             `set_enabled_equivalencies`.
             Use `None` to turn off all equivalencies.
 
-        units : set of units to compose to, optional
+        units : set of `~astropy.units.Unit`, optional
             If not provided, any known units may be used to compose
             into.  Otherwise, ``units`` is a dict, module or sequence
             containing the units to compose into.
@@ -1331,14 +1477,37 @@ class UnitBase:
     @property
     def physical_type(self):
         """
-        Return the physical type on the unit.
+        Physical type(s) dimensionally compatible with the unit.
+
+        Returns
+        -------
+        `~astropy.units.physical.PhysicalType`
+            A representation of the physical type(s) of a unit.
 
         Examples
         --------
         >>> from astropy import units as u
-        >>> print(u.m.physical_type)
-        length
+        >>> u.m.physical_type
+        PhysicalType('length')
+        >>> (u.m ** 2 / u.s).physical_type
+        PhysicalType({'diffusivity', 'kinematic viscosity'})
 
+        Physical types can be compared to other physical types
+        (recommended in packages) or to strings.
+
+        >>> area = (u.m ** 2).physical_type
+        >>> area == u.m.physical_type ** 2
+        True
+        >>> area == "area"
+        True
+
+        `~astropy.units.physical.PhysicalType` objects can be used for
+        dimensional analysis.
+
+        >>> number_density = u.m.physical_type ** -3
+        >>> velocity = (u.m / u.s).physical_type
+        >>> number_density * velocity
+        PhysicalType('particle flux')
         """
         from . import physical
         return physical.get_physical_type(self)
@@ -1357,9 +1526,9 @@ class UnitBase:
 
         Parameters
         ----------
-        equivalencies : list of equivalence pairs, optional
+        equivalencies : list of tuple
             A list of equivalence pairs to also pull options from.
-            See :ref:`unit_equivalencies`.  It must already be
+            See :ref:`astropy:unit_equivalencies`.  It must already be
             normalized using `_normalize_equivalencies`.
         """
         unit_registry = get_current_unit_registry()
@@ -1411,7 +1580,7 @@ class UnitBase:
             Outputs a HTML table representation within Jupyter notebooks.
             """
             if len(self) == 0:
-                return "<p>{}</p>".format(self.NO_EQUIV_UNITS_MSG)
+                return f"<p>{self.NO_EQUIV_UNITS_MSG}</p>"
             else:
                 # HTML tags to use to compose the table in HTML
                 blank_table = '<table style="width:50%">{}</table>'
@@ -1453,13 +1622,13 @@ class UnitBase:
 
         Parameters
         ----------
-        equivalencies : list of equivalence pairs, optional
+        equivalencies : list of tuple
             A list of equivalence pairs to also list.  See
-            :ref:`unit_equivalencies`.
+            :ref:`astropy:unit_equivalencies`.
             Any list given, including an empty one, supersedes global defaults
             that may be in effect (as set by `set_enabled_equivalencies`)
 
-        units : set of units to search in, optional
+        units : set of `~astropy.units.Unit`, optional
             If not provided, all defined units will be searched for
             equivalencies.  Otherwise, may be a dict, module or
             sequence containing the units to search for equivalencies.
@@ -1694,7 +1863,7 @@ class IrreducibleUnit(NamedUnit):
         registry = get_current_unit_registry().registry
         return (_recreate_irreducible_unit,
                 (self.__class__, list(self.names), self.name in registry),
-                self.__dict__)
+                self.__getstate__())
 
     @property
     def represents(self):
@@ -1719,8 +1888,7 @@ class IrreducibleUnit(NamedUnit):
                                              _error_check=False)
 
             raise UnitConversionError(
-                "Unit {} can not be decomposed into the requested "
-                "bases".format(self))
+                f"Unit {self} can not be decomposed into the requested bases")
 
         return self
 
@@ -1742,7 +1910,7 @@ class UnrecognizedUnit(IrreducibleUnit):
     __reduce__ = object.__reduce__
 
     def __repr__(self):
-        return "UnrecognizedUnit({})".format(str(self))
+        return f"UnrecognizedUnit({str(self)})"
 
     def __bytes__(self):
         return self.name.encode('ascii', 'replace')
@@ -1798,7 +1966,7 @@ class _UnitMetaClass(type):
     can return an existing one.
     """
 
-    def __call__(self, s, represents=None, format=None, namespace=None,
+    def __call__(self, s="", represents=None, format=None, namespace=None,
                  doc=None, parse_strict='raise'):
 
         # Short-circuit if we're already a unit
@@ -1852,6 +2020,8 @@ class _UnitMetaClass(type):
 
             try:
                 return f.parse(s)
+            except NotImplementedError:
+                raise
             except Exception as e:
                 if parse_strict == 'silent':
                     pass
@@ -1868,7 +2038,7 @@ class _UnitMetaClass(type):
                            "recognized inside a file reader or other code, "
                            "enable it with 'u.add_enabled_units'. "
                            "For details, see "
-                           "http://docs.astropy.org/en/latest/units/combining_and_defining.html"
+                           "https://docs.astropy.org/en/latest/units/combining_and_defining.html"
                            .format(s, format_clause, str(e)))
                     if parse_strict == 'raise':
                         raise ValueError(msg)
@@ -1930,16 +2100,16 @@ class Unit(NamedUnit, metaclass=_UnitMetaClass):
 
       Returns the given unit unchanged.
 
-    - From `None`::
+    - From no arguments::
 
         Unit()
 
-      Returns the null unit.
+      Returns the dimensionless unit.
 
     - The last form, which creates a new `Unit` is described in detail
       below.
 
-    See also: http://docs.astropy.org/en/stable/units/
+    See also: https://docs.astropy.org/en/stable/units/
 
     Parameters
     ----------
@@ -1962,7 +2132,7 @@ class Unit(NamedUnit, metaclass=_UnitMetaClass):
 
             {'latex': r'\\Omega'}
 
-    namespace : dictionary, optional
+    namespace : dict, optional
         When provided, inject the unit (and all of its aliases) into
         the given namespace.
 
@@ -2097,8 +2267,7 @@ class CompositeUnit(UnitBase):
             return super().__repr__()
         else:
             if self._scale != 1.0:
-                return 'Unit(dimensionless with a scale of {})'.format(
-                    self._scale)
+                return f'Unit(dimensionless with a scale of {self._scale})'
             else:
                 return 'Unit(dimensionless)'
 
@@ -2339,7 +2508,7 @@ def def_unit(s, represents=None, doc=None, format=None, prefixes=False,
 
     Returns
     -------
-    unit : `UnitBase` object
+    unit : `~astropy.units.UnitBase`
         The newly-defined unit, or a matching unit that was already
         defined.
     """
@@ -2385,6 +2554,15 @@ def _condition_arg(value):
         raise ValueError("Value not scalar compatible or convertible to "
                          "an int, float, or complex array")
     return avalue
+
+
+def unit_scale_converter(val):
+    """Function that just multiplies the value by unity.
+
+    This is a separate function so it can be recognized and
+    discarded in unit conversion.
+    """
+    return 1. * _condition_arg(val)
 
 
 dimensionless_unscaled = CompositeUnit(1, [], [], _error_check=False)

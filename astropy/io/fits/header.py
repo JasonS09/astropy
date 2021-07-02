@@ -3,6 +3,7 @@
 import collections
 import copy
 import itertools
+import numbers
 import re
 import warnings
 
@@ -73,6 +74,11 @@ class Header:
         ...
 
     See the Astropy documentation for more details on working with headers.
+
+    Notes
+    -----
+    Although FITS keywords must be exclusively upper case, retrieving an item
+    in a `Header` object is case insensitive.
     """
 
     def __init__(self, cards=[], copy=False):
@@ -81,7 +87,7 @@ class Header:
 
         Parameters
         ----------
-        cards : A list of `Card` objects, optional
+        cards : list of `Card`, optional
             The cards to initialize the header with. Also allowed are other
             `Header` (or `dict`-like) objects.
 
@@ -136,16 +142,20 @@ class Header:
         elif self._haswildcard(key):
             return self.__class__([copy.copy(self._cards[idx])
                                    for idx in self._wildcardmatch(key)])
-        elif (isinstance(key, str) and
-              key.upper() in Card._commentary_keywords):
-            key = key.upper()
-            # Special case for commentary cards
-            return _HeaderCommentaryCards(self, key)
+        elif isinstance(key, str):
+            key = key.strip()
+            if key.upper() in Card._commentary_keywords:
+                key = key.upper()
+                # Special case for commentary cards
+                return _HeaderCommentaryCards(self, key)
+
         if isinstance(key, tuple):
             keyword = key[0]
         else:
             keyword = key
+
         card = self._cards[self._cardindex(key)]
+
         if card.field_specifier is not None and keyword == card.rawkeyword:
             # This is RVKC; if only the top-level keyword was specified return
             # the raw value, not the parsed out float value
@@ -161,7 +171,7 @@ class Header:
             return
 
         if isinstance(value, tuple):
-            if not (0 < len(value) <= 2):
+            if len(value) > 2:
                 raise ValueError(
                     'A Header item may be set with either a scalar value, '
                     'a 1-tuple containing a scalar value, or a 2-tuple '
@@ -180,7 +190,7 @@ class Header:
             comment = None
 
         card = None
-        if isinstance(key, int):
+        if isinstance(key, numbers.Integral):
             card = self._cards[key]
         elif isinstance(key, tuple):
             card = self._cards[self._cardindex(key)]
@@ -378,7 +388,7 @@ class Header:
 
         Returns
         -------
-        header
+        `Header`
             A new `Header` instance.
         """
 
@@ -477,7 +487,7 @@ class Header:
 
         Returns
         -------
-        header
+        `Header`
             A new `Header` instance.
         """
 
@@ -590,14 +600,14 @@ class Header:
             if not is_binary:
                 block = encode_ascii(block)
 
+        header_str = ''.join(read_blocks)
+        _check_padding(header_str, actual_block_size, is_eof,
+                       check_block_size=padding)
+
         if not end_found and is_eof and endcard:
             # TODO: Pass this error to validation framework as an ERROR,
             # rather than raising an exception
             raise OSError('Header missing END card.')
-
-        header_str = ''.join(read_blocks)
-        _check_padding(header_str, actual_block_size, is_eof,
-                       check_block_size=padding)
 
         return header_str, cls.fromstring(header_str, sep=sep)
 
@@ -671,7 +681,7 @@ class Header:
 
         Returns
         -------
-        s : str
+        str
             A string representing a FITS header.
         """
 
@@ -703,9 +713,9 @@ class Header:
 
         Parameters
         ----------
-        fileobj : str, file, optional
+        fileobj : path-like or file-like, optional
             Either the pathname of a file, or an open file handle or file-like
-            object
+            object.
 
         sep : str, optional
             The character or string with which to separate cards.  By default
@@ -744,10 +754,9 @@ class Header:
                         len(blocks) - actual_block_size + BLOCK_SIZE,
                         BLOCK_SIZE))
 
-            if not fileobj.simulateonly:
-                fileobj.flush()
-                fileobj.write(blocks.encode('ascii'))
-                fileobj.flush()
+            fileobj.flush()
+            fileobj.write(blocks.encode('ascii'))
+            fileobj.flush()
         finally:
             if close_file:
                 fileobj.close()
@@ -816,13 +825,13 @@ class Header:
 
         Returns
         -------
-        header
+        `Header`
             A new :class:`Header` instance.
         """
 
         tmp = self.__class__((copy.copy(card) for card in self._cards))
         if strip:
-            tmp._strip()
+            tmp.strip()
         return tmp
 
     def __copy__(self):
@@ -851,7 +860,7 @@ class Header:
 
         Returns
         -------
-        header
+        `Header`
             A new `Header` instance.
         """
 
@@ -878,7 +887,7 @@ class Header:
 
         Returns
         -------
-        value
+        value: str, number, complex, bool, or ``astropy.io.fits.card.Undefined``
             The value associated with the given keyword, or the default value
             if the keyword is not in the header.
         """
@@ -1004,8 +1013,7 @@ class Header:
         """
 
         if len(args) > 2:
-            raise TypeError('Header.pop expected at most 2 arguments, got '
-                            '{}'.format(len(args)))
+            raise TypeError(f'Header.pop expected at most 2 arguments, got {len(args)}')
 
         if len(args) == 0:
             key = -1
@@ -1292,7 +1300,7 @@ class Header:
 
         temp = self.__class__(cards)
         if strip:
-            temp._strip()
+            temp.strip()
 
         if len(self):
             first = self._cards[0].keyword
@@ -1401,8 +1409,7 @@ class Header:
             if self._cards[idx].keyword.upper() == norm_keyword:
                 return idx
         else:
-            raise ValueError('The keyword {!r} is not in the '
-                             ' header.'.format(keyword))
+            raise ValueError(f'The keyword {keyword!r} is not in the  header.')
 
     def insert(self, key, card, useblanks=True, after=False):
         """
@@ -1431,7 +1438,7 @@ class Header:
             rather than before it.  Defaults to `False`.
         """
 
-        if not isinstance(key, int):
+        if not isinstance(key, numbers.Integral):
             # Don't pass through ints to _cardindex because it will not take
             # kindly to indices outside the existing number of cards in the
             # header, which insert needs to be able to support (for example
@@ -1557,8 +1564,7 @@ class Header:
                 raise ValueError('Regular and commentary keys can not be '
                                  'renamed to each other.')
         elif not force and newkeyword in self:
-            raise ValueError('Intended keyword {} already exists in header.'
-                             .format(newkeyword))
+            raise ValueError(f'Intended keyword {newkeyword} already exists in header.')
 
         idx = self.index(oldkeyword)
         card = self._cards[idx]
@@ -1619,6 +1625,38 @@ class Header:
 
         self._add_commentary('', value, before=before, after=after)
 
+    def strip(self):
+        """
+        Strip cards specific to a certain kind of header.
+
+        Strip cards like ``SIMPLE``, ``BITPIX``, etc. so the rest of
+        the header can be used to reconstruct another kind of header.
+        """
+
+        # TODO: Previously this only deleted some cards specific to an HDU if
+        # _hdutype matched that type.  But it seemed simple enough to just
+        # delete all desired cards anyways, and just ignore the KeyErrors if
+        # they don't exist.
+        # However, it might be desirable to make this extendable somehow--have
+        # a way for HDU classes to specify some headers that are specific only
+        # to that type, and should be removed otherwise.
+
+        naxis = self.get('NAXIS', 0)
+        tfields = self.get('TFIELDS', 0)
+
+        for idx in range(naxis):
+            self.remove('NAXIS' + str(idx + 1), ignore_missing=True)
+
+        for name in ('TFORM', 'TSCAL', 'TZERO', 'TNULL', 'TTYPE',
+                     'TUNIT', 'TDISP', 'TDIM', 'THEAP', 'TBCOL'):
+            for idx in range(tfields):
+                self.remove(name + str(idx + 1), ignore_missing=True)
+
+        for name in ('SIMPLE', 'XTENSION', 'BITPIX', 'NAXIS', 'EXTEND',
+                     'PCOUNT', 'GCOUNT', 'GROUPS', 'BSCALE', 'BZERO',
+                     'TFIELDS'):
+            self.remove(name, ignore_missing=True)
+
     def _update(self, card):
         """
         The real update code.  If keyword already exists, its value and/or
@@ -1632,7 +1670,7 @@ class Header:
         keyword, value, comment = card
 
         # Lookups for existing/known keywords are case-insensitive
-        keyword = keyword.upper()
+        keyword = keyword.strip().upper()
         if keyword.startswith('HIERARCH '):
             keyword = keyword[9:]
 
@@ -1671,7 +1709,7 @@ class Header:
         if isinstance(key, str):
             keyword = key
             n = 0
-        elif isinstance(key, int):
+        elif isinstance(key, numbers.Integral):
             # If < 0, determine the actual index
             if key < 0:
                 key += len(self._cards)
@@ -1682,7 +1720,7 @@ class Header:
             return key
         elif isinstance(key, tuple):
             if (len(key) != 2 or not isinstance(key[0], str) or
-                    not isinstance(key[1], int)):
+                    not isinstance(key[1], numbers.Integral)):
                 raise ValueError(
                     'Tuple indices must be 2-tuples consisting of a '
                     'keyword string and an integer index.')
@@ -1747,7 +1785,7 @@ class Header:
             insertionkey = before
 
         def get_insertion_idx():
-            if not (isinstance(insertionkey, int) and
+            if not (isinstance(insertionkey, numbers.Integral) and
                     insertionkey >= len(self._cards)):
                 idx = self._cardindex(insertionkey)
             else:
@@ -1894,54 +1932,6 @@ class Header:
                 idx += maxlen
         return cards
 
-    def _strip(self):
-        """
-        Strip cards specific to a certain kind of header.
-
-        Strip cards like ``SIMPLE``, ``BITPIX``, etc. so the rest of
-        the header can be used to reconstruct another kind of header.
-        """
-
-        # TODO: Previously this only deleted some cards specific to an HDU if
-        # _hdutype matched that type.  But it seemed simple enough to just
-        # delete all desired cards anyways, and just ignore the KeyErrors if
-        # they don't exist.
-        # However, it might be desirable to make this extendable somehow--have
-        # a way for HDU classes to specify some headers that are specific only
-        # to that type, and should be removed otherwise.
-
-        if 'NAXIS' in self:
-            naxis = self['NAXIS']
-        else:
-            naxis = 0
-
-        if 'TFIELDS' in self:
-            tfields = self['TFIELDS']
-        else:
-            tfields = 0
-
-        for idx in range(naxis):
-            try:
-                del self['NAXIS' + str(idx + 1)]
-            except KeyError:
-                pass
-
-        for name in ('TFORM', 'TSCAL', 'TZERO', 'TNULL', 'TTYPE',
-                     'TUNIT', 'TDISP', 'TDIM', 'THEAP', 'TBCOL'):
-            for idx in range(tfields):
-                try:
-                    del self[name + str(idx + 1)]
-                except KeyError:
-                    pass
-
-        for name in ('SIMPLE', 'XTENSION', 'BITPIX', 'NAXIS', 'EXTEND',
-                     'PCOUNT', 'GCOUNT', 'GROUPS', 'BSCALE', 'BZERO',
-                     'TFIELDS'):
-            try:
-                del self[name]
-            except KeyError:
-                pass
-
     def _add_commentary(self, key, value, before=None, after=None):
         """
         Add a commentary card.
@@ -2043,7 +2033,7 @@ class _BasicHeader(collections.abc.Mapping):
         self._modified = False
 
     def __getitem__(self, key):
-        if isinstance(key, int):
+        if isinstance(key, numbers.Integral):
             key = self._keys[key]
 
         try:
@@ -2230,14 +2220,14 @@ class _HeaderCommentaryCards(_CardAccessor):
             yield self._header[(self._keyword, idx)]
 
     def __repr__(self):
-        return '\n'.join(self)
+        return '\n'.join(str(x) for x in self)
 
     def __getitem__(self, idx):
         if isinstance(idx, slice):
             n = self.__class__(self._header, self._keyword)
             n._indices = idx.indices(self._count)
             return n
-        elif not isinstance(idx, int):
+        elif not isinstance(idx, numbers.Integral):
             raise ValueError(f'{self._keyword} index must be an integer')
 
         idx = list(range(*self._indices))[idx]
@@ -2298,5 +2288,4 @@ def _check_padding(header_str, block_size, is_eof, check_block_size=True):
         # now, but maybe it shouldn't?
         actual_len = len(header_str) - block_size + BLOCK_SIZE
         # TODO: Pass this error to validation framework
-        raise ValueError('Header size is not multiple of {}: {}'
-                         .format(BLOCK_SIZE, actual_len))
+        raise ValueError(f'Header size is not multiple of {BLOCK_SIZE}: {actual_len}')

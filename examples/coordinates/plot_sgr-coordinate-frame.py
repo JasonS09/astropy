@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
-"""
+r"""
 ==========================================================
 Create a new coordinate class (for the Sagittarius stream)
 ==========================================================
 
 This document describes in detail how to subclass and define a custom spherical
-coordinate frame, as discussed in :ref:`astropy-coordinates-design` and the
-docstring for `~astropy.coordinates.BaseCoordinateFrame`. In this example, we
-will define a coordinate system defined by the plane of orbit of the Sagittarius
-Dwarf Galaxy (hereafter Sgr; as defined in Majewski et al. 2003).  The Sgr
-coordinate system is often referred to in terms of two angular coordinates,
-:math:`\Lambda,B`.
+coordinate frame, as discussed in :ref:`astropy:astropy-coordinates-design` and
+the docstring for `~astropy.coordinates.BaseCoordinateFrame`. In this example,
+we will define a coordinate system defined by the plane of orbit of the
+Sagittarius Dwarf Galaxy (hereafter Sgr; as defined in Majewski et al. 2003).
+The Sgr coordinate system is often referred to in terms of two angular
+coordinates, :math:`\Lambda,B`.
 
 To do this, we need to define a subclass of
 `~astropy.coordinates.BaseCoordinateFrame` that knows the names and units of the
@@ -30,7 +30,7 @@ See Also
   https://arxiv.org/abs/astro-ph/0304198
 * Law & Majewski 2010, "The Sagittarius Dwarf Galaxy: A Model for Evolution in a
   Triaxial Milky Way Halo", https://arxiv.org/abs/1003.1132
-* David Law's Sgr info page http://www.stsci.edu/~dlaw/Sgr/
+* David Law's Sgr info page https://www.stsci.edu/~dlaw/Sgr/
 
 
 *By: Adrian Price-Whelan, Erik Tollerud*
@@ -67,9 +67,9 @@ class Sagittarius(coord.BaseCoordinateFrame):
     """
     A Heliocentric spherical coordinate system defined by the orbit
     of the Sagittarius dwarf galaxy, as described in
-        http://adsabs.harvard.edu/abs/2003ApJ...599.1082M
+        https://ui.adsabs.harvard.edu/abs/2003ApJ...599.1082M
     and further explained in
-        http://www.stsci.edu/~dlaw/Sgr/.
+        https://www.stsci.edu/~dlaw/Sgr/.
 
     Parameters
     ----------
@@ -79,15 +79,15 @@ class Sagittarius(coord.BaseCoordinateFrame):
         The longitude-like angle corresponding to Sagittarius' orbit.
     Beta : `~astropy.coordinates.Angle`, optional, must be keyword
         The latitude-like angle corresponding to Sagittarius' orbit.
-    distance : `Quantity`, optional, must be keyword
+    distance : `~astropy.units.Quantity`, optional, must be keyword
         The Distance for this object along the line-of-sight.
-    pm_Lambda_cosBeta : :class:`~astropy.units.Quantity`, optional, must be keyword
+    pm_Lambda_cosBeta : `~astropy.units.Quantity`, optional, must be keyword
         The proper motion along the stream in ``Lambda`` (including the
         ``cos(Beta)`` factor) for this object (``pm_Beta`` must also be given).
-    pm_Beta : :class:`~astropy.units.Quantity`, optional, must be keyword
+    pm_Beta : `~astropy.units.Quantity`, optional, must be keyword
         The proper motion in Declination for this object (``pm_ra_cosdec`` must
         also be given).
-    radial_velocity : :class:`~astropy.units.Quantity`, optional, must be keyword
+    radial_velocity : `~astropy.units.Quantity`, optional, keyword-only
         The radial velocity of this object.
 
     """
@@ -168,7 +168,7 @@ def sgr_to_galactic():
 # transform to `~astropy.coordinates.Galactic`). For example, to transform from
 # ICRS coordinates to ``Sagittarius``, we would do:
 
-icrs = coord.ICRS(280.161732*u.degree, 11.91934*u.degree)
+icrs = coord.SkyCoord(280.161732*u.degree, 11.91934*u.degree, frame='icrs')
 sgr = icrs.transform_to(Sagittarius)
 print(sgr)
 
@@ -176,8 +176,8 @@ print(sgr)
 # Or, to transform from the ``Sagittarius`` frame to ICRS coordinates (in this
 # case, a line along the ``Sagittarius`` x-y plane):
 
-sgr = Sagittarius(Lambda=np.linspace(0, 2*np.pi, 128)*u.radian,
-                  Beta=np.zeros(128)*u.radian)
+sgr = coord.SkyCoord(Lambda=np.linspace(0, 2*np.pi, 128)*u.radian,
+                     Beta=np.zeros(128)*u.radian, frame='sagittarius')
 icrs = sgr.transform_to(coord.ICRS)
 print(icrs)
 
@@ -203,10 +203,11 @@ plt.show()
 # transformation of velocity components is therefore natively supported as
 # well:
 
-sgr = Sagittarius(Lambda=np.linspace(0, 2*np.pi, 128)*u.radian,
-                  Beta=np.zeros(128)*u.radian,
-                  pm_Lambda_cosBeta=np.random.uniform(-5, 5, 128)*u.mas/u.yr,
-                  pm_Beta=np.zeros(128)*u.mas/u.yr)
+sgr = coord.SkyCoord(Lambda=np.linspace(0, 2*np.pi, 128)*u.radian,
+                     Beta=np.zeros(128)*u.radian,
+                     pm_Lambda_cosBeta=np.random.uniform(-5, 5, 128)*u.mas/u.yr,
+                     pm_Beta=np.zeros(128)*u.mas/u.yr,
+                     frame='sagittarius')
 icrs = sgr.transform_to(coord.ICRS)
 print(icrs)
 
@@ -217,20 +218,20 @@ axes[0].plot(sgr.Lambda.degree,
              sgr.pm_Lambda_cosBeta.value,
              linestyle='none', marker='.')
 axes[0].set_xlabel(r"$\Lambda$ [deg]")
-axes[0].set_ylabel(r"$\mu_\Lambda \, \cos B$ [{0}]"
-                   .format(sgr.pm_Lambda_cosBeta.unit.to_string('latex_inline')))
+axes[0].set_ylabel(
+    fr"$\mu_\Lambda \, \cos B$ [{sgr.pm_Lambda_cosBeta.unit.to_string('latex_inline')}]")
 
 axes[1].set_title("ICRS")
 axes[1].plot(icrs.ra.degree, icrs.pm_ra_cosdec.value,
              linestyle='none', marker='.')
-axes[1].set_ylabel(r"$\mu_\alpha \, \cos\delta$ [{0}]"
-                   .format(icrs.pm_ra_cosdec.unit.to_string('latex_inline')))
+axes[1].set_ylabel(
+    fr"$\mu_\alpha \, \cos\delta$ [{icrs.pm_ra_cosdec.unit.to_string('latex_inline')}]")
 
 axes[2].set_title("ICRS")
 axes[2].plot(icrs.ra.degree, icrs.pm_dec.value,
              linestyle='none', marker='.')
 axes[2].set_xlabel("RA [deg]")
-axes[2].set_ylabel(r"$\mu_\delta$ [{0}]"
-                   .format(icrs.pm_dec.unit.to_string('latex_inline')))
+axes[2].set_ylabel(
+    fr"$\mu_\delta$ [{icrs.pm_dec.unit.to_string('latex_inline')}]")
 
 plt.show()

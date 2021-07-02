@@ -60,7 +60,7 @@ To wrap the result of an arithmetic operation between two Quantities::
     >>> import astropy.units as u
     >>> ndd = NDDataRef.multiply([1,2] * u.m, [10, 20] * u.cm)
     >>> ndd  # doctest: +FLOAT_CMP
-    NDDataRef([10., 40.])
+    NDDataRef([10., 40.], unit='cm m')
     >>> ndd.unit
     Unit("cm m")
 
@@ -352,7 +352,7 @@ The default (``0``) represents uncorrelated while ``1`` means correlated and
 element-wise correlation coefficient.
 
 Examples
---------
+^^^^^^^^
 
 ..
   EXAMPLE START

@@ -5,16 +5,16 @@
 Regression tests for the units.format package
 """
 
+from contextlib import nullcontext
 from fractions import Fraction
 
 import pytest
 import numpy as np
 from numpy.testing import assert_allclose
 
-from astropy.tests.helper import catch_warnings
 from astropy import units as u
 from astropy.constants import si
-from astropy.units import core
+from astropy.units import core, dex, UnitsWarning
 from astropy.units import format as u_format
 from astropy.units.utils import is_effectively_unity
 
@@ -82,7 +82,10 @@ def test_unit_grammar_fail(string):
     (["°/s"], u.degree / u.s),
     (["Å"], u.AA),
     (["Å/s"], u.AA / u.s),
-    (["\\h"], si.h)])
+    (["\\h"], si.h),
+    (["[cm/s2]"], dex(u.cm / u.s ** 2)),
+    (["[K]"], dex(u.K)),
+    (["[-]"], dex(u.dimensionless_unscaled))])
 def test_cds_grammar(strings, unit):
     for s in strings:
         print(s)
@@ -103,13 +106,28 @@ def test_cds_grammar(strings, unit):
     '0.1---',
     '---m',
     'm---',
+    '--',
+    '0.1-',
+    '-m',
+    'm-',
     'mag(s-1)',
     'dB(mW)',
-    'dex(cm s-2)'])
+    'dex(cm s-2)',
+    '[--]'])
 def test_cds_grammar_fail(string):
     with pytest.raises(ValueError):
         print(string)
         u_format.CDS.parse(string)
+
+
+def test_cds_dimensionless():
+    assert u.Unit('---', format='cds') == u.dimensionless_unscaled
+    assert u.dimensionless_unscaled.to_string(format='cds') == "---"
+
+
+def test_cds_log10_dimensionless():
+    assert u.Unit('[-]', format='cds') == u.dex(u.dimensionless_unscaled)
+    assert u.dex(u.dimensionless_unscaled).to_string(format='cds') == "[-]"
 
 
 # These examples are taken from the EXAMPLES section of
@@ -124,9 +142,9 @@ def test_cds_grammar_fail(string):
     (["erg /pixel /s /GHz", "erg /s /GHz /pixel", "erg /pixel /(s * GHz)"],
      u.erg / (u.s * u.GHz * u.pixel)),
     (["keV**2 /yr /angstrom", "10**(10) keV**2 /yr /m"],
-      # Though this is given as an example, it seems to violate the rules
-      # of not raising scales to powers, so I'm just excluding it
-      # "(10**2 MeV)**2 /yr /m"
+     # Though this is given as an example, it seems to violate the rules
+     # of not raising scales to powers, so I'm just excluding it
+     # "(10**2 MeV)**2 /yr /m"
      u.keV**2 / (u.yr * u.angstrom)),
     (["10**(46) erg /s", "10**46 erg /s", "10**(39) J /s", "10**(39) W",
       "10**(15) YW", "YJ /fs"],
@@ -163,16 +181,20 @@ def test_ogip_grammar_fail(string):
 class RoundtripBase:
     deprecated_units = set()
 
-    def check_roundtrip(self, unit):
-        with catch_warnings() as w:
-            s = unit.to_string(self.format_)
+    def check_roundtrip(self, unit, output_format=None):
+        if output_format is None:
+            output_format = self.format_
+        with pytest.warns(None) as w:
+            s = unit.to_string(output_format)
             a = core.Unit(s, format=self.format_)
 
         if s in self.deprecated_units:
-            assert w
-            assert 'deprecated' in str(w[0])
+            assert len(w) == 3  # Same warning shows up multiple times
+            for ww in w:
+                assert issubclass(ww.category, UnitsWarning)
+                assert 'deprecated' in str(ww.message)
         else:
-            assert not w
+            assert len(w) == 0
 
         assert_allclose(a.decompose().scale, unit.decompose().scale, rtol=1e-9)
 
@@ -193,6 +215,7 @@ class TestRoundtripGeneric(RoundtripBase):
             not isinstance(unit, core.PrefixUnit))])
     def test_roundtrip(self, unit):
         self.check_roundtrip(unit)
+        self.check_roundtrip(unit, output_format='unicode')
         self.check_roundtrip_decompose(unit)
 
 
@@ -237,6 +260,13 @@ class TestRoundtripCDS(RoundtripBase):
 
         self.check_roundtrip_decompose(unit)
 
+    @pytest.mark.parametrize('unit', [u.dex(unit) for unit in
+                                      (u.cm/u.s**2, u.K, u.Lsun)])
+    def test_roundtrip_dex(self, unit):
+        string = unit.to_string(format='cds')
+        recovered = u.Unit(string, format='cds')
+        assert recovered == unit
+
 
 class TestRoundtripOGIP(RoundtripBase):
     format_ = 'ogip'
@@ -250,11 +280,9 @@ class TestRoundtripOGIP(RoundtripBase):
         if str(unit) in ('d', '0.001 Crab'):
             # Special-case day, which gets auto-converted to hours, and mCrab,
             # which the default check does not recognize as a deprecated unit.
-            with catch_warnings() as w:
+            with pytest.warns(UnitsWarning):
                 s = unit.to_string(self.format_)
                 a = core.Unit(s, format=self.format_)
-            assert w
-            assert 'UnitsWarning' in str(w[0])
             assert_allclose(a.decompose().scale, unit.decompose().scale, rtol=1e-9)
         else:
             self.check_roundtrip(unit)
@@ -264,18 +292,15 @@ class TestRoundtripOGIP(RoundtripBase):
             # not decompose, and thus gives a depecated unit warning.
             return
 
-        with catch_warnings() as w:
-            self.check_roundtrip_decompose(unit)
-
         power_of_ten = np.log10(unit.decompose().scale)
         if abs(power_of_ten - round(power_of_ten)) > 1e-3:
-            assert w
-            assert 'power of 10' in str(w[0])
+            ctx = pytest.warns(UnitsWarning, match='power of 10')
         elif str(unit) == '0.001 Crab':
-            assert w
-            assert 'deprecated' in str(w[0])
+            ctx = pytest.warns(UnitsWarning, match='deprecated')
         else:
-            assert not w
+            ctx = nullcontext()
+        with ctx:
+            self.check_roundtrip_decompose(unit)
 
 
 def test_fits_units_available():
@@ -357,6 +382,16 @@ def test_flexible_float():
     assert u.min._represents.to_string('latex') == r'$\mathrm{60\,s}$'
 
 
+def test_fits_to_string_function_error():
+    """Test function raises TypeError on bad input.
+
+    This instead of returning None, see gh-11825.
+    """
+
+    with pytest.raises(TypeError, match='unit argument must be'):
+        u_format.Fits.to_string(None)
+
+
 def test_fraction_repr():
     area = u.cm ** 2.0
     assert '.' not in area.to_string('latex')
@@ -419,18 +454,15 @@ def test_deprecated_did_you_mean_units():
     assert 'Crab (deprecated)' in str(exc_info.value)
     assert 'mCrab (deprecated)' in str(exc_info.value)
 
-    with catch_warnings() as w:
+    with pytest.warns(UnitsWarning, match=r'.* Did you mean 0\.1nm, Angstrom '
+                      r'\(deprecated\) or angstrom \(deprecated\)\?') as w:
         u.Unit('ANGSTROM', format='vounit')
-
     assert len(w) == 1
-    assert 'angstrom (deprecated)' in str(w[0].message)
-    assert '0.1nm' in str(w[0].message)
     assert str(w[0].message).count('0.1nm') == 1
 
-    with catch_warnings() as w:
+    with pytest.warns(UnitsWarning, match=r'.* 0\.1nm\.') as w:
         u.Unit('angstrom', format='vounit')
     assert len(w) == 1
-    assert '0.1nm' in str(w[0].message)
 
 
 @pytest.mark.parametrize('string', ['mag(ct/s)', 'dB(mW)', 'dex(cm s**-2)'])
@@ -445,8 +477,7 @@ def test_fits_function(string):
 def test_vounit_function(string):
     # Function units cannot be written, so ensure they're not parsed either.
     with pytest.raises(ValueError):
-        print(string)
-        with catch_warnings():  # ct, dex also raise warnings - irrelevant here.
+        with pytest.warns(None):  # ct, dex also raise warnings - irrelevant here.
             u_format.VOUnit().parse(string)
 
 
@@ -454,7 +485,7 @@ def test_vounit_binary_prefix():
     u.Unit('KiB', format='vounit') == u.Unit('1024 B')
     u.Unit('Kibyte', format='vounit') == u.Unit('1024 B')
     u.Unit('Kibit', format='vounit') == u.Unit('1024 B')
-    with catch_warnings() as w:
+    with pytest.warns(UnitsWarning) as w:
         u.Unit('kibibyte', format='vounit')
     assert len(w) == 1
 
@@ -466,10 +497,9 @@ def test_vounit_unknown():
 
 
 def test_vounit_details():
-    with catch_warnings() as w:
+    with pytest.warns(UnitsWarning, match='deprecated') as w:
         assert u.Unit('Pa', format='vounit') is u.Pascal
     assert len(w) == 1
-    assert 'deprecated' in str(w[0].message)
 
     # The da- prefix is not allowed, and the d- prefix is discouraged
     assert u.dam.to_string('vounit') == '10m'
@@ -493,7 +523,7 @@ def test_vounit_custom():
 
 def test_vounit_implicit_custom():
     # Yikes, this becomes "femto-urlong"...  But at least there's a warning.
-    with catch_warnings() as w:
+    with pytest.warns(UnitsWarning) as w:
         x = u.Unit("furlong/week", format="vounit")
     assert x.bases[0]._represents.scale == 1e-15
     assert x.bases[0]._represents.bases[0].name == 'urlong'
@@ -583,14 +613,23 @@ def test_powers(power, expected):
     ('m\N{SUPERSCRIPT THREE}', u.m**3),
     ('m\N{SUPERSCRIPT ONE}\N{SUPERSCRIPT ZERO}', u.m**10),
     ('\N{GREEK CAPITAL LETTER OMEGA}', u.ohm),
-    ('\N{OHM SIGN}', u.ohm), # deprecated but for compatibility
+    ('\N{OHM SIGN}', u.ohm),  # deprecated but for compatibility
     ('\N{MICRO SIGN}\N{GREEK CAPITAL LETTER OMEGA}', u.microOhm),
     ('\N{ANGSTROM SIGN}', u.Angstrom),
     ('\N{ANGSTROM SIGN} \N{OHM SIGN}', u.Angstrom * u.Ohm),
     ('\N{LATIN CAPITAL LETTER A WITH RING ABOVE}', u.Angstrom),
     ('\N{LATIN CAPITAL LETTER A}\N{COMBINING RING ABOVE}', u.Angstrom),
+    ('m\N{ANGSTROM SIGN}', u.milliAngstrom),
     ('°C', u.deg_C),
     ('°', u.deg),
+    ('M⊙', u.Msun),  # \N{CIRCLED DOT OPERATOR}
+    ('L☉', u.Lsun),  # \N{SUN}
+    ('M⊕', u.Mearth),  # normal earth symbol = \N{CIRCLED PLUS}
+    ('M♁', u.Mearth),  # be generous with \N{EARTH}
+    ('R♃', u.Rjup),  # \N{JUPITER}
+    ('′', u.arcmin),  # \N{PRIME}
+    ('R∞', u.Ry),
+    ('Mₚ', u.M_p),
 ])
 def test_unicode(string, unit):
     assert u_format.Generic.parse(string) == unit
@@ -603,8 +642,19 @@ def test_unicode(string, unit):
     'm\N{SUPERSCRIPT MINUS}1',
     'm+\N{SUPERSCRIPT ONE}',
     'm\N{MINUS SIGN}\N{SUPERSCRIPT ONE}',
-    'm\N{ANGSTROM SIGN}',
+    'k\N{ANGSTROM SIGN}',
 ])
 def test_unicode_failures(string):
     with pytest.raises(ValueError):
         u.Unit(string)
+
+
+@pytest.mark.parametrize('format_', ('unicode', 'latex', 'latex_inline'))
+def test_parse_error_message_for_output_only_format(format_):
+    with pytest.raises(NotImplementedError, match='not parse'):
+        u.Unit('m', format=format_)
+
+
+def test_unknown_parser():
+    with pytest.raises(ValueError, match=r"Unknown.*unicode'\] for output only"):
+        u.Unit('m', format='foo')

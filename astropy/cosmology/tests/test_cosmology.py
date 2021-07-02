@@ -5,17 +5,14 @@ from io import StringIO
 import pytest
 import numpy as np
 
-from astropy.cosmology import core, funcs
+from astropy.cosmology import core, funcs, realizations
+from astropy.cosmology.realizations import Planck13, Planck15, Planck18, WMAP5, WMAP7, WMAP9
 from astropy.units import allclose
 from astropy import constants as const
 from astropy import units as u
-
-try:
-    import scipy  # pylint: disable=W0611  # noqa
-except ImportError:
-    HAS_SCIPY = False
-else:
-    HAS_SCIPY = True
+from astropy.utils.exceptions import (AstropyDeprecationWarning,
+                                      AstropyUserWarning)
+from astropy.utils.compat.optional_deps import HAS_SCIPY  # noqa
 
 
 def test_init():
@@ -30,8 +27,6 @@ def test_init():
     with pytest.raises(ValueError):
         h0bad = u.Quantity([70, 100], u.km / u.s / u.Mpc)
         cosmo = core.FlatLambdaCDM(H0=h0bad, Om0=0.27)
-    with pytest.raises(ValueError):
-        cosmo = core.FlatLambdaCDM(H0=70, Om0=0.2, Tcmb0=3, m_nu=0.5)
     with pytest.raises(ValueError):
         bad_mnu = u.Quantity([-0.3, 0.2, 0.1], u.eV)
         cosmo = core.FlatLambdaCDM(H0=70, Om0=0.2, Tcmb0=3, m_nu=bad_mnu)
@@ -52,12 +47,24 @@ def test_init():
         cosmo = core.FlatLambdaCDM(H0=70, Om0=0.27)
         cosmo.Odm(1)
     with pytest.raises(TypeError):
-        core.default_cosmology.validate(4)
+        realizations.default_cosmology.validate(4)
+
+
+def test_immutability():
+    """Test immutability of cosmologies."""
+    cosmo = core.Cosmology()
+    with pytest.raises(AttributeError):
+        cosmo.name = "new name"
+
+    # The metadata is NOT immutable
+    assert "a" not in cosmo.meta
+    cosmo.meta["a"] = 1
+    assert "a" in cosmo.meta
 
 
 def test_basic():
     cosmo = core.FlatLambdaCDM(H0=70, Om0=0.27, Tcmb0=2.0, Neff=3.04,
-                               Ob0=0.05)
+                               Ob0=0.05, name="test", meta={"a": "b"})
     assert allclose(cosmo.Om0, 0.27)
     assert allclose(cosmo.Ode0, 0.729975, rtol=1e-4)
     assert allclose(cosmo.Ob0, 0.05)
@@ -76,6 +83,8 @@ def test_basic():
     assert allclose(cosmo.Neff, 3.04)
     assert allclose(cosmo.h, 0.7)
     assert allclose(cosmo.H0, 70.0 * u.km / u.s / u.Mpc)
+    assert cosmo.name == "test"
+    assert cosmo.meta == {"a": "b"}
 
     # Make sure setting them as quantities gives the same results
     H0 = u.Quantity(70, u.km / (u.s * u.Mpc))
@@ -196,10 +205,9 @@ def test_distance_broadcast():
 
 @pytest.mark.skipif('not HAS_SCIPY')
 def test_clone():
-    """ Test clone operation"""
-
+    """Test clone operation."""
     cosmo = core.FlatLambdaCDM(H0=70 * u.km / u.s / u.Mpc, Om0=0.27,
-                               Tcmb0=3.0 * u.K)
+                               Tcmb0=3.0 * u.K, name="test", meta={"a":"b"})
     z = np.linspace(0.1, 3, 15)
 
     # First, test with no changes, which should return same object
@@ -211,7 +219,7 @@ def test_clone():
     newclone = cosmo.clone(H0=60 * u.km / u.s / u.Mpc)
     assert newclone is not cosmo
     assert newclone.__class__ == cosmo.__class__
-    assert newclone.name == cosmo.name
+    assert newclone.name == cosmo.name + " (modified)"
     assert not allclose(newclone.H0.value, cosmo.H0.value)
     assert allclose(newclone.H0, 60.0 * u.km / u.s / u.Mpc)
     assert allclose(newclone.Om0, cosmo.Om0)
@@ -226,7 +234,7 @@ def test_clone():
     cmp = core.FlatLambdaCDM(H0=60 * u.km / u.s / u.Mpc, Om0=0.27,
                              Tcmb0=3.0 * u.K)
     assert newclone.__class__ == cmp.__class__
-    assert newclone.name == cmp.name
+    assert cmp.name is None
     assert allclose(newclone.H0, cmp.H0)
     assert allclose(newclone.Om0, cmp.Om0)
     assert allclose(newclone.Ode0, cmp.Ode0)
@@ -243,7 +251,7 @@ def test_clone():
 
     # Now try changing multiple things
     newclone = cosmo.clone(name="New name", H0=65 * u.km / u.s / u.Mpc,
-                           Tcmb0=2.8 * u.K)
+                           Tcmb0=2.8 * u.K, meta=dict(zz="tops"))
     assert newclone.__class__ == cosmo.__class__
     assert not newclone.name == cosmo.name
     assert not allclose(newclone.H0.value, cosmo.H0.value)
@@ -256,6 +264,7 @@ def test_clone():
     assert allclose(newclone.Tcmb0, 2.8 * u.K)
     assert allclose(newclone.m_nu, cosmo.m_nu)
     assert allclose(newclone.Neff, cosmo.Neff)
+    assert newclone.meta == dict(a="b", zz="tops")
 
     # And direct comparison
     cmp = core.FlatLambdaCDM(name="New name", H0=65 * u.km / u.s / u.Mpc,
@@ -281,7 +290,7 @@ def test_clone():
                          Om0=0.27, Ode0=0.5, wa=0.1, Tcmb0=4.0 * u.K)
     newclone = cosmo.clone(w0=-1.1, wa=0.2)
     assert newclone.__class__ == cosmo.__class__
-    assert newclone.name == cosmo.name
+    assert newclone.name == cosmo.name + " (modified)"
     assert allclose(newclone.H0, cosmo.H0)
     assert allclose(newclone.Om0, cosmo.Om0)
     assert allclose(newclone.Ode0, cosmo.Ode0)
@@ -292,8 +301,29 @@ def test_clone():
     assert allclose(newclone.wa, 0.2)
 
     # Now test exception if user passes non-parameter
-    with pytest.raises(AttributeError):
+    with pytest.raises(TypeError, match="unexpected keyword argument"):
         newclone = cosmo.clone(not_an_arg=4)
+
+
+def test_equality():
+    """Test equality and equivalence."""
+    # Equality
+    assert Planck18 == Planck18
+    assert Planck13 != Planck18
+
+    # just wrong
+    assert Planck18 != 2
+    assert 2 != Planck18
+
+    # mismatched signatures, both directions.
+    newcosmo = core.w0waCDM(**Planck18._init_arguments, Ode0=0.6)
+    assert newcosmo != Planck18
+    assert Planck18 != newcosmo
+
+    # different arguments
+    newcosmo = Planck18.clone(name="modified")
+    assert Planck18 != newcosmo  # the name was changed!
+    assert newcosmo != Planck18  # double check directions.
 
 
 def test_xtfuncs():
@@ -381,7 +411,7 @@ def test_flat_z1():
     # calculators on 27th Feb 2012:
 
     # Wright: http://www.astro.ucla.edu/~wright/CosmoCalc.html
-    #         (http://adsabs.harvard.edu/abs/2006PASP..118.1711W)
+    #         (https://ui.adsabs.harvard.edu/abs/2006PASP..118.1711W)
     # Kempner: http://www.kempner.net/cosmic.php
     # iCosmos: http://www.icosmos.co.uk/index.html
 
@@ -1233,11 +1263,16 @@ def test_angular_diameter_distance_z1z2():
     assert allclose(tcos.angular_diameter_distance_z1z2(1, 2),
                     646.22968662822018 * u.Mpc)
 
-    z1 = 0, 0, 2, 0.5, 1
-    z2 = 2, 1, 1, 2.5, 1.1
+    z1 = 2  # Separate test for z2<z1, returns negative value with warning
+    z2 = 1
+    results = -969.34452994 * u.Mpc
+    with pytest.warns(AstropyUserWarning, match='less than first redshift'):
+        assert allclose(tcos.angular_diameter_distance_z1z2(z1, z2), results)
+
+    z1 = 0, 0, 0.5, 1
+    z2 = 2, 1, 2.5, 1.1
     results = (1760.0628637762106,
                1670.7497657219858,
-               -969.34452994,
                1159.0970895962193,
                115.72768186186921) * u.Mpc
 
@@ -1279,7 +1314,7 @@ def test_absorption_distance():
 def test_massivenu_basic():
     # Test no neutrinos case
     tcos = core.FlatLambdaCDM(70.4, 0.272, Neff=4.05,
-                              Tcmb0=2.725 * u.K, m_nu=u.Quantity(0, u.eV))
+                              Tcmb0=2.725 * u.K, m_nu=0)
     assert allclose(tcos.Neff, 4.05)
     assert not tcos.has_massive_nu
     mnu = tcos.m_nu
@@ -1293,7 +1328,7 @@ def test_massivenu_basic():
 
     # Alternative no neutrinos case
     tcos = core.FlatLambdaCDM(70.4, 0.272, Tcmb0=0 * u.K,
-                              m_nu=u.Quantity(0.4, u.eV))
+                              m_nu=str((0.4 * u.eV).to(u.g, u.mass_energy())))
     assert not tcos.has_massive_nu
     assert tcos.m_nu is None
 
@@ -1546,89 +1581,6 @@ def test_massivenu_density():
 
 
 @pytest.mark.skipif('not HAS_SCIPY')
-def test_z_at_value():
-    # These are tests of expected values, and hence have less precision
-    # than the roundtrip tests below (test_z_at_value_roundtrip);
-    # here we have to worry about the cosmological calculations
-    # giving slightly different values on different architectures,
-    # there we are checking internal consistency on the same architecture
-    # and so can be more demanding
-    z_at_value = funcs.z_at_value
-    cosmo = core.Planck13
-    d = cosmo.luminosity_distance(3)
-    assert allclose(z_at_value(cosmo.luminosity_distance, d), 3,
-                    rtol=1e-8)
-    assert allclose(z_at_value(cosmo.age, 2 * u.Gyr), 3.198122684356,
-                    rtol=1e-6)
-    assert allclose(z_at_value(cosmo.luminosity_distance, 1e4 * u.Mpc),
-                    1.3685790653802761, rtol=1e-6)
-    assert allclose(z_at_value(cosmo.lookback_time, 7 * u.Gyr),
-                    0.7951983674601507, rtol=1e-6)
-    assert allclose(z_at_value(cosmo.angular_diameter_distance, 1500*u.Mpc,
-                               zmax=2), 0.68127769625288614, rtol=1e-6)
-    assert allclose(z_at_value(cosmo.angular_diameter_distance, 1500*u.Mpc,
-                               zmin=2.5), 3.7914908028272083, rtol=1e-6)
-    assert allclose(z_at_value(cosmo.distmod, 46 * u.mag),
-                    1.9913891680278133, rtol=1e-6)
-
-    # test behavior when the solution is outside z limits (should
-    # raise a CosmologyError)
-    with pytest.raises(core.CosmologyError):
-        with pytest.warns(UserWarning, match=r'fval is not bracketed'):
-            z_at_value(cosmo.angular_diameter_distance, 1500*u.Mpc, zmax=0.5)
-
-    with pytest.raises(core.CosmologyError):
-        with pytest.warns(UserWarning, match=r'fval is not bracketed'):
-            z_at_value(cosmo.angular_diameter_distance, 1500*u.Mpc, zmin=4.)
-
-
-@pytest.mark.skipif('not HAS_SCIPY')
-def test_z_at_value_roundtrip():
-    """
-    Calculate values from a known redshift, and then check that
-    z_at_value returns the right answer.
-    """
-    z = 0.5
-
-    # Skip Ok, w, de_density_scale because in the Planck13 cosmology
-    # they are redshift independent and hence uninvertable,
-    # *_distance_z1z2 methods take multiple arguments, so require
-    # special handling
-    # clone isn't a redshift-dependent method
-    skip = ('Ok',
-            'angular_diameter_distance_z1z2',
-            'clone',
-            'de_density_scale', 'w')
-
-    import inspect
-    methods = inspect.getmembers(core.Planck13, predicate=inspect.ismethod)
-
-    for name, func in methods:
-        if name.startswith('_') or name in skip:
-            continue
-        print(f'Round-trip testing {name}')
-        fval = func(z)
-        # we need zmax here to pick the right solution for
-        # angular_diameter_distance and related methods.
-        # Be slightly more generous with rtol than the default 1e-8
-        # used in z_at_value
-        assert allclose(z, funcs.z_at_value(func, fval, zmax=1.5),
-                        rtol=2e-8)
-
-    # Test distance functions between two redshifts
-    z2 = 2.0
-    func_z1z2 = [lambda z1: core.Planck13._comoving_distance_z1z2(z1, z2),
-                 lambda z1:
-                 core.Planck13._comoving_transverse_distance_z1z2(z1, z2),
-                 lambda z1:
-                 core.Planck13.angular_diameter_distance_z1z2(z1, z2)]
-    for func in func_z1z2:
-        fval = func(z)
-        assert allclose(z, funcs.z_at_value(func, fval, zmax=1.5),
-                        rtol=2e-8)
-
-
-@pytest.mark.skipif('not HAS_SCIPY')
 def test_elliptic_comoving_distance_z1z2():
     """Regression test for #8388."""
     cosmo = core.LambdaCDM(70., 2.3, 0.05, Tcmb0=0)
@@ -1637,3 +1589,52 @@ def test_elliptic_comoving_distance_z1z2():
                     cosmo._integral_comoving_distance_z1z2(0., z))
     assert allclose(cosmo._elliptic_comoving_distance_z1z2(0., z),
                     cosmo._integral_comoving_distance_z1z2(0., z))
+
+
+SPECIALIZED_COMOVING_DISTANCE_COSMOLOGIES = [
+    core.FlatLambdaCDM(H0=70, Om0=0.0, Tcmb0=0.0),  # de Sitter
+    core.FlatLambdaCDM(H0=70, Om0=1.0, Tcmb0=0.0),  # Einstein - de Sitter
+    core.FlatLambdaCDM(H0=70, Om0=0.3, Tcmb0=0.0),  # Hypergeometric
+    core.LambdaCDM(H0=70, Om0=0.3, Ode0=0.6, Tcmb0=0.0),  # Elliptic
+]
+
+
+ITERABLE_REDSHIFTS = [
+    (0, 1, 2, 3, 4),  # tuple
+    [0, 1, 2, 3, 4],  # list
+    np.array([0, 1, 2, 3, 4]),  # array
+]
+
+
+@pytest.mark.skipif('not HAS_SCIPY')
+@pytest.mark.parametrize('cosmo', SPECIALIZED_COMOVING_DISTANCE_COSMOLOGIES)
+@pytest.mark.parametrize('z', ITERABLE_REDSHIFTS)
+def test_comoving_distance_iterable_argument(cosmo, z):
+    """
+    Regression test for #10980
+    Test that specialized comoving distance methods handle iterable arguments.
+    """
+
+    assert allclose(cosmo.comoving_distance(z),
+                    cosmo._integral_comoving_distance_z1z2(0., z))
+
+
+@pytest.mark.skipif('not HAS_SCIPY')
+@pytest.mark.parametrize('cosmo', SPECIALIZED_COMOVING_DISTANCE_COSMOLOGIES)
+def test_comoving_distance_broadcast(cosmo):
+    """
+    Regression test for #10980
+    Test that specialized comoving distance methods broadcast array arguments.
+    """
+
+    z1 = np.zeros((2, 5))
+    z2 = np.ones((3, 1, 5))
+    z3 = np.ones((7, 5))
+    output_shape = np.broadcast(z1, z2).shape
+
+    # Check compatible array arguments return an array with the correct shape
+    assert cosmo._comoving_distance_z1z2(z1, z2).shape == output_shape
+
+    # Check incompatible array arguments raise an error
+    with pytest.raises(ValueError, match='z1 and z2 have different shapes'):
+        cosmo._comoving_distance_z1z2(z1, z3)

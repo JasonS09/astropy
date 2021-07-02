@@ -1,16 +1,15 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 
-import functools
+import concurrent.futures
 import inspect
 import pickle
 
 import pytest
 
 from astropy.utils.decorators import (deprecated_attribute, deprecated, wraps,
-                                      sharedmethod, classproperty,
+                                      sharedmethod, classproperty, lazyproperty,
                                       format_doc, deprecated_renamed_argument)
 from astropy.utils.exceptions import AstropyDeprecationWarning, AstropyUserWarning
-from astropy.tests.helper import catch_warnings
 
 
 class NewDeprecationWarning(AstropyDeprecationWarning):
@@ -70,26 +69,17 @@ def test_deprecated_attribute():
 
     dummy = DummyClass()
 
-    with catch_warnings(AstropyDeprecationWarning) as wfoo:
+    with pytest.warns(AstropyDeprecationWarning, match="The foo attribute is "
+                      "deprecated and may be removed in a future version.") as w:
         dummy.foo
+    assert len(w) == 1
 
-    with catch_warnings(AstropyDeprecationWarning) as wbar:
+    with pytest.warns(NewDeprecationWarning, match="The bar attribute is "
+                      "deprecated and may be removed in a future version.") as w:
         dummy.bar
+    assert len(w) == 1
 
-    assert len(wfoo) == 1
-    assert str(wfoo[0].message) == ("The foo attribute is deprecated and may "
-                                    "be removed in a future version.")
-    assert wfoo[0].category == AstropyDeprecationWarning
-
-    assert len(wbar) == 1
-    assert str(wbar[0].message) == ("The bar attribute is deprecated and may "
-                                    "be removed in a future version.")
-    assert wbar[0].category == NewDeprecationWarning
-
-    with catch_warnings() as w:
-        dummy.set_private()
-
-    assert len(w) == 0
+    dummy.set_private()
 
 
 # This needs to be defined outside of the test function, because we
@@ -135,9 +125,8 @@ def test_deprecated_class():
                      '__subclasshook__', '__init_subclass__'):
             assert getattr(TA, x) == getattr(orig_A, x)
 
-    with catch_warnings(AstropyDeprecationWarning) as w:
+    with pytest.warns(AstropyDeprecationWarning) as w:
         TA()
-
     assert len(w) == 1
     if TA.__doc__ is not None:
         assert 'function' not in TA.__doc__
@@ -148,11 +137,9 @@ def test_deprecated_class():
     # Make sure the object is picklable
     pickle.dumps(TA)
 
-    with catch_warnings(NewDeprecationWarning) as w:
+    with pytest.warns(NewDeprecationWarning) as w:
         TC()
-
     assert len(w) == 1
-    assert w[0].category == NewDeprecationWarning
 
 
 def test_deprecated_class_with_new_method():
@@ -168,7 +155,7 @@ def test_deprecated_class_with_new_method():
             return super().__new__(cls)
 
     # Creating an instance should work but raise a DeprecationWarning
-    with catch_warnings(AstropyDeprecationWarning) as w:
+    with pytest.warns(AstropyDeprecationWarning) as w:
         A(1)
     assert len(w) == 1
 
@@ -181,7 +168,7 @@ def test_deprecated_class_with_new_method():
             pass
 
     # Creating an instance should work but raise a DeprecationWarning
-    with catch_warnings(AstropyDeprecationWarning) as w:
+    with pytest.warns(AstropyDeprecationWarning) as w:
         B(1)
     assert len(w) == 1
 
@@ -198,9 +185,8 @@ def test_deprecated_class_with_super():
         def __init__(self, a, b):
             super().__init__()
 
-    with catch_warnings(AstropyDeprecationWarning) as w:
+    with pytest.warns(AstropyDeprecationWarning) as w:
         TB(1, 2)
-
     assert len(w) == 1
     if TB.__doc__ is not None:
         assert 'function' not in TB.__doc__
@@ -215,9 +201,8 @@ def test_deprecated_class_with_custom_metaclass():
     other than type did not restore the metaclass properly.
     """
 
-    with catch_warnings(AstropyDeprecationWarning) as w:
+    with pytest.warns(AstropyDeprecationWarning) as w:
         TB()
-
     assert len(w) == 1
     assert type(TB) is TMeta
     assert TB.metaclass_attr == 1
@@ -244,16 +229,14 @@ def test_deprecated_static_and_classmethod():
         def C(cls):
             pass
 
-    with catch_warnings(AstropyDeprecationWarning) as w:
+    with pytest.warns(AstropyDeprecationWarning) as w:
         A.B()
-
     assert len(w) == 1
     if A.__doc__ is not None:
         assert 'deprecated' in A.B.__doc__
 
-    with catch_warnings(AstropyDeprecationWarning) as w:
+    with pytest.warns(AstropyDeprecationWarning) as w:
         A.C()
-
     assert len(w) == 1
     if A.__doc__ is not None:
         assert 'deprecated' in A.C.__doc__
@@ -295,20 +278,18 @@ def test_deprecated_argument():
         assert method(overwrite=1) == 1
 
         # Using the deprecated name
-        with catch_warnings(AstropyDeprecationWarning) as w:
+        with pytest.warns(AstropyDeprecationWarning, match=r"1\.3") as w:
             assert method(clobber=1) == 1
-            assert len(w) == 1
-            assert '1.3' in str(w[0].message)
-            assert 'test_decorators.py' in str(w[0].filename)
-
-            if method.__name__ == 'test4':
-                w[0].category == NewDeprecationWarning
+        assert len(w) == 1
+        assert 'test_decorators.py' in str(w[0].filename)
+        if method.__name__ == 'test4':
+            assert issubclass(w[0].category, NewDeprecationWarning)
 
         # Using both. Both keyword
-        with pytest.raises(TypeError):
+        with pytest.raises(TypeError), pytest.warns(AstropyDeprecationWarning):
             method(clobber=2, overwrite=1)
         # One positional, one keyword
-        with pytest.raises(TypeError):
+        with pytest.raises(TypeError), pytest.warns(AstropyDeprecationWarning):
             method(1, clobber=2)
 
 
@@ -328,17 +309,16 @@ def test_deprecated_argument_in_kwargs():
     assert test(overwrite=1) == 1
 
     # Using the deprecated name
-    with catch_warnings(AstropyDeprecationWarning) as w:
+    with pytest.warns(AstropyDeprecationWarning, match=r"1\.3") as w:
         assert test(clobber=1) == 1
-        assert len(w) == 1
-        assert '1.3' in str(w[0].message)
-        assert 'test_decorators.py' in str(w[0].filename)
+    assert len(w) == 1
+    assert 'test_decorators.py' in str(w[0].filename)
 
     # Using both. Both keyword
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError), pytest.warns(AstropyDeprecationWarning):
         test(clobber=2, overwrite=1)
     # One positional, one keyword
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError), pytest.warns(AstropyDeprecationWarning):
         test(1, clobber=2)
 
 
@@ -356,20 +336,23 @@ def test_deprecated_argument_relaxed():
     assert test(overwrite=1) == 1
 
     # Using the deprecated name
-    with catch_warnings(AstropyDeprecationWarning) as w:
+    with pytest.warns(AstropyDeprecationWarning, match=r"1\.3") as w:
         assert test(clobber=1) == 1
-        assert len(w) == 1
-        assert '1.3' in str(w[0].message)
+    assert len(w) == 1
 
     # Using both. Both keyword
-    with catch_warnings(AstropyUserWarning) as w:
+    with pytest.warns(AstropyUserWarning) as w:
         assert test(clobber=2, overwrite=1) == 1
-        assert len(w) == 1
+    assert len(w) == 2
+    assert '"clobber" was deprecated' in str(w[0].message)
+    assert '"clobber" and "overwrite" keywords were set' in str(w[1].message)
 
     # One positional, one keyword
-    with catch_warnings(AstropyUserWarning) as w:
+    with pytest.warns(AstropyUserWarning) as w:
         assert test(1, clobber=2) == 1
-        assert len(w) == 1
+    assert len(w) == 2
+    assert '"clobber" was deprecated' in str(w[0].message)
+    assert '"clobber" and "overwrite" keywords were set' in str(w[1].message)
 
 
 def test_deprecated_argument_pending():
@@ -386,19 +369,13 @@ def test_deprecated_argument_pending():
     assert test(overwrite=1) == 1
 
     # Using the deprecated name
-    with catch_warnings(AstropyUserWarning, AstropyDeprecationWarning) as w:
-        assert test(clobber=1) == 1
-        assert len(w) == 0
+    assert test(clobber=1) == 1
 
     # Using both. Both keyword
-    with catch_warnings(AstropyUserWarning, AstropyDeprecationWarning) as w:
-        assert test(clobber=2, overwrite=1) == 1
-        assert len(w) == 0
+    assert test(clobber=2, overwrite=1) == 1
 
     # One positional, one keyword
-    with catch_warnings(AstropyUserWarning, AstropyDeprecationWarning) as w:
-        assert test(1, clobber=2) == 1
-        assert len(w) == 0
+    assert test(1, clobber=2) == 1
 
 
 def test_deprecated_argument_multi_deprecation():
@@ -407,22 +384,22 @@ def test_deprecated_argument_multi_deprecation():
     def test(a, b, c):
         return a, b, c
 
-    with catch_warnings(AstropyDeprecationWarning) as w:
+    with pytest.warns(AstropyDeprecationWarning) as w:
         assert test(x=1, y=2, z=3) == (1, 2, 3)
-        assert len(w) == 3
+    assert len(w) == 3
 
     # Make sure relax is valid for all arguments
-    with catch_warnings(AstropyUserWarning) as w:
+    with pytest.warns(AstropyUserWarning) as w:
         assert test(x=1, y=2, z=3, b=3) == (1, 3, 3)
-        assert len(w) == 1
+    assert len(w) == 4
 
-    with catch_warnings(AstropyUserWarning) as w:
+    with pytest.warns(AstropyUserWarning) as w:
         assert test(x=1, y=2, z=3, a=3) == (3, 2, 3)
-        assert len(w) == 1
+    assert len(w) == 4
 
-    with catch_warnings(AstropyUserWarning) as w:
+    with pytest.warns(AstropyUserWarning) as w:
         assert test(x=1, y=2, z=3, c=5) == (1, 2, 5)
-        assert len(w) == 1
+    assert len(w) == 4
 
 
 def test_deprecated_argument_multi_deprecation_2():
@@ -431,15 +408,15 @@ def test_deprecated_argument_multi_deprecation_2():
     def test(a, b, c):
         return a, b, c
 
-    with catch_warnings(AstropyUserWarning) as w:
+    with pytest.warns(AstropyUserWarning) as w:
         assert test(x=1, y=2, z=3, b=3) == (1, 3, 3)
-        assert len(w) == 1
+    assert len(w) == 4
 
-    with catch_warnings(AstropyUserWarning) as w:
+    with pytest.warns(AstropyUserWarning) as w:
         assert test(x=1, y=2, z=3, a=3) == (3, 2, 3)
-        assert len(w) == 1
+    assert len(w) == 4
 
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError), pytest.warns(AstropyUserWarning):
         assert test(x=1, y=2, z=3, c=5) == (1, 2, 5)
 
 
@@ -466,19 +443,23 @@ def test_deprecated_argument_not_allowed_use():
 
 def test_deprecated_argument_remove():
     @deprecated_renamed_argument('x', None, '2.0', alternative='astropy.y')
-    def test(dummy=11):
-        return dummy
+    def test(dummy=11, x=3):
+        return dummy, x
 
-    with catch_warnings(AstropyDeprecationWarning) as w:
-        assert test(x=1) == 11
-        assert len(w) == 1
-        assert 'Use astropy.y instead' in str(w[0].message)
+    with pytest.warns(AstropyDeprecationWarning, match=r"Use astropy\.y instead") as w:
+        assert test(x=1) == (11, 1)
+    assert len(w) == 1
 
-    with catch_warnings(AstropyDeprecationWarning) as w:
-        assert test(x=1, dummy=10) == 10
-        assert len(w) == 1
+    with pytest.warns(AstropyDeprecationWarning) as w:
+        assert test(x=1, dummy=10) == (10, 1)
+    assert len(w) == 1
 
-    assert test() == 11
+    with pytest.warns(AstropyDeprecationWarning, match=r'Use astropy\.y instead'):
+        test(121, 1) == (121, 1)
+
+    assert test() == (11, 3)
+    assert test(121) == (121, 3)
+    assert test(dummy=121) == (121, 3)
 
 
 def test_sharedmethod_reuse_on_subclasses():
@@ -546,6 +527,60 @@ def test_classproperty_docstring():
         foo = classproperty(_get_foo, doc="The foo.")
 
     assert B.__dict__['foo'].__doc__ == "The foo."
+
+
+def test_classproperty_lazy_threadsafe(fast_thread_switching):
+    """
+    Test that a class property with lazy=True is thread-safe.
+    """
+    workers = 8
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+        # This is testing for race conditions, so try many times in the
+        # hope that we'll get the timing right.
+        for p in range(10000):
+
+            class A:
+                @classproperty(lazy=True)
+                def foo(cls):
+                    nonlocal calls
+                    calls += 1
+                    return object()
+
+            # Have all worker threads query in parallel
+            calls = 0
+            futures = [executor.submit(lambda: A.foo) for i in range(workers)]
+            # Check that only one call happened and they all received it
+            values = [future.result() for future in futures]
+            assert calls == 1
+            assert values[0] is not None
+            assert values == [values[0]] * workers
+
+
+def test_lazyproperty_threadsafe(fast_thread_switching):
+    """
+    Test thread safety of lazyproperty.
+    """
+    # This test is generally similar to test_classproperty_lazy_threadsafe
+    # above. See there for comments.
+
+    class A:
+        def __init__(self):
+            self.calls = 0
+
+        @lazyproperty
+        def foo(self):
+            self.calls += 1
+            return object()
+
+    workers = 8
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+        for p in range(10000):
+            a = A()
+            futures = [executor.submit(lambda: a.foo) for i in range(workers)]
+            values = [future.result() for future in futures]
+            assert a.calls == 1
+            assert a.foo is not None
+            assert values == [a.foo] * workers
 
 
 def test_format_doc_stringInput_simple():

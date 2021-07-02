@@ -38,7 +38,7 @@ def test_read_write_format(fmt):
     # Explicitly provide dtype to avoid casting 'a' to int32.
     # See https://github.com/astropy/astropy/issues/8682
     t = Table([[1, 2, 3], [1.0, 2.5, 5.0], ['a', 'b', 'c']],
-              dtype=(np.int64, np.float64, np.str))
+              dtype=(np.int64, np.float64, str))
     buf = StringIO()
     t.write(buf, format=pandas_fmt)
 
@@ -47,6 +47,28 @@ def test_read_write_format(fmt):
 
     assert t.colnames == t2.colnames
     assert np.all(t == t2)
+
+
+@pytest.mark.parametrize('fmt', WRITE_FMTS)
+def test_write_overwrite(tmpdir, fmt):
+    """Test overwriting."""
+    tmpfile = tmpdir.join('test.' +  fmt).strpath
+    pandas_fmt = 'pandas.' + fmt
+
+    # Explicitly provide dtype to avoid casting 'a' to int32.
+    # See https://github.com/astropy/astropy/issues/8682
+    t = Table([[1, 2, 3], [1.0, 2.5, 5.0], ['a', 'b', 'c']],
+              dtype=(np.int64, np.float64, str))
+
+    # works when file DNE
+    t.write(tmpfile, format=pandas_fmt)
+
+    # fails when cannot overwrite
+    with pytest.raises(OSError, match="already exists"):
+        t.write(tmpfile, format=pandas_fmt, overwrite=False)
+
+    # passes when it can
+    t.write(tmpfile, format=pandas_fmt, overwrite=True)
 
 
 def test_read_fixed_width_format():

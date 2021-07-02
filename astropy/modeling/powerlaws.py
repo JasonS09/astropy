@@ -2,11 +2,13 @@
 """
 Power law model variants
 """
+# pylint: disable=invalid-name
 import numpy as np
 
+from astropy.units import Quantity
 from .core import Fittable1DModel
 from .parameters import Parameter, InputParameterError
-from astropy.units import Quantity
+
 
 __all__ = ['PowerLaw1D', 'BrokenPowerLaw1D', 'SmoothlyBrokenPowerLaw1D',
            'ExponentialCutoffPowerLaw1D', 'LogParabola1D']
@@ -37,9 +39,9 @@ class PowerLaw1D(Fittable1DModel):
 
     """
 
-    amplitude = Parameter(default=1)
-    x_0 = Parameter(default=1)
-    alpha = Parameter(default=1)
+    amplitude = Parameter(default=1, description="Peak value at the reference point")
+    x_0 = Parameter(default=1, description="Reference point")
+    alpha = Parameter(default=1, description="Power law index")
 
     @staticmethod
     def evaluate(x, amplitude, x_0, alpha):
@@ -63,12 +65,11 @@ class PowerLaw1D(Fittable1DModel):
     def input_units(self):
         if self.x_0.unit is None:
             return None
-        else:
-            return {'x': self.x_0.unit}
+        return {self.inputs[0]: self.x_0.unit}
 
     def _parameter_units_for_data_units(self, inputs_unit, outputs_unit):
-        return {'x_0': inputs_unit['x'],
-                'amplitude': outputs_unit['y']}
+        return {'x_0': inputs_unit[self.inputs[0]],
+                'amplitude': outputs_unit[self.outputs[0]]}
 
 
 class BrokenPowerLaw1D(Fittable1DModel):
@@ -105,10 +106,10 @@ class BrokenPowerLaw1D(Fittable1DModel):
                    \\right.
     """
 
-    amplitude = Parameter(default=1)
-    x_break = Parameter(default=1)
-    alpha_1 = Parameter(default=1)
-    alpha_2 = Parameter(default=1)
+    amplitude = Parameter(default=1, description="Peak value at break point")
+    x_break = Parameter(default=1, description="Break point")
+    alpha_1 = Parameter(default=1, description="Power law index before break point")
+    alpha_2 = Parameter(default=1, description="Power law index after break point")
 
     @staticmethod
     def evaluate(x, amplitude, x_break, alpha_1, alpha_2):
@@ -137,12 +138,11 @@ class BrokenPowerLaw1D(Fittable1DModel):
     def input_units(self):
         if self.x_break.unit is None:
             return None
-        else:
-            return {'x': self.x_break.unit}
+        return {self.inputs[0]: self.x_break.unit}
 
     def _parameter_units_for_data_units(self, inputs_unit, outputs_unit):
-        return {'x_break': inputs_unit['x'],
-                'amplitude': outputs_unit['y']}
+        return {'x_break': inputs_unit[self.inputs[0]],
+                'amplitude': outputs_unit[self.outputs[0]]}
 
 
 class SmoothlyBrokenPowerLaw1D(Fittable1DModel):
@@ -238,11 +238,11 @@ class SmoothlyBrokenPowerLaw1D(Fittable1DModel):
 
     """
 
-    amplitude = Parameter(default=1, min=0)
-    x_break = Parameter(default=1)
-    alpha_1 = Parameter(default=-2)
-    alpha_2 = Parameter(default=2)
-    delta = Parameter(default=1, min=1.e-3)
+    amplitude = Parameter(default=1, min=0, description="Peak value at break point")
+    x_break = Parameter(default=1, description="Break point")
+    alpha_1 = Parameter(default=-2, description="Power law index before break point")
+    alpha_2 = Parameter(default=2, description="Power law index after break point")
+    delta = Parameter(default=1, min=1.e-3, description="Smoothness Parameter")
 
     @amplitude.validator
     def amplitude(self, value):
@@ -285,21 +285,21 @@ class SmoothlyBrokenPowerLaw1D(Fittable1DModel):
         # the `logt` value with an appropriate threshold.
         threshold = 30  # corresponding to exp(30) ~ 1e13
         i = logt > threshold
-        if (i.max()):
+        if i.max():
             # In this case the main formula reduces to a simple power
             # law with index `alpha_2`.
             f[i] = amplitude * xx[i] ** (-alpha_2) \
                    / (2. ** ((alpha_1 - alpha_2) * delta))
 
         i = logt < -threshold
-        if (i.max()):
+        if i.max():
             # In this case the main formula reduces to a simple power
             # law with index `alpha_1`.
             f[i] = amplitude * xx[i] ** (-alpha_1) \
                    / (2. ** ((alpha_1 - alpha_2) * delta))
 
         i = np.abs(logt) <= threshold
-        if (i.max()):
+        if i.max():
             # In this case the `t` value is "comparable" to 1, hence we
             # we will evaluate the whole formula.
             t = np.exp(logt[i])
@@ -309,8 +309,7 @@ class SmoothlyBrokenPowerLaw1D(Fittable1DModel):
 
         if return_unit:
             return Quantity(f, unit=return_unit, copy=False)
-        else:
-            return f
+        return f
 
     @staticmethod
     def fit_deriv(x, amplitude, x_break, alpha_1, alpha_2, delta):
@@ -332,7 +331,7 @@ class SmoothlyBrokenPowerLaw1D(Fittable1DModel):
 
         threshold = 30  # (see comments in SmoothlyBrokenPowerLaw1D.evaluate)
         i = logt > threshold
-        if (i.max()):
+        if i.max():
             f[i] = amplitude * xx[i] ** (-alpha_2) \
                    / (2. ** ((alpha_1 - alpha_2) * delta))
 
@@ -343,7 +342,7 @@ class SmoothlyBrokenPowerLaw1D(Fittable1DModel):
             d_delta[i] = f[i] * (-(alpha_1 - alpha_2) * np.log(2))
 
         i = logt < -threshold
-        if (i.max()):
+        if i.max():
             f[i] = amplitude * xx[i] ** (-alpha_1) \
                    / (2. ** ((alpha_1 - alpha_2) * delta))
 
@@ -354,7 +353,7 @@ class SmoothlyBrokenPowerLaw1D(Fittable1DModel):
             d_delta[i] = f[i] * (-(alpha_1 - alpha_2) * np.log(2))
 
         i = np.abs(logt) <= threshold
-        if (i.max()):
+        if i.max():
             t = np.exp(logt[i])
             r = (1. + t) / 2.
             f[i] = amplitude * xx[i] ** (-alpha_1) \
@@ -373,12 +372,11 @@ class SmoothlyBrokenPowerLaw1D(Fittable1DModel):
     def input_units(self):
         if self.x_break.unit is None:
             return None
-        else:
-            return {'x': self.x_break.unit}
+        return {self.inputs[0]: self.x_break.unit}
 
     def _parameter_units_for_data_units(self, inputs_unit, outputs_unit):
-        return {'x_break': inputs_unit['x'],
-                'amplitude': outputs_unit['y']}
+        return {'x_break': inputs_unit[self.inputs[0]],
+                'amplitude': outputs_unit[self.outputs[0]]}
 
 
 class ExponentialCutoffPowerLaw1D(Fittable1DModel):
@@ -408,10 +406,10 @@ class ExponentialCutoffPowerLaw1D(Fittable1DModel):
 
     """
 
-    amplitude = Parameter(default=1)
-    x_0 = Parameter(default=1)
-    alpha = Parameter(default=1)
-    x_cutoff = Parameter(default=1)
+    amplitude = Parameter(default=1, description="Peak value of model")
+    x_0 = Parameter(default=1, description="Reference point")
+    alpha = Parameter(default=1, description="Power law index")
+    x_cutoff = Parameter(default=1, description="Cutoff point")
 
     @staticmethod
     def evaluate(x, amplitude, x_0, alpha, x_cutoff):
@@ -438,13 +436,12 @@ class ExponentialCutoffPowerLaw1D(Fittable1DModel):
     def input_units(self):
         if self.x_0.unit is None:
             return None
-        else:
-            return {'x': self.x_0.unit}
+        return {self.inputs[0]: self.x_0.unit}
 
     def _parameter_units_for_data_units(self, inputs_unit, outputs_unit):
-        return {'x_0': inputs_unit['x'],
-                'x_cutoff': inputs_unit['x'],
-                'amplitude': outputs_unit['y']}
+        return {'x_0': inputs_unit[self.inputs[0]],
+                'x_cutoff': inputs_unit[self.inputs[0]],
+                'amplitude': outputs_unit[self.outputs[0]]}
 
 
 class LogParabola1D(Fittable1DModel):
@@ -474,10 +471,10 @@ class LogParabola1D(Fittable1DModel):
 
     """
 
-    amplitude = Parameter(default=1)
-    x_0 = Parameter(default=1)
-    alpha = Parameter(default=1)
-    beta = Parameter(default=0)
+    amplitude = Parameter(default=1, description="Peak value of model")
+    x_0 = Parameter(default=1, description="Reference point")
+    alpha = Parameter(default=1, description="Power law index")
+    beta = Parameter(default=0, description="Power law curvature")
 
     @staticmethod
     def evaluate(x, amplitude, x_0, alpha, beta):
@@ -505,9 +502,8 @@ class LogParabola1D(Fittable1DModel):
     def input_units(self):
         if self.x_0.unit is None:
             return None
-        else:
-            return {'x': self.x_0.unit}
+        return {self.inputs[0]: self.x_0.unit}
 
     def _parameter_units_for_data_units(self, inputs_unit, outputs_unit):
-        return {'x_0': inputs_unit['x'],
-                'amplitude': outputs_unit['y']}
+        return {'x_0': inputs_unit[self.inputs[0]],
+                'amplitude': outputs_unit[self.outputs[0]]}

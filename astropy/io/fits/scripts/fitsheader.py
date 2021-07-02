@@ -63,7 +63,19 @@ import argparse
 import numpy as np
 
 from astropy.io import fits
-from astropy import log
+from astropy import log, __version__
+
+
+DESCRIPTION = """
+Print the header(s) of a FITS file. Optional arguments allow the desired
+extension(s), keyword(s), and output format to be specified.
+Note that in the case of a compressed image, the decompressed header is
+shown by default.
+
+This script is part of the Astropy package. See
+https://docs.astropy.org/en/latest/io/fits/usage/scripts.html#module-astropy.io.fits.scripts.fitsheader
+for further documentation.
+""".strip()
 
 
 class ExtensionNotFoundException(Exception):
@@ -112,7 +124,7 @@ class HeaderFormatter:
             Keywords for which the value(s) should be returned.
             If not specified, then the entire header is returned.
 
-        compressed : boolean, optional
+        compressed : bool, optional
             If True, shows the header describing the compression, rather than
             the header obtained after decompression. (Affects FITS files
             containing `CompImageHDU` extensions only.)
@@ -177,7 +189,7 @@ class HeaderFormatter:
         keywords : list of str, optional
             Keywords for which the cards should be returned.
 
-        compressed : boolean, optional
+        compressed : bool, optional
             If True, shows the header describing the compression.
 
         Raises
@@ -194,7 +206,7 @@ class HeaderFormatter:
             else:
                 header = self._hdulist[hdukey].header
         except (IndexError, KeyError):
-            message = '{}: Extension {} not found.'.format(self.filename, hdukey)
+            message = f'{self.filename}: Extension {hdukey} not found.'
             if self.verbose:
                 log.warning(message)
             raise ExtensionNotFoundException(message)
@@ -359,7 +371,7 @@ def print_headers_as_comparison(args):
     if len(np.unique(hdus)) > 1:
         for tab in tables:
             new_column = table.Column(
-                ['{}:{}'.format(row['hdu'], row['keyword']) for row in tab])
+                [f"{row['hdu']}:{row['keyword']}" for row in tab])
             tab.add_column(new_column, name='hdu+keyword')
         keyword_column_name = 'hdu+keyword'
     else:
@@ -397,11 +409,13 @@ def main(args=None):
     """This is the main function called by the `fitsheader` script."""
 
     parser = argparse.ArgumentParser(
-        description=('Print the header(s) of a FITS file. '
-                     'Optional arguments allow the desired extension(s), '
-                     'keyword(s), and output format to be specified. '
-                     'Note that in the case of a compressed image, '
-                     'the decompressed header is shown by default.'))
+        description=DESCRIPTION,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+
+    parser.add_argument(
+        '--version', action='version',
+        version=f'%(prog)s {__version__}')
+
     parser.add_argument('-e', '--extension', metavar='HDU',
                         action='append', dest='extensions',
                         help='specify the extension by name or number; '

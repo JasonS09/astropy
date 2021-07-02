@@ -13,8 +13,9 @@ from astropy.config import set_temp_config, reload_config
 from astropy.utils.data import get_pkg_data_filename, get_pkg_data_fileobj
 from astropy.io.votable.table import parse, writeto
 from astropy.io.votable import tree, conf
-from astropy.io.votable.exceptions import VOWarning, W39
-from astropy.tests.helper import catch_warnings
+from astropy.io.votable.exceptions import VOWarning, W39, E25
+from astropy.table import Column, Table
+from astropy.units import Unit
 from astropy.utils.exceptions import AstropyDeprecationWarning
 
 
@@ -73,8 +74,6 @@ def test_table(tmpdir):
 
 
 def test_read_through_table_interface(tmpdir):
-    from astropy.table import Table
-
     with get_pkg_data_fileobj('data/regression.xml', encoding='binary') as fd:
         t = Table.read(fd, format='votable', table_id='main_table')
 
@@ -96,12 +95,17 @@ def test_read_through_table_interface(tmpdir):
 
 
 def test_read_through_table_interface2():
-    from astropy.table import Table
-
     with get_pkg_data_fileobj('data/regression.xml', encoding='binary') as fd:
         t = Table.read(fd, format='votable', table_id='last_table')
 
     assert len(t) == 0
+
+
+def test_pass_kwargs_through_table_interface():
+    # Table.read() should pass on keyword arguments meant for parse()
+    filename = get_pkg_data_filename('data/nonstandard_units.xml')
+    t = Table.read(filename, format='votable', unit_format='generic')
+    assert t['Flux1'].unit == Unit("erg / (Angstrom cm2 s)")
 
 
 def test_names_over_ids():
@@ -131,8 +135,6 @@ def test_table_read_with_unnamed_tables():
     """
     Issue #927
     """
-    from astropy.table import Table
-
     with get_pkg_data_fileobj('data/names.xml', encoding='binary') as fd:
         t = Table.read(fd, format='votable')
 
@@ -151,7 +153,6 @@ def test_votable_path_object():
 
 
 def test_from_table_without_mask():
-    from astropy.table import Table, Column
     t = Table()
     c = Column(data=[1, 2, 3], name='a')
     t.add_column(c)
@@ -160,7 +161,6 @@ def test_from_table_without_mask():
 
 
 def test_write_with_format():
-    from astropy.table import Table, Column
     t = Table()
     c = Column(data=[1, 2, 3], name='a')
     t.add_column(c)
@@ -186,6 +186,18 @@ def test_empty_table():
     astropy_table = table.to_table()  # noqa
 
 
+def test_no_field_not_empty_table():
+    votable = parse(get_pkg_data_filename('data/no_field_not_empty_table.xml'))
+    table = votable.get_first_table()
+    assert len(table.fields) == 0
+    assert len(table.infos) == 1
+
+
+def test_no_field_not_empty_table_exception():
+    with pytest.raises(E25):
+        parse(get_pkg_data_filename('data/no_field_not_empty_table.xml'), verify='exception')
+
+
 def test_binary2_masked_strings():
     """
     Issue #8995
@@ -206,19 +218,15 @@ class TestVerifyOptions:
     # Start off by checking the default (ignore)
 
     def test_default(self):
-        with catch_warnings(VOWarning) as w:
-            parse(get_pkg_data_filename('data/gemini.xml'))
-        assert len(w) == 0
+        parse(get_pkg_data_filename('data/gemini.xml'))
 
     # Then try the various explicit options
 
     def test_verify_ignore(self):
-        with catch_warnings(VOWarning) as w:
-            parse(get_pkg_data_filename('data/gemini.xml'), verify='ignore')
-        assert len(w) == 0
+        parse(get_pkg_data_filename('data/gemini.xml'), verify='ignore')
 
     def test_verify_warn(self):
-        with catch_warnings(VOWarning) as w:
+        with pytest.warns(VOWarning) as w:
             parse(get_pkg_data_filename('data/gemini.xml'), verify='warn')
         assert len(w) == 24
 
@@ -229,11 +237,9 @@ class TestVerifyOptions:
     # Make sure the pedantic option still works for now (pending deprecation)
 
     def test_pedantic_false(self):
-        with catch_warnings(VOWarning, AstropyDeprecationWarning) as w:
+        with pytest.warns(VOWarning) as w:
             parse(get_pkg_data_filename('data/gemini.xml'), pedantic=False)
         assert len(w) == 24
-        # Make sure we don't yet emit a deprecation warning
-        assert not any(isinstance(x.category, AstropyDeprecationWarning) for x in w)
 
     def test_pedantic_true(self):
         with pytest.raises(VOWarning):
@@ -243,13 +249,11 @@ class TestVerifyOptions:
 
     def test_conf_verify_ignore(self):
         with conf.set_temp('verify', 'ignore'):
-            with catch_warnings(VOWarning) as w:
-                parse(get_pkg_data_filename('data/gemini.xml'))
-            assert len(w) == 0
+            parse(get_pkg_data_filename('data/gemini.xml'))
 
     def test_conf_verify_warn(self):
         with conf.set_temp('verify', 'warn'):
-            with catch_warnings(VOWarning) as w:
+            with pytest.warns(VOWarning) as w:
                 parse(get_pkg_data_filename('data/gemini.xml'))
             assert len(w) == 24
 
@@ -269,11 +273,9 @@ class TestVerifyOptions:
 
             reload_config('astropy.io.votable')
 
-            with catch_warnings(VOWarning, AstropyDeprecationWarning) as w:
+            with pytest.warns(VOWarning) as w:
                 parse(get_pkg_data_filename('data/gemini.xml'))
             assert len(w) == 24
-            # Make sure we don't yet emit a deprecation warning
-            assert not any(isinstance(x.category, AstropyDeprecationWarning) for x in w)
 
     def test_conf_pedantic_true(self, tmpdir):
 

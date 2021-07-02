@@ -2,6 +2,11 @@
 Logging system
 **************
 
+.. note::
+
+    The Astropy logging system is meant for internal ``astropy`` usage. For use
+    in other packages, we recommend implementing your own logger instead.
+
 Overview
 ========
 
@@ -24,7 +29,7 @@ levels:
 
 * ERROR: indicates a more serious issue, including exceptions
 
-By default, only WARNING and ERROR messages are displayed, and are sent to a
+By default, INFO, WARNING and ERROR messages are displayed, and are sent to a
 log file located at ``~/.astropy/astropy.log`` (if the file is writeable).
 
 Configuring the logging system
@@ -36,7 +41,7 @@ First, import the logger::
 
 The threshold level (defined above) for messages can be set with e.g.::
 
-    log.setLevel('INFO')
+    log.setLevel('DEBUG')
 
 Color (enabled by default) can be disabled with::
 
@@ -157,4 +162,3 @@ Reference/API
 
 .. automodapi:: astropy.logger
     :no-inheritance-diagram:
-

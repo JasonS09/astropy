@@ -3,6 +3,7 @@
 import os
 import sys
 import re
+import fnmatch
 
 import numpy as np
 
@@ -81,7 +82,7 @@ def get_auto_format_func(
             return col.info._format_funcs[format_](format_, val)
 
         if callable(format_):
-            format_func = lambda format_, val: format_(val)
+            format_func = lambda format_, val: format_(val)  # noqa
             try:
                 out = format_func(format_, val)
                 if not isinstance(out, str):
@@ -95,8 +96,7 @@ def get_auto_format_func(
                 if val is np.ma.masked:
                     return str(val)
 
-                raise ValueError('Format function for value {} failed: {}'
-                                 .format(val, err))
+                raise ValueError(f'Format function for value {val} failed: {err}')
             # If the user-supplied function handles formatting masked elements, use
             # it directly.  Otherwise, wrap it in a function that traps them.
             try:
@@ -134,6 +134,30 @@ def get_auto_format_func(
         return out
 
     return _auto_format_func
+
+
+def _get_pprint_include_names(table):
+    """Get the set of names to show in pprint from the table pprint_include_names
+    and pprint_exclude_names attributes.
+
+    These may be fnmatch unix-style globs.
+    """
+    def get_matches(name_globs, default):
+        match_names = set()
+        if name_globs:  # For None or () use the default
+            for name in table.colnames:
+                for name_glob in name_globs:
+                    if fnmatch.fnmatch(name, name_glob):
+                        match_names.add(name)
+                        break
+        else:
+            match_names.update(default)
+        return match_names
+
+    include_names = get_matches(table.pprint_include_names(), table.colnames)
+    exclude_names = get_matches(table.pprint_exclude_names(), [])
+
+    return include_names - exclude_names
 
 
 class TableFormatter:
@@ -254,7 +278,7 @@ class TableFormatter:
                 if i == n_header - 1:
                     continue
                 td = 'th' if i < n_header else 'td'
-                val = '<{}>{}</{}>'.format(td, xml_escape(col_str.strip()), td)
+                val = f'<{td}>{xml_escape(col_str.strip())}</{td}>'
                 row = ('<tr>' + val + '</tr>')
                 if i < n_header:
                     row = ('<thead>' + row + '</thead>')
@@ -309,7 +333,7 @@ class TableFormatter:
                 col_strs[i] = getattr(col_str, justify_method)(*justify_args)
 
         if outs['show_length']:
-            col_strs.append('Length = {} rows'.format(len(col)))
+            col_strs.append(f'Length = {len(col)} rows')
 
         return col_strs, outs
 
@@ -357,8 +381,7 @@ class TableFormatter:
             # Get column name (or 'None' if not set)
             col_name = str(col.info.name)
             if multidims:
-                col_name += ' [{}]'.format(
-                    ','.join(str(n) for n in multidims))
+                col_name += f" [{','.join(str(n) for n in multidims)}]"
             n_header += 1
             yield col_name
         if show_unit:
@@ -371,7 +394,7 @@ class TableFormatter:
             try:
                 dtype = dtype_info_name(col.dtype)
             except AttributeError:
-                dtype = 'object'
+                dtype = col.__class__.__qualname__ or 'object'
             yield str(dtype)
         if show_unit or show_name or show_dtype:
             i_dashes = n_header
@@ -412,8 +435,8 @@ class TableFormatter:
         #    enclosed variables.
         col_format = col.info.format or getattr(col.info, 'default_format',
                                                 None)
-        pssf = (getattr(col.info, 'possible_string_format_functions', None) or
-                _possible_string_format_functions)
+        pssf = (getattr(col.info, 'possible_string_format_functions', None)
+                or _possible_string_format_functions)
         auto_format_func = get_auto_format_func(col, pssf)
         format_func = col.info._format_funcs.get(col_format, auto_format_func)
 
@@ -453,7 +476,7 @@ class TableFormatter:
                     raise ValueError(
                         'Unable to parse format string "{}" for entry "{}" '
                         'in column "{}"'.format(col_format, col[idx],
-                                                 col.info.name))
+                                                col.info.name))
 
         outs['show_length'] = show_length
         outs['n_header'] = n_header
@@ -493,7 +516,7 @@ class TableFormatter:
             "table{id}", where id is the unique integer id of the table object,
             id(table)
 
-        tableclass : str or list of str or `None`
+        tableclass : str or list of str or None
             CSS classes for the table; only used if html is set.  Default is
             none
 
@@ -535,7 +558,14 @@ class TableFormatter:
             raise TypeError('align keyword must be str or list or tuple (got {})'
                             .format(type(align)))
 
+        # Process column visibility from table pprint_include_names and
+        # pprint_exclude_names attributes and get the set of columns to show.
+        pprint_include_names = _get_pprint_include_names(table)
+
         for align_, col in zip(align, table.columns.values()):
+            if col.info.name not in pprint_include_names:
+                continue
+
             lines, outs = self._pformat_col(col, max_lines, show_name=show_name,
                                             show_unit=show_unit, show_dtype=show_dtype,
                                             align=align_)
@@ -550,7 +580,10 @@ class TableFormatter:
         n_header = outs['n_header']
 
         n_rows = len(cols[0])
-        outwidth = lambda cols: sum(len(c[0]) for c in cols) + len(cols) - 1
+
+        def outwidth(cols):
+            return sum(len(c[0]) for c in cols) + len(cols) - 1
+
         dots_col = ['...'] * n_rows
         middle = len(cols) // 2
         while outwidth(cols) > max_width:
@@ -571,13 +604,12 @@ class TableFormatter:
             from astropy.utils.xml.writer import xml_escape
 
             if tableid is None:
-                tableid = 'table{id}'.format(id=id(table))
+                tableid = f'table{id(table)}'
 
             if tableclass is not None:
                 if isinstance(tableclass, list):
                     tableclass = ' '.join(tableclass)
-                rows.append('<table id="{tid}" class="{tcls}">'.format(
-                    tid=tableid, tcls=tableclass))
+                rows.append(f'<table id="{tableid}" class="{tableclass}">')
             else:
                 rows.append(f'<table id="{tableid}">')
 
@@ -586,7 +618,7 @@ class TableFormatter:
                 if i == n_header - 1:
                     continue
                 td = 'th' if i < n_header else 'td'
-                vals = ('<{}>{}</{}>'.format(td, xml_escape(col[i].strip()), td)
+                vals = (f'<{td}>{xml_escape(col[i].strip())}</{td}>'
                         for col in cols)
                 row = ('<tr>' + ''.join(vals) + '</tr>')
                 if i < n_header:

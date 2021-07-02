@@ -36,7 +36,7 @@ version of astropy on your computer:
    account on `github`_ yet, go there now and make one).
 #. :ref:`check_git_install`
 #. :ref:`clone_your_fork`; this is called making a *clone* of the repository.
-#. :ref:`set_upstream_master`
+#. :ref:`set_upstream_main`
 #. :ref:`make_a_branch`; this is called making a *branch*.
 #. :ref:`activate_development_astropy`
 #. :ref:`test_installation`
@@ -136,7 +136,7 @@ on what kind of authentication you set up in the previous step::
 If there is an error at this stage it is probably an error in setting up
 authentication.
 
-.. _set_upstream_master:
+.. _set_upstream_main:
 
 Tell git where to look for changes in the development version of Astropy
 ------------------------------------------------------------------------
@@ -184,11 +184,11 @@ Your repository already has several branches; see them if you want by running
 ``git branch -a``. Most of them are on ``remotes/origin``; in other words,
 they exist on your remote copy of astropy on GitHub.
 
-There is one special branch, called *master*. Right now it is the one you are
+There is one special branch, called *main*. Right now it is the one you are
 working on; you can tell because it has a marker next to it in your list of
-branches: ``* master``.
+branches: ``* main``.
 
-To make a long story short, you never want to work on master. Always work on a branch.
+To make a long story short, you never want to work on main. Always work on a branch.
 
 To avoid potential confusion down the road, make your own branch now; this
 one you can call anything you like (when making contributions you should use
@@ -199,10 +199,10 @@ a meaningful more name)::
 You are *not quite* done yet. Git knows about this new branch; run
 ``git branch`` and you get::
 
-    * master
+    * main
       my-own-astropy
 
-The ``*`` indicates you are still working on master. To work on your branch
+The ``*`` indicates you are still working on main. To work on your branch
 instead you need to *check out* the branch ``my-own-astropy``. Do that with::
 
     git checkout my-own-astropy
@@ -274,13 +274,15 @@ Testing is an important part of making sure astropy produces reliable,
 reproducible results. Before you try out a new feature or think you have found
 a bug make sure the tests run properly on your system.
 
+Before running your tests, please see :ref:`testing-dependencies`.
+
 If the test *don't* complete successfully, that is itself a bug--please
 `report it <https://github.com/astropy/astropy/issues>`_.
 
 To run the tests, navigate back to the directory your copy of astropy is in on
 your computer, then, at the shell prompt, type::
 
-    python setup.py test
+    pytest
 
 This is another good time to get some coffee or tea. The number of test is
 large. When the test are done running you will see a message something like

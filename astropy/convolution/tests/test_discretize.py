@@ -11,12 +11,7 @@ from astropy.modeling.functional_models import (
     Gaussian1D, Box1D, RickerWavelet1D, Gaussian2D, Box2D, RickerWavelet2D)
 from astropy.modeling.tests.example_models import models_1D, models_2D
 from astropy.modeling.tests.test_models import create_model
-
-try:
-    import scipy  # pylint: disable=W0611
-    HAS_SCIPY = True
-except ImportError:
-    HAS_SCIPY = False
+from astropy.utils.compat.optional_deps import HAS_SCIPY  # noqa
 
 
 modes = ['center', 'linear_interp', 'oversample']
@@ -183,7 +178,7 @@ def test_float_x_range_exception():
         return x ** 2 + y ** 2
     with pytest.raises(ValueError) as exc:
         discretize_model(f, (-10.002, 11.23))
-    assert exc.value.args[0] == ("The difference between the upper an lower"
+    assert exc.value.args[0] == ("The difference between the upper and lower"
                                  " limit of 'x_range' must be a whole number.")
 
 
@@ -192,7 +187,7 @@ def test_float_y_range_exception():
         return x ** 2 + y ** 2
     with pytest.raises(ValueError) as exc:
         discretize_model(f, (-10, 11), (-10.002, 11.23))
-    assert exc.value.args[0] == ("The difference between the upper an lower"
+    assert exc.value.args[0] == ("The difference between the upper and lower"
                                  " limit of 'y_range' must be a whole number.")
 
 

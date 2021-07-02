@@ -1,25 +1,29 @@
-
 import re
 import copy
+import warnings
+import operator
 
 import numpy as np
+import erfa
 
-from astropy import _erfa as erfa
 from astropy.utils.compat.misc import override__dir__
 from astropy import units as u
 from astropy.constants import c as speed_of_light
-from astropy.wcs.utils import skycoord_to_pixel, pixel_to_skycoord
 from astropy.utils.data_info import MixinInfo
 from astropy.utils import ShapedLikeNDArray
 from astropy.time import Time
+from astropy.utils.exceptions import AstropyUserWarning
 
 from .distances import Distance
 from .angles import Angle
 from .baseframe import (BaseCoordinateFrame, frame_transform_graph,
                         GenericFrame)
 from .builtin_frames import ICRS, SkyOffsetFrame
-from .representation import (SphericalRepresentation,
-                             UnitSphericalRepresentation, SphericalDifferential)
+from .representation import (RadialDifferential, SphericalDifferential,
+                             SphericalRepresentation,
+                             UnitSphericalCosLatDifferential,
+                             UnitSphericalDifferential,
+                             UnitSphericalRepresentation)
 from .sky_coordinate_parsers import (_get_frame_class, _get_frame_without_data,
                                      _parse_coordinate_data)
 
@@ -64,21 +68,91 @@ class SkyCoordInfo(MixinInfo):
         return repr_data
 
     def _represent_as_dict(self):
-        obj = self._parent
-        attrs = (list(obj.representation_component_names) +
-                 list(frame_transform_graph.frame_attributes.keys()))
+        sc = self._parent
+        attrs = list(sc.representation_component_names)
 
-        # Don't output distance if it is all unitless 1.0
-        if 'distance' in attrs and np.all(obj.distance == 1.0):
-            attrs.remove('distance')
+        # Don't output distance unless it's actually distance.
+        if isinstance(sc.data, UnitSphericalRepresentation):
+            attrs = attrs[:-1]
+
+        diff = sc.data.differentials.get('s')
+        if diff is not None:
+            diff_attrs = list(sc.get_representation_component_names('s'))
+            # Don't output proper motions if they haven't been specified.
+            if isinstance(diff, RadialDifferential):
+                diff_attrs = diff_attrs[2:]
+            # Don't output radial velocity unless it's actually velocity.
+            elif isinstance(diff, (UnitSphericalDifferential,
+                                   UnitSphericalCosLatDifferential)):
+                diff_attrs = diff_attrs[:-1]
+            attrs.extend(diff_attrs)
+
+        attrs.extend(frame_transform_graph.frame_attributes.keys())
 
         out = super()._represent_as_dict(attrs)
 
-        out['representation_type'] = obj.representation_type.get_name()
-        out['frame'] = obj.frame.name
-        # Note that obj.info.unit is a fake composite unit (e.g. 'deg,deg,None'
+        out['representation_type'] = sc.representation_type.get_name()
+        out['frame'] = sc.frame.name
+        # Note that sc.info.unit is a fake composite unit (e.g. 'deg,deg,None'
         # or None,None,m) and is not stored.  The individual attributes have
         # units.
+
+        return out
+
+    def new_like(self, skycoords, length, metadata_conflicts='warn', name=None):
+        """
+        Return a new SkyCoord instance which is consistent with the input
+        SkyCoord objects ``skycoords`` and has ``length`` rows.  Being
+        "consistent" is defined as being able to set an item from one to each of
+        the rest without any exception being raised.
+
+        This is intended for creating a new SkyCoord instance whose elements can
+        be set in-place for table operations like join or vstack.  This is used
+        when a SkyCoord object is used as a mixin column in an astropy Table.
+
+        The data values are not predictable and it is expected that the consumer
+        of the object will fill in all values.
+
+        Parameters
+        ----------
+        skycoords : list
+            List of input SkyCoord objects
+        length : int
+            Length of the output skycoord object
+        metadata_conflicts : str ('warn'|'error'|'silent')
+            How to handle metadata conflicts
+        name : str
+            Output name (sets output skycoord.info.name)
+
+        Returns
+        -------
+        skycoord : SkyCoord (or subclass)
+            Instance of this class consistent with ``skycoords``
+
+        """
+        # Get merged info attributes like shape, dtype, format, description, etc.
+        attrs = self.merge_cols_attributes(skycoords, metadata_conflicts, name,
+                                           ('meta', 'description'))
+        skycoord0 = skycoords[0]
+
+        # Make a new SkyCoord object with the desired length and attributes
+        # by using the _apply / __getitem__ machinery to effectively return
+        # skycoord0[[0, 0, ..., 0, 0]]. This will have the all the right frame
+        # attributes with the right shape.
+        indexes = np.zeros(length, dtype=np.int64)
+        out = skycoord0[indexes]
+
+        # Use __setitem__ machinery to check for consistency of all skycoords
+        for skycoord in skycoords[1:]:
+            try:
+                out[0] = skycoord[0]
+            except Exception as err:
+                raise ValueError(f'input skycoords are inconsistent: {err}')
+
+        # Set (merged) info attributes
+        for attr in ('name', 'meta', 'description'):
+            if attr in attrs:
+                setattr(out.info, attr, attrs[attr])
 
         return out
 
@@ -104,7 +178,7 @@ class SkyCoord(ShapedLikeNDArray):
     argument ``representation_type='cartesian'`` (for example) along with data
     in ``x``, ``y``, and ``z``.
 
-    See also: http://docs.astropy.org/en/stable/coordinates/
+    See also: https://docs.astropy.org/en/stable/coordinates/
 
     Examples
     --------
@@ -123,8 +197,8 @@ class SkyCoord(ShapedLikeNDArray):
       >>> c = SkyCoord(10, 20, unit="deg")  # defaults to ICRS frame
       >>> c = SkyCoord([1, 2, 3], [-30, 45, 8], frame="icrs", unit="deg")  # 3 coords
 
-      >>> coords = ["1:12:43.2 +1:12:43", "1 12 43.2 +1 12 43"]
-      >>> c = SkyCoord(coords, frame=FK4, unit=(u.deg, u.hourangle), obstime="J1992.21")
+      >>> coords = ["1:12:43.2 +31:12:43", "1 12 43.2 +31 12 43"]
+      >>> c = SkyCoord(coords, frame=FK4, unit=(u.hourangle, u.deg), obstime="J1992.21")
 
       >>> c = SkyCoord("1h12m43.2s +1d12m43s", frame=Galactic)  # Units from string
       >>> c = SkyCoord(frame="galactic", l="1h12m43.2s", b="+1d12m43s")
@@ -162,13 +236,15 @@ class SkyCoord(ShapedLikeNDArray):
         Type of coordinate frame this `SkyCoord` should represent. Defaults to
         to ICRS if not given or given as None.
     unit : `~astropy.units.Unit`, string, or tuple of :class:`~astropy.units.Unit` or str, optional
-        Units for supplied ``LON`` and ``LAT`` values, respectively.  If
-        only one unit is supplied then it applies to both ``LON`` and
-        ``LAT``.
-    obstime : valid `~astropy.time.Time` initializer, optional
+        Units for supplied coordinate values.
+        If only one unit is supplied then it applies to all values.
+        Note that passing only one unit might lead to unit conversion errors
+        if the coordinate values are expected to have mixed physical meanings
+        (e.g., angles and distances).
+    obstime : time-like, optional
         Time(s) of observation.
-    equinox : valid `~astropy.time.Time` initializer, optional
-        Coordinate frame equinox.
+    equinox : time-like, optional
+        Coordinate frame equinox time.
     representation_type : str or Representation class
         Specifies the representation, e.g. 'spherical', 'cartesian', or
         'cylindrical'.  This affects the positional args and other keyword args
@@ -180,24 +256,24 @@ class SkyCoord(ShapedLikeNDArray):
         Other keyword arguments as applicable for user-defined coordinate frames.
         Common options include:
 
-        ra, dec : valid `~astropy.coordinates.Angle` initializer, optional
+        ra, dec : angle-like, optional
             RA and Dec for frames where ``ra`` and ``dec`` are keys in the
             frame's ``representation_component_names``, including `ICRS`,
             `FK5`, `FK4`, and `FK4NoETerms`.
-        pm_ra_cosdec, pm_dec  : `~astropy.units.Quantity`, optional
+        pm_ra_cosdec, pm_dec  : `~astropy.units.Quantity` ['angular speed'], optional
             Proper motion components, in angle per time units.
-        l, b : valid `~astropy.coordinates.Angle` initializer, optional
+        l, b : angle-like, optional
             Galactic ``l`` and ``b`` for for frames where ``l`` and ``b`` are
             keys in the frame's ``representation_component_names``, including
             the `Galactic` frame.
-        pm_l_cosb, pm_b : `~astropy.units.Quantity`, optional
+        pm_l_cosb, pm_b : `~astropy.units.Quantity` ['angular speed'], optional
             Proper motion components in the `Galactic` frame, in angle per time
             units.
-        x, y, z : float or `~astropy.units.Quantity`, optional
+        x, y, z : float or `~astropy.units.Quantity` ['length'], optional
             Cartesian coordinates values
-        u, v, w : float or `~astropy.units.Quantity`, optional
+        u, v, w : float or `~astropy.units.Quantity` ['length'], optional
             Cartesian coordinates values for the Galactic frame.
-        radial_velocity : `~astropy.units.Quantity`, optional
+        radial_velocity : `~astropy.units.Quantity` ['speed'], optional
             The component of the velocity along the line-of-sight (i.e., the
             radial direction), in velocity units.
     """
@@ -297,13 +373,36 @@ class SkyCoord(ShapedLikeNDArray):
     def shape(self):
         return self.frame.shape
 
+    def __eq__(self, value):
+        """Equality operator for SkyCoord
+
+        This implements strict equality and requires that the frames are
+        equivalent, extra frame attributes are equivalent, and that the
+        representation data are exactly equal.
+        """
+        if not isinstance(value, SkyCoord):
+            return NotImplemented
+        # Make sure that any extra frame attribute names are equivalent.
+        for attr in self._extra_frameattr_names | value._extra_frameattr_names:
+            if not self.frame._frameattr_equiv(getattr(self, attr),
+                                               getattr(value, attr)):
+                raise ValueError(f"cannot compare: extra frame attribute "
+                                 f"'{attr}' is not equivalent "
+                                 f"(perhaps compare the frames directly to avoid "
+                                 f"this exception)")
+
+        return self._sky_coord_frame == value._sky_coord_frame
+
+    def __ne__(self, value):
+        return np.logical_not(self == value)
+
     def _apply(self, method, *args, **kwargs):
         """Create a new instance, applying a method to the underlying data.
 
         In typical usage, the method is any of the shape-changing methods for
         `~numpy.ndarray` (``reshape``, ``swapaxes``, etc.), as well as those
         picking particular elements (``__getitem__``, ``take``, etc.), which
-        are all defined in `~astropy.utils.misc.ShapedLikeNDArray`. It will be
+        are all defined in `~astropy.utils.shapes.ShapedLikeNDArray`. It will be
         applied to the underlying arrays in the representation (e.g., ``x``,
         ``y``, and ``z`` for `~astropy.coordinates.CartesianRepresentation`),
         as well as to any frame attributes that have a shape, with the results
@@ -338,7 +437,7 @@ class SkyCoord(ShapedLikeNDArray):
         new._extra_frameattr_names = self._extra_frameattr_names.copy()
         for attr in self._extra_frameattr_names:
             value = getattr(self, attr)
-            if getattr(value, 'size', 1) > 1:
+            if getattr(value, 'shape', ()):
                 value = apply_method(value)
             elif method == 'copy' or method == 'flatten':
                 # flatten should copy also for a single element array, but
@@ -354,6 +453,139 @@ class SkyCoord(ShapedLikeNDArray):
             new.info = self.info
 
         return new
+
+    def __setitem__(self, item, value):
+        """Implement self[item] = value for SkyCoord
+
+        The right hand ``value`` must be strictly consistent with self:
+        - Identical class
+        - Equivalent frames
+        - Identical representation_types
+        - Identical representation differentials keys
+        - Identical frame attributes
+        - Identical "extra" frame attributes (e.g. obstime for an ICRS coord)
+
+        With these caveats the setitem ends up as effectively a setitem on
+        the representation data.
+
+          self.frame.data[item] = value.frame.data
+        """
+        if self.__class__ is not value.__class__:
+            raise TypeError(f'can only set from object of same class: '
+                            f'{self.__class__.__name__} vs. '
+                            f'{value.__class__.__name__}')
+
+        # Make sure that any extra frame attribute names are equivalent.
+        for attr in self._extra_frameattr_names | value._extra_frameattr_names:
+            if not self.frame._frameattr_equiv(getattr(self, attr),
+                                               getattr(value, attr)):
+                raise ValueError(f'attribute {attr} is not equivalent')
+
+        # Set the frame values.  This checks frame equivalence and also clears
+        # the cache to ensure that the object is not in an inconsistent state.
+        self._sky_coord_frame[item] = value._sky_coord_frame
+
+    def insert(self, obj, values, axis=0):
+        """
+        Insert coordinate values before the given indices in the object and
+        return a new Frame object.
+
+        The values to be inserted must conform to the rules for in-place setting
+        of ``SkyCoord`` objects.
+
+        The API signature matches the ``np.insert`` API, but is more limited.
+        The specification of insert index ``obj`` must be a single integer,
+        and the ``axis`` must be ``0`` for simple insertion before the index.
+
+        Parameters
+        ----------
+        obj : int
+            Integer index before which ``values`` is inserted.
+        values : array-like
+            Value(s) to insert.  If the type of ``values`` is different
+            from that of quantity, ``values`` is converted to the matching type.
+        axis : int, optional
+            Axis along which to insert ``values``.  Default is 0, which is the
+            only allowed value and will insert a row.
+
+        Returns
+        -------
+        out : `~astropy.coordinates.SkyCoord` instance
+            New coordinate object with inserted value(s)
+
+        """
+        # Validate inputs: obj arg is integer, axis=0, self is not a scalar, and
+        # input index is in bounds.
+        try:
+            idx0 = operator.index(obj)
+        except TypeError:
+            raise TypeError('obj arg must be an integer')
+
+        if axis != 0:
+            raise ValueError('axis must be 0')
+
+        if not self.shape:
+            raise TypeError('cannot insert into scalar {} object'
+                            .format(self.__class__.__name__))
+
+        if abs(idx0) > len(self):
+            raise IndexError('index {} is out of bounds for axis 0 with size {}'
+                             .format(idx0, len(self)))
+
+        # Turn negative index into positive
+        if idx0 < 0:
+            idx0 = len(self) + idx0
+
+        n_values = len(values) if values.shape else 1
+
+        # Finally make the new object with the correct length and set values for the
+        # three sections, before insert, the insert, and after the insert.
+        out = self.__class__.info.new_like([self], len(self) + n_values, name=self.info.name)
+
+        # Set the output values. This is where validation of `values` takes place to ensure
+        # that it can indeed be inserted.
+        out[:idx0] = self[:idx0]
+        out[idx0:idx0 + n_values] = values
+        out[idx0 + n_values:] = self[idx0:]
+
+        return out
+
+    def is_transformable_to(self, new_frame):
+        """
+        Determines if this coordinate frame can be transformed to another
+        given frame.
+
+        Parameters
+        ----------
+        new_frame : frame class, frame object, or str
+            The proposed frame to transform into.
+
+        Returns
+        -------
+        transformable : bool or str
+            `True` if this can be transformed to ``new_frame``, `False` if
+            not, or the string 'same' if ``new_frame`` is the same system as
+            this object but no transformation is defined.
+
+        Notes
+        -----
+        A return value of 'same' means the transformation will work, but it will
+        just give back a copy of this object.  The intended usage is::
+
+            if coord.is_transformable_to(some_unknown_frame):
+                coord2 = coord.transform_to(some_unknown_frame)
+
+        This will work even if ``some_unknown_frame``  turns out to be the same
+        frame class as ``coord``.  This is intended for cases where the frame
+        is the same regardless of the frame attributes (e.g. ICRS), but be
+        aware that it *might* also indicate that someone forgot to define the
+        transformation between two objects of the same frame class but with
+        different attributes.
+        """
+        # TODO! like matplotlib, do string overrides for modified methods
+        new_frame = (_get_frame_class(new_frame) if isinstance(new_frame, str)
+                     else new_frame)
+        return self.frame.is_transformable_to(new_frame)
 
     def transform_to(self, frame, merge_attributes=True):
         """Transform this coordinate to a new frame.
@@ -447,6 +679,13 @@ class SkyCoord(ShapedLikeNDArray):
                      set(frame_kwargs.keys())):
             frame_kwargs.pop(attr)
 
+        # Always remove the origin frame attribute, as that attribute only makes
+        # sense with a SkyOffsetFrame (in which case it will be stored on the frame).
+        # See gh-11277.
+        # TODO: Should it be a property of the frame attribute that it can
+        # or cannot be stored on a SkyCoord?
+        frame_kwargs.pop('origin', None)
+
         return self.__class__(new_coord, **frame_kwargs)
 
     def apply_space_motion(self, new_obstime=None, dt=None):
@@ -536,26 +775,33 @@ class SkyCoord(ShapedLikeNDArray):
         icrsrep = self.icrs.represent_as(SphericalRepresentation, SphericalDifferential)
         icrsvel = icrsrep.differentials['s']
 
+        parallax_zero = False
         try:
             plx = icrsrep.distance.to_value(u.arcsecond, u.parallax())
         except u.UnitConversionError:  # No distance: set to 0 by convention
             plx = 0.
+            parallax_zero = True
 
         try:
             rv = icrsvel.d_distance.to_value(u.km/u.s)
         except u.UnitConversionError:  # No RV
             rv = 0.
 
-        starpm = erfa.starpm(icrsrep.lon.radian, icrsrep.lat.radian,
+        starpm = erfa.pmsafe(icrsrep.lon.radian, icrsrep.lat.radian,
                              icrsvel.d_lon.to_value(u.radian/u.yr),
                              icrsvel.d_lat.to_value(u.radian/u.yr),
                              plx, rv, t1.jd1, t1.jd2, t2.jd1, t2.jd2)
+
+        if parallax_zero:
+            new_distance = None
+        else:
+            new_distance = Distance(parallax=starpm[4] << u.arcsec)
 
         icrs2 = ICRS(ra=u.Quantity(starpm[0], u.radian, copy=False),
                      dec=u.Quantity(starpm[1], u.radian, copy=False),
                      pm_ra=u.Quantity(starpm[2], u.radian/u.yr, copy=False),
                      pm_dec=u.Quantity(starpm[3], u.radian/u.yr, copy=False),
-                     distance=Distance(parallax=starpm[4] * u.arcsec, copy=False),
+                     distance=new_distance,
                      radial_velocity=u.Quantity(starpm[5], u.km/u.s, copy=False),
                      differential_type=SphericalDifferential)
 
@@ -576,7 +822,7 @@ class SkyCoord(ShapedLikeNDArray):
     def __getattr__(self, attr):
         """
         Overrides getattr to return coordinates that this can be transformed
-        to, based on the alias attr in the master transform graph.
+        to, based on the alias attr in the primary transform graph.
         """
         if '_sky_coord_frame' in self.__dict__:
             if self._is_name(attr):
@@ -739,7 +985,7 @@ class SkyCoord(ShapedLikeNDArray):
             lonargs.update(styles[style]['lonargs'])
             latargs.update(styles[style]['latargs'])
         else:
-            raise ValueError('Invalid style.  Valid options are: {}'.format(",".join(styles)))
+            raise ValueError(f"Invalid style.  Valid options are: {','.join(styles)}")
 
         lonargs.update(kwargs)
         latargs.update(kwargs)
@@ -789,7 +1035,8 @@ class SkyCoord(ShapedLikeNDArray):
                 return False
 
             for fattrnm in frame_transform_graph.frame_attributes:
-                if np.any(getattr(self, fattrnm) != getattr(other, fattrnm)):
+                if not BaseCoordinateFrame._frameattr_equiv(getattr(self, fattrnm),
+                                                            getattr(other, fattrnm)):
                     return False
             return True
         else:
@@ -811,7 +1058,7 @@ class SkyCoord(ShapedLikeNDArray):
             not give the same answer in this case.
 
         For more on how to use this (and related) functionality, see the
-        examples in :doc:`/coordinates/matchsep`.
+        examples in :doc:`astropy:/coordinates/matchsep`.
 
         Parameters
         ----------
@@ -836,7 +1083,8 @@ class SkyCoord(ShapedLikeNDArray):
 
         if not self.is_equivalent_frame(other):
             try:
-                other = other.transform_to(self, merge_attributes=False)
+                kwargs = {'merge_attributes': False} if isinstance(other, SkyCoord) else {}
+                other = other.transform_to(self, **kwargs)
             except TypeError:
                 raise TypeError('Can only get separation to another SkyCoord '
                                 'or a coordinate frame with data')
@@ -856,7 +1104,7 @@ class SkyCoord(ShapedLikeNDArray):
         and another.
 
         For more on how to use this (and related) functionality, see the
-        examples in :doc:`/coordinates/matchsep`.
+        examples in :doc:`astropy:/coordinates/matchsep`.
 
         Parameters
         ----------
@@ -875,7 +1123,8 @@ class SkyCoord(ShapedLikeNDArray):
         """
         if not self.is_equivalent_frame(other):
             try:
-                other = other.transform_to(self, merge_attributes=False)
+                kwargs = {'merge_attributes': False} if isinstance(other, SkyCoord) else {}
+                other = other.transform_to(self, **kwargs)
             except TypeError:
                 raise TypeError('Can only get separation to another SkyCoord '
                                 'or a coordinate frame with data')
@@ -903,10 +1152,12 @@ class SkyCoord(ShapedLikeNDArray):
         Returns
         -------
         lon_offset : `~astropy.coordinates.Angle`
-            The angular offset in the longitude direction (i.e., RA for
+            The angular offset in the longitude direction. The definition of
+            "longitude" depends on this coordinate's frame (e.g., RA for
             equatorial coordinates).
         lat_offset : `~astropy.coordinates.Angle`
-            The angular offset in the latitude direction (i.e., Dec for
+            The angular offset in the latitude direction. The definition of
+            "latitude" depends on this coordinate's frame (e.g., Dec for
             equatorial coordinates).
 
         Raises
@@ -938,6 +1189,45 @@ class SkyCoord(ShapedLikeNDArray):
         dlon = acoord.spherical.lon.view(Angle)
         dlat = acoord.spherical.lat.view(Angle)
         return dlon, dlat
+
+    def spherical_offsets_by(self, d_lon, d_lat):
+        """
+        Computes the coordinate that is a specified pair of angular offsets away
+        from this coordinate.
+
+        Parameters
+        ----------
+        d_lon : angle-like
+            The angular offset in the longitude direction. The definition of
+            "longitude" depends on this coordinate's frame (e.g., RA for
+            equatorial coordinates).
+        d_lat : angle-like
+            The angular offset in the latitude direction. The definition of
+            "latitude" depends on this coordinate's frame (e.g., Dec for
+            equatorial coordinates).
+
+        Returns
+        -------
+        newcoord : `~astropy.coordinates.SkyCoord`
+            The coordinates for the location that corresponds to offsetting by
+            ``d_lat`` in the latitude direction and ``d_lon`` in the longitude
+            direction.
+
+        Notes
+        -----
+        This internally uses `~astropy.coordinates.SkyOffsetFrame` to do the
+        transformation. For a more complete set of transform offsets, use
+        `~astropy.coordinates.SkyOffsetFrame` or `~astropy.wcs.WCS` manually.
+        This specific method can be reproduced by doing
+        ``SkyCoord(SkyOffsetFrame(d_lon, d_lat, origin=self.frame).transform_to(self))``.
+
+        See Also
+        --------
+        spherical_offsets_to : compute the angular offsets to another coordinate
+        directional_offset_by : offset a coordinate by an angle in a direction
+        """
+        return self.__class__(
+            SkyOffsetFrame(d_lon, d_lat, origin=self.frame).transform_to(self))
 
     def directional_offset_by(self, position_angle, separation):
         """
@@ -992,7 +1282,7 @@ class SkyCoord(ShapedLikeNDArray):
         catalog coordinates.
 
         For more on how to use this (and related) functionality, see the
-        examples in :doc:`/coordinates/matchsep`.
+        examples in :doc:`astropy:/coordinates/matchsep`.
 
         Parameters
         ----------
@@ -1010,7 +1300,7 @@ class SkyCoord(ShapedLikeNDArray):
 
         Returns
         -------
-        idx : integer array
+        idx : int array
             Indices into ``catalogcoord`` to get the matched points for
             each of this object's coordinates. Shape matches this
             object.
@@ -1018,7 +1308,7 @@ class SkyCoord(ShapedLikeNDArray):
             The on-sky separation between the closest match for each
             element in this object in ``catalogcoord``. Shape matches
             this object.
-        dist3d : `~astropy.units.Quantity`
+        dist3d : `~astropy.units.Quantity` ['length']
             The 3D distance between the closest match for each element
             in this object in ``catalogcoord``. Shape matches this
             object. Unless both this and ``catalogcoord`` have associated
@@ -1037,14 +1327,12 @@ class SkyCoord(ShapedLikeNDArray):
         """
         from .matching import match_coordinates_sky
 
-        if (isinstance(catalogcoord, (SkyCoord, BaseCoordinateFrame))
+        if not (isinstance(catalogcoord, (SkyCoord, BaseCoordinateFrame))
                 and catalogcoord.has_data):
-            self_in_catalog_frame = self.transform_to(catalogcoord)
-        else:
             raise TypeError('Can only get separation to another SkyCoord or a '
                             'coordinate frame with data')
 
-        res = match_coordinates_sky(self_in_catalog_frame, catalogcoord,
+        res = match_coordinates_sky(self, catalogcoord,
                                     nthneighbor=nthneighbor,
                                     storekdtree='_kdtree_sky')
         return res
@@ -1059,7 +1347,7 @@ class SkyCoord(ShapedLikeNDArray):
         ``catalogcoord`` object.
 
         For more on how to use this (and related) functionality, see the
-        examples in :doc:`/coordinates/matchsep`.
+        examples in :doc:`astropy:/coordinates/matchsep`.
 
         Parameters
         ----------
@@ -1077,7 +1365,7 @@ class SkyCoord(ShapedLikeNDArray):
 
         Returns
         -------
-        idx : integer array
+        idx : int array
             Indices into ``catalogcoord`` to get the matched points for
             each of this object's coordinates. Shape matches this
             object.
@@ -1085,7 +1373,7 @@ class SkyCoord(ShapedLikeNDArray):
             The on-sky separation between the closest match for each
             element in this object in ``catalogcoord``. Shape matches
             this object.
-        dist3d : `~astropy.units.Quantity`
+        dist3d : `~astropy.units.Quantity` ['length']
             The 3D distance between the closest match for each element
             in this object in ``catalogcoord``. Shape matches this
             object.
@@ -1102,14 +1390,12 @@ class SkyCoord(ShapedLikeNDArray):
         """
         from .matching import match_coordinates_3d
 
-        if (isinstance(catalogcoord, (SkyCoord, BaseCoordinateFrame))
+        if not (isinstance(catalogcoord, (SkyCoord, BaseCoordinateFrame))
                 and catalogcoord.has_data):
-            self_in_catalog_frame = self.transform_to(catalogcoord)
-        else:
             raise TypeError('Can only get separation to another SkyCoord or a '
                             'coordinate frame with data')
 
-        res = match_coordinates_3d(self_in_catalog_frame, catalogcoord,
+        res = match_coordinates_3d(self, catalogcoord,
                                    nthneighbor=nthneighbor,
                                    storekdtree='_kdtree_3d')
 
@@ -1126,37 +1412,37 @@ class SkyCoord(ShapedLikeNDArray):
         `~astropy.coordinates.SkyCoord.separation`.
 
         For more on how to use this (and related) functionality, see the
-        examples in :doc:`/coordinates/matchsep`.
+        examples in :doc:`astropy:/coordinates/matchsep`.
 
         Parameters
         ----------
-        searcharoundcoords : `~astropy.coordinates.SkyCoord` or `~astropy.coordinates.BaseCoordinateFrame`
+        searcharoundcoords : coordinate-like
             The coordinates to search around to try to find matching points in
             this `SkyCoord`. This should be an object with array coordinates,
             not a scalar coordinate object.
-        seplimit : `~astropy.units.Quantity` with angle units
+        seplimit : `~astropy.units.Quantity` ['angle']
             The on-sky separation to search within.
 
         Returns
         -------
-        idxsearcharound : integer array
+        idxsearcharound : int array
             Indices into ``searcharoundcoords`` that match the
             corresponding elements of ``idxself``. Shape matches
             ``idxself``.
-        idxself : integer array
+        idxself : int array
             Indices into ``self`` that match the
             corresponding elements of ``idxsearcharound``. Shape matches
             ``idxsearcharound``.
         sep2d : `~astropy.coordinates.Angle`
             The on-sky separation between the coordinates. Shape matches
             ``idxsearcharound`` and ``idxself``.
-        dist3d : `~astropy.units.Quantity`
+        dist3d : `~astropy.units.Quantity` ['length']
             The 3D distance between the coordinates. Shape matches
             ``idxsearcharound`` and ``idxself``.
 
         Notes
         -----
-        This method requires `SciPy <https://www.scipy.org/>`_ (>=0.12.0) to be
+        This method requires `SciPy <https://www.scipy.org/>`_ to be
         installed or it will fail.
 
         In the current implementation, the return values are always sorted in
@@ -1185,7 +1471,7 @@ class SkyCoord(ShapedLikeNDArray):
         `~astropy.coordinates.SkyCoord.separation_3d`.
 
         For more on how to use this (and related) functionality, see the
-        examples in :doc:`/coordinates/matchsep`.
+        examples in :doc:`astropy:/coordinates/matchsep`.
 
         Parameters
         ----------
@@ -1193,29 +1479,29 @@ class SkyCoord(ShapedLikeNDArray):
             The coordinates to search around to try to find matching points in
             this `SkyCoord`. This should be an object with array coordinates,
             not a scalar coordinate object.
-        distlimit : `~astropy.units.Quantity` with distance units
+        distlimit : `~astropy.units.Quantity` ['length']
             The physical radius to search within.
 
         Returns
         -------
-        idxsearcharound : integer array
+        idxsearcharound : int array
             Indices into ``searcharoundcoords`` that match the
             corresponding elements of ``idxself``. Shape matches
             ``idxself``.
-        idxself : integer array
+        idxself : int array
             Indices into ``self`` that match the
             corresponding elements of ``idxsearcharound``. Shape matches
             ``idxsearcharound``.
         sep2d : `~astropy.coordinates.Angle`
             The on-sky separation between the coordinates. Shape matches
             ``idxsearcharound`` and ``idxself``.
-        dist3d : `~astropy.units.Quantity`
+        dist3d : `~astropy.units.Quantity` ['length']
             The 3D distance between the coordinates. Shape matches
             ``idxsearcharound`` and ``idxself``.
 
         Notes
         -----
-        This method requires `SciPy <https://www.scipy.org/>`_ (>=0.12.0) to be
+        This method requires `SciPy <https://www.scipy.org/>`_ to be
         installed or it will fail.
 
         In the current implementation, the return values are always sorted in
@@ -1289,7 +1575,7 @@ class SkyCoord(ShapedLikeNDArray):
             A sky offset frame of the same type as this `SkyCoord` (e.g., if
             this object has an ICRS coordinate, the resulting frame is
             SkyOffsetICRS, with the origin set to this object)
-        rotation : `~astropy.coordinates.Angle` or `~astropy.units.Quantity` with angle units
+        rotation : angle-like
             The final rotation of the frame about the ``origin``. The sign of
             the rotation is the left-hand rule. That is, an object at a
             particular position angle in the un-rotated system will be sent to
@@ -1368,6 +1654,7 @@ class SkyCoord(ShapedLikeNDArray):
         --------
         astropy.wcs.utils.skycoord_to_pixel : the implementation of this method
         """
+        from astropy.wcs.utils import skycoord_to_pixel
         return skycoord_to_pixel(self, wcs=wcs, origin=origin, mode=mode)
 
     @classmethod
@@ -1378,7 +1665,7 @@ class SkyCoord(ShapedLikeNDArray):
 
         Parameters
         ----------
-        xp, yp : float or `numpy.ndarray`
+        xp, yp : float or ndarray
             The coordinates to convert.
         wcs : `~astropy.wcs.WCS`
             The WCS to use for convert
@@ -1390,7 +1677,7 @@ class SkyCoord(ShapedLikeNDArray):
 
         Returns
         -------
-        coord : an instance of this class
+        coord : `~astropy.coordinates.SkyCoord`
             A new object with sky coordinates corresponding to the input ``xp``
             and ``yp``.
 
@@ -1399,6 +1686,7 @@ class SkyCoord(ShapedLikeNDArray):
         to_pixel : to do the inverse operation
         astropy.wcs.utils.pixel_to_skycoord : the implementation of this method
         """
+        from astropy.wcs.utils import pixel_to_skycoord
         return pixel_to_skycoord(xp, yp, wcs=wcs, origin=origin, mode=mode, cls=cls)
 
     def contained_by(self, wcs, image=None, **kwargs):
@@ -1470,7 +1758,7 @@ class SkyCoord(ShapedLikeNDArray):
 
         Returns
         -------
-        vcorr : `~astropy.units.Quantity` with velocity units
+        vcorr : `~astropy.units.Quantity` ['speed']
             The  correction with a positive sign.  I.e., *add* this
             to an observed radial velocity to get the barycentric (or
             heliocentric) velocity. If m/s precision or better is needed,
@@ -1483,15 +1771,46 @@ class SkyCoord(ShapedLikeNDArray):
         Use barycentric corrections if m/s precision is required.
 
         The algorithm here is sufficient to perform corrections at the mm/s level, but
-        care is needed in application. Strictly speaking, the barycentric correction is
+        care is needed in application. The barycentric correction returned uses the optical
+        approximation v = z * c. Strictly speaking, the barycentric correction is
         multiplicative and should be applied as::
 
-           sc = SkyCoord(1*u.deg, 2*u.deg)
-           vcorr = sc.rv_correction(kind='barycentric', obstime=t, location=loc)
-           rv = rv + vcorr + rv * vcorr / consts.c
+          >>> from astropy.time import Time
+          >>> from astropy.coordinates import SkyCoord, EarthLocation
+          >>> from astropy.constants import c
+          >>> t = Time(56370.5, format='mjd', scale='utc')
+          >>> loc = EarthLocation('149d33m00.5s','-30d18m46.385s',236.87*u.m)
+          >>> sc = SkyCoord(1*u.deg, 2*u.deg)
+          >>> vcorr = sc.radial_velocity_correction(kind='barycentric', obstime=t, location=loc)  # doctest: +REMOTE_DATA
+          >>> rv = rv + vcorr + rv * vcorr / c  # doctest: +SKIP
 
-        If your target is nearby and/or has finite proper motion you may need to account
-        for terms arising from this. See Wright & Eastmann (2014) for details.
+        Also note that this method returns the correction velocity in the so-called
+        *optical convention*::
+
+          >>> vcorr = zb * c  # doctest: +SKIP
+
+        where ``zb`` is the barycentric correction redshift as defined in section 3
+        of Wright & Eastman (2014). The application formula given above follows from their
+        equation (11) under assumption that the radial velocity ``rv`` has also been defined
+        using the same optical convention. Note, this can be regarded as a matter of
+        velocity definition and does not by itself imply any loss of accuracy, provided
+        sufficient care has been taken during interpretation of the results. If you need
+        the barycentric correction expressed as the full relativistic velocity (e.g., to provide
+        it as the input to another software which performs the application), the
+        following recipe can be used::
+
+          >>> zb = vcorr / c  # doctest: +REMOTE_DATA
+          >>> zb_plus_one_squared = (zb + 1) ** 2  # doctest: +REMOTE_DATA
+          >>> vcorr_rel = c * (zb_plus_one_squared - 1) / (zb_plus_one_squared + 1)  # doctest: +REMOTE_DATA
+
+        or alternatively using just equivalencies::
+
+          >>> vcorr_rel = vcorr.to(u.Hz, u.doppler_optical(1*u.Hz)).to(vcorr.unit, u.doppler_relativistic(1*u.Hz))  # doctest: +REMOTE_DATA
+
+        See also `~astropy.units.equivalencies.doppler_optical`,
+        `~astropy.units.equivalencies.doppler_radio`, and
+        `~astropy.units.equivalencies.doppler_relativistic` for more information on
+        the velocity conventions.
 
         The default is for this method to use the builtin ephemeris for
         computing the sun and earth location.  Other ephemerides can be chosen
@@ -1499,9 +1818,10 @@ class SkyCoord(ShapedLikeNDArray):
         either directly or via ``with`` statement.  For example, to use the JPL
         ephemeris, do::
 
-            sc = SkyCoord(1*u.deg, 2*u.deg)
-            with coord.solar_system_ephemeris.set('jpl'):
-                rv += sc.rv_correction(obstime=t, location=loc)
+          >>> from astropy.coordinates import solar_system_ephemeris
+          >>> sc = SkyCoord(1*u.deg, 2*u.deg)
+          >>> with solar_system_ephemeris.set('jpl'):  # doctest: +REMOTE_DATA
+          ...     rv += sc.radial_velocity_correction(obstime=t, location=loc)  # doctest: +SKIP
 
         """
         # has to be here to prevent circular imports
@@ -1533,6 +1853,7 @@ class SkyCoord(ShapedLikeNDArray):
                              'the passed-in `obstime`.')
 
         # obstime validation
+        coo_at_rv_obstime = self  # assume we need no space motion for now
         if obstime is None:
             obstime = self.obstime
             if obstime is None:
@@ -1540,11 +1861,22 @@ class SkyCoord(ShapedLikeNDArray):
                                 'radial_velocity_correction, either as a '
                                 'SkyCoord frame attribute or in the method '
                                 'call.')
-        elif self.obstime is not None:
-            raise ValueError('Cannot compute radial velocity correction if '
-                             '`obstime` argument is passed in and it is '
-                             'inconsistent with the `obstime` frame '
-                             'attribute on the SkyCoord')
+        elif self.obstime is not None and self.frame.data.differentials:
+            # we do need space motion after all
+            coo_at_rv_obstime = self.apply_space_motion(obstime)
+        elif self.obstime is None:
+            # warn the user if the object has differentials set
+            if 's' in self.data.differentials:
+                warnings.warn(
+                    "SkyCoord has space motion, and therefore the specified "
+                    "position of the SkyCoord may not be the same as "
+                    "the `obstime` for the radial velocity measurement. "
+                    "This may affect the rv correction at the order of km/s"
+                    "for very high proper motions sources. If you wish to "
+                    "apply space motion of the SkyCoord to correct for this"
+                    "the `obstime` attribute of the SkyCoord must be set",
+                    AstropyUserWarning
+                )
 
         pos_earth, v_earth = get_body_barycentric_posvel('earth', obstime)
         if kind == 'barycentric':
@@ -1560,13 +1892,14 @@ class SkyCoord(ShapedLikeNDArray):
         gcrs_p, gcrs_v = location.get_gcrs_posvel(obstime)
         # transforming to GCRS is not the correct thing to do here, since we don't want to
         # include aberration (or light deflection)? Instead, only apply parallax if necessary
+        icrs_cart = coo_at_rv_obstime.icrs.cartesian
+        icrs_cart_novel = icrs_cart.without_differentials()
         if self.data.__class__ is UnitSphericalRepresentation:
-            targcart = self.icrs.cartesian
+            targcart = icrs_cart_novel
         else:
             # skycoord has distances so apply parallax
             obs_icrs_cart = pos_earth + gcrs_p
-            icrs_cart = self.icrs.cartesian
-            targcart = icrs_cart - obs_icrs_cart
+            targcart = icrs_cart_novel - obs_icrs_cart
             targcart /= targcart.norm()
 
         if kind == 'barycentric':
@@ -1575,7 +1908,24 @@ class SkyCoord(ShapedLikeNDArray):
             gr = location.gravitational_redshift(obstime)
             # barycentric redshift according to eq 28 in Wright & Eastmann (2014),
             # neglecting Shapiro delay and effects of the star's own motion
-            zb = gamma_obs * (1 + targcart.dot(beta_obs)) / (1 + gr/speed_of_light) - 1
+            zb = gamma_obs * (1 + beta_obs.dot(targcart)) / (1 + gr/speed_of_light)
+            # try and get terms corresponding to stellar motion.
+            if icrs_cart.differentials:
+                try:
+                    ro = self.icrs.cartesian
+                    beta_star = ro.differentials['s'].to_cartesian() / speed_of_light
+                    # ICRS unit vector at coordinate epoch
+                    ro = ro.without_differentials()
+                    ro /= ro.norm()
+                    zb *= (1 + beta_star.dot(ro)) / (1 + beta_star.dot(targcart))
+                except u.UnitConversionError:
+                    warnings.warn("SkyCoord contains some velocity information, but not enough to "
+                                  "calculate the full space motion of the source, and so this has "
+                                  "been ignored for the purposes of calculating the radial velocity "
+                                  "correction. This can lead to errors on the order of metres/second.",
+                                  AstropyUserWarning)
+
+            zb = zb - 1
             return zb * speed_of_light
         else:
             # do a simpler correction ignoring time dilation and gravitational redshift
@@ -1591,10 +1941,10 @@ class SkyCoord(ShapedLikeNDArray):
         in an astropy Table.
 
         This method matches table columns that start with the case-insensitive
-        names of the the components of the requested frames, if they are also
-        followed by a non-alphanumeric character. It will also match columns
-        that *end* with the component name if a non-alphanumeric character is
-        *before* it.
+        names of the the components of the requested frames (including
+        differentials), if they are also followed by a non-alphanumeric
+        character. It will also match columns that *end* with the component name
+        if a non-alphanumeric character is *before* it.
 
         For example, the first rule means columns with names like
         ``'RA[J2000]'`` or ``'ra'`` will be interpreted as ``ra`` attributes for
@@ -1611,23 +1961,36 @@ class SkyCoord(ShapedLikeNDArray):
 
         Parameters
         ----------
-        table : astropy.Table
+        table : `~astropy.table.Table` or subclass
             The table to load data from.
-        coord_kwargs
+        **coord_kwargs
             Any additional keyword arguments are passed directly to this class's
             constructor.
 
         Returns
         -------
-        newsc : same as this class
+        newsc : `~astropy.coordinates.SkyCoord` or subclass
             The new `SkyCoord` (or subclass) object.
+
+        Raises
+        ------
+        ValueError
+            If more than one match is found in the table for a component,
+            unless the additional matches are also valid frame component names.
+            If a "coord_kwargs" is provided for a value also found in the table.
+
         """
         _frame_cls, _frame_kwargs = _get_frame_without_data([], coord_kwargs)
         frame = _frame_cls(**_frame_kwargs)
         coord_kwargs['frame'] = coord_kwargs.get('frame', frame)
 
+        representation_component_names = (
+            set(frame.get_representation_component_names())
+            .union(set(frame.get_representation_component_names("s")))
+        )
+
         comp_kwargs = {}
-        for comp_name in frame.representation_component_names:
+        for comp_name in representation_component_names:
             # this matches things like 'ra[...]'' but *not* 'rad'.
             # note that the "_" must be in there explicitly, because
             # "alphanumeric" usually includes underscores.
@@ -1636,18 +1999,32 @@ class SkyCoord(ShapedLikeNDArray):
             # 'aura'
             ends_with_comp = r'.*(\W|\b|_)' + comp_name + r'\b'
             # the final regex ORs together the two patterns
-            rex = re.compile('(' + starts_with_comp + ')|(' + ends_with_comp + ')',
+            rex = re.compile(rf"({starts_with_comp})|({ends_with_comp})",
                              re.IGNORECASE | re.UNICODE)
 
-            for col_name in table.colnames:
-                if rex.match(col_name):
-                    if comp_name in comp_kwargs:
-                        oldname = comp_kwargs[comp_name].name
-                        msg = ('Found at least two matches for  component "{0}"'
-                               ': "{1}" and "{2}". Cannot continue with this '
-                               'ambiguity.')
-                        raise ValueError(msg.format(comp_name, oldname, col_name))
-                    comp_kwargs[comp_name] = table[col_name]
+            # find all matches
+            matches = {col_name for col_name in table.colnames
+                       if rex.match(col_name)}
+
+            # now need to select among matches, also making sure we don't have
+            # an exact match with another component
+            if len(matches) == 0:  # no matches
+                continue
+            elif len(matches) == 1:  # only one match
+                col_name = matches.pop()
+            else:  # more than 1 match
+                # try to sieve out other components
+                matches -= representation_component_names - {comp_name}
+                # if there's only one remaining match, it worked.
+                if len(matches) == 1:
+                    col_name = matches.pop()
+                else:
+                    raise ValueError(
+                        'Found at least two matches for component '
+                        f'"{comp_name}": "{matches}". Cannot guess coordinates '
+                        'from a table with this ambiguity.')
+
+            comp_kwargs[comp_name] = table[col_name]
 
         for k, v in comp_kwargs.items():
             if k in coord_kwargs:
@@ -1661,7 +2038,7 @@ class SkyCoord(ShapedLikeNDArray):
 
     # Name resolve
     @classmethod
-    def from_name(cls, name, frame='icrs', parse=False):
+    def from_name(cls, name, frame='icrs', parse=False, cache=True):
         """
         Given a name, query the CDS name resolver to attempt to retrieve
         coordinate information for that object. The search database, sesame
@@ -1679,12 +2056,15 @@ class SkyCoord(ShapedLikeNDArray):
         parse: bool
             Whether to attempt extracting the coordinates from the name by
             parsing with a regex. For objects catalog names that have
-            J-coordinates embedded in their names eg:
+            J-coordinates embedded in their names, e.g.,
             'CRTS SSS100805 J194428-420209', this may be much faster than a
-            sesame query for the same object name. The coordinates extracted
+            Sesame query for the same object name. The coordinates extracted
             in this way may differ from the database coordinates by a few
             deci-arcseconds, so only use this option if you do not need
             sub-arcsecond accuracy for coordinates.
+        cache : bool, optional
+            Determines whether to cache the results or not. To update or
+            overwrite an existing value, pass ``cache='update'``.
 
         Returns
         -------
@@ -1694,7 +2074,7 @@ class SkyCoord(ShapedLikeNDArray):
 
         from .name_resolve import get_icrs_coordinates
 
-        icrs_coord = get_icrs_coordinates(name, parse)
+        icrs_coord = get_icrs_coordinates(name, parse, cache=cache)
         icrs_sky_coord = cls(icrs_coord)
         if frame in ('icrs', icrs_coord.__class__):
             return icrs_sky_coord

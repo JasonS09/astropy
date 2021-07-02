@@ -1,22 +1,25 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 
-import numpy as np
-
-from astropy import units as u
-from astropy.utils.misc import unbroadcast
 import copy
 
-from .wcs import WCS, WCSSUB_LONGITUDE, WCSSUB_LATITUDE, WCSSUB_CELESTIAL
+import numpy as np
+
+import astropy.units as u
+from astropy.coordinates import CartesianRepresentation, SphericalRepresentation, ITRS
+from astropy.utils import unbroadcast
+
+from .wcs import WCS, WCSSUB_LATITUDE, WCSSUB_LONGITUDE
 
 __doctest_skip__ = ['wcs_to_celestial_frame', 'celestial_frame_to_wcs']
 
-__all__ = ['add_stokes_axis_to_wcs', 'celestial_frame_to_wcs',
-           'wcs_to_celestial_frame', 'proj_plane_pixel_scales',
-           'proj_plane_pixel_area', 'is_proj_plane_distorted',
-           'non_celestial_pixel_scales', 'skycoord_to_pixel',
-           'pixel_to_skycoord', 'custom_wcs_to_frame_mappings',
-           'custom_frame_to_wcs_mappings', 'pixel_to_pixel',
-           'local_partial_pixel_derivatives', 'fit_wcs_from_points']
+__all__ = ['obsgeo_to_frame', 'add_stokes_axis_to_wcs',
+           'celestial_frame_to_wcs', 'wcs_to_celestial_frame',
+           'proj_plane_pixel_scales', 'proj_plane_pixel_area',
+           'is_proj_plane_distorted', 'non_celestial_pixel_scales',
+           'skycoord_to_pixel', 'pixel_to_skycoord',
+           'custom_wcs_to_frame_mappings', 'custom_frame_to_wcs_mappings',
+           'pixel_to_pixel', 'local_partial_pixel_derivatives',
+           'fit_wcs_from_points']
 
 
 def add_stokes_axis_to_wcs(wcs, add_before_ind):
@@ -34,7 +37,8 @@ def add_stokes_axis_to_wcs(wcs, add_before_ind):
 
     Returns
     -------
-    A new `~astropy.wcs.WCS` instance with an additional axis
+    `~astropy.wcs.WCS`
+        A new `~astropy.wcs.WCS` instance with an additional axis
     """
 
     inds = [i + 1 for i in range(wcs.wcs.naxis)]
@@ -48,9 +52,8 @@ def add_stokes_axis_to_wcs(wcs, add_before_ind):
 def _wcs_to_celestial_frame_builtin(wcs):
 
     # Import astropy.coordinates here to avoid circular imports
-    from astropy.coordinates import (FK4, FK4NoETerms, FK5, ICRS, ITRS,
+    from astropy.coordinates import (FK4, FK5, ICRS, ITRS, FK4NoETerms,
                                      Galactic, SphericalRepresentation)
-
     # Import astropy.time here otherwise setup.py fails before extensions are compiled
     from astropy.time import Time
 
@@ -107,7 +110,7 @@ def _wcs_to_celestial_frame_builtin(wcs):
 def _celestial_frame_to_wcs_builtin(frame, projection='TAN'):
 
     # Import astropy.coordinates here to avoid circular imports
-    from astropy.coordinates import BaseRADecFrame, FK4, FK4NoETerms, FK5, ICRS, ITRS, Galactic
+    from astropy.coordinates import FK4, FK5, ICRS, ITRS, BaseRADecFrame, FK4NoETerms, Galactic
 
     # Create a 2-dimensional WCS
     wcs = WCS(naxis=2)
@@ -293,7 +296,7 @@ def proj_plane_pixel_scales(wcs):
     For a WCS returns pixel scales along each axis of the image pixel at
     the ``CRPIX`` location once it is projected onto the
     "plane of intermediate world coordinates" as defined in
-    `Greisen & Calabretta 2002, A&A, 395, 1061 <http://adsabs.harvard.edu/abs/2002A%26A...395.1061G>`_.
+    `Greisen & Calabretta 2002, A&A, 395, 1061 <https://ui.adsabs.harvard.edu/abs/2002A%26A...395.1061G>`_.
 
     .. note::
         This function is concerned **only** about the transformation
@@ -315,7 +318,7 @@ def proj_plane_pixel_scales(wcs):
 
     Returns
     -------
-    scale : `~numpy.ndarray`
+    scale : ndarray
         A vector (`~numpy.ndarray`) of projection plane increments
         corresponding to each pixel side (axis). The units of the returned
         results are the same as the units of `~astropy.wcs.Wcsprm.cdelt`,
@@ -337,7 +340,7 @@ def proj_plane_pixel_area(wcs):
     For a **celestial** WCS (see `astropy.wcs.WCS.celestial`) returns pixel
     area of the image pixel at the ``CRPIX`` location once it is projected
     onto the "plane of intermediate world coordinates" as defined in
-    `Greisen & Calabretta 2002, A&A, 395, 1061 <http://adsabs.harvard.edu/abs/2002A%26A...395.1061G>`_.
+    `Greisen & Calabretta 2002, A&A, 395, 1061 <https://ui.adsabs.harvard.edu/abs/2002A%26A...395.1061G>`_.
 
     .. note::
         This function is concerned **only** about the transformation
@@ -398,7 +401,7 @@ def is_proj_plane_distorted(wcs, maxerr=1.0e-5):
     For a WCS returns `False` if square image (detector) pixels stay square
     when projected onto the "plane of intermediate world coordinates"
     as defined in
-    `Greisen & Calabretta 2002, A&A, 395, 1061 <http://adsabs.harvard.edu/abs/2002A%26A...395.1061G>`_.
+    `Greisen & Calabretta 2002, A&A, 395, 1061 <https://ui.adsabs.harvard.edu/abs/2002A%26A...395.1061G>`_.
     It will return `True` if transformation from image (detector) coordinates
     to the focal plane coordinates is non-orthogonal or if WCS contains
     non-linear (e.g., SIP) distortions.
@@ -573,7 +576,7 @@ def pixel_to_skycoord(xp, yp, wcs, origin=0, mode='all', cls=None):
 
     Parameters
     ----------
-    xp, yp : float or `numpy.ndarray`
+    xp, yp : float or ndarray
         The coordinates to convert.
     wcs : `~astropy.wcs.WCS`
         The WCS transformation to use.
@@ -589,8 +592,8 @@ def pixel_to_skycoord(xp, yp, wcs, origin=0, mode='all', cls=None):
 
     Returns
     -------
-    coords : Whatever ``cls`` is (a subclass of `~astropy.coordinates.SkyCoord`)
-        The celestial coordinates
+    coords : `~astropy.coordinates.SkyCoord` subclass
+        The celestial coordinates. Whatever ``cls`` type is.
 
     See Also
     --------
@@ -890,7 +893,13 @@ def _linear_wcs_fit(params, lon, lat, x, y, w_obj):
     w_obj.wcs.cd = ((cd[0], cd[1]), (cd[2], cd[3]))
     w_obj.wcs.crpix = crpix
     lon2, lat2 = w_obj.wcs_pix2world(x, y, 0)
-    resids = np.concatenate((lon-lon2, lat-lat2))
+
+    lat_resids = lat - lat2
+    lon_resids = lon - lon2
+    # In case the longitude has wrapped around
+    lon_resids = np.mod(lon_resids - 180.0, 360.0) - 180.0
+
+    resids = np.concatenate((lon_resids * np.cos(np.radians(lat)), lat_resids))
 
     return resids
 
@@ -898,8 +907,9 @@ def _linear_wcs_fit(params, lon, lat, x, y, w_obj):
 def _sip_fit(params, lon, lat, u, v, w_obj, order, coeff_names):
 
     """ Objective function for fitting SIP.
-     Parameters
-    -----------
+
+    Parameters
+    ----------
     params : array
         Fittable parameters. First 4 elements are PC matrix, last 2 are CRPIX.
     lon, lat: array
@@ -910,7 +920,7 @@ def _sip_fit(params, lon, lat, u, v, w_obj, order, coeff_names):
         WCS object
     """
 
-    from ..modeling.models import SIP, InverseSIP   # here to avoid circular import
+    from ..modeling.models import SIP  # here to avoid circular import
 
     # unpack params
     crpix = params[0:2]
@@ -938,9 +948,6 @@ def _sip_fit(params, lon, lat, u, v, w_obj, order, coeff_names):
     x, y = np.dot(w_obj.wcs.cd, (x-w_obj.wcs.crpix[0], y-w_obj.wcs.crpix[1]))
 
     resids = np.concatenate((x-xo, y-yo))
-    # to avoid bad restuls if near 360 -> 0 degree crossover
-    resids[resids > 180] = 360 - resids[resids > 180]
-    resids[resids < -180] = 360 + resids[resids < -180]
 
     return resids
 
@@ -966,7 +973,7 @@ def fit_wcs_from_points(xy, world_coords, proj_point='center',
     keywords in the input might cause unexpected behavior.
 
     Notes
-    ------
+    -----
     - The fiducial point for the spherical projection can be set to 'center'
       to use the mean position of input sky coordinates, or as an
       `~astropy.coordinates.SkyCoord` object.
@@ -981,7 +988,7 @@ def fit_wcs_from_points(xy, world_coords, proj_point='center',
 
     Parameters
     ----------
-    xy : tuple of two `numpy.ndarray`
+    xy : (`numpy.ndarray`, `numpy.ndarray`) tuple
         x & y pixel coordinates.
     world_coords : `~astropy.coordinates.SkyCoord`
         Skycoord object with world coordinates.
@@ -1006,24 +1013,29 @@ def fit_wcs_from_points(xy, world_coords, proj_point='center',
         The best-fit WCS to the points given.
     """
 
-    from astropy.coordinates import SkyCoord # here to avoid circular import
-    import astropy.units as u
-    from .wcs import Sip
     from scipy.optimize import least_squares
 
+    import astropy.units as u
+    from astropy.coordinates import SkyCoord  # here to avoid circular import
+
+    from .wcs import Sip
+
+    xp, yp = xy
     try:
-        xp, yp = xy
         lon, lat = world_coords.data.lon.deg, world_coords.data.lat.deg
     except AttributeError:
         unit_sph =  world_coords.unit_spherical
         lon, lat = unit_sph.lon.deg, unit_sph.lat.deg
 
     # verify input
-    if (proj_point != 'center') and (type(proj_point) != type(world_coords)):
+    if (type(proj_point) != type(world_coords)) and (proj_point != 'center'):
         raise ValueError("proj_point must be set to 'center', or an" +
                          "`~astropy.coordinates.SkyCoord` object with " +
                          "a pair of points.")
-    if proj_point != 'center':
+
+    use_center_as_proj_point = (str(proj_point) == 'center')
+
+    if not use_center_as_proj_point:
         assert proj_point.size == 1
 
     proj_codes = [
@@ -1051,31 +1063,45 @@ def fit_wcs_from_points(xy, world_coords, proj_point='center',
     if (type(sip_degree) != type(None)) and (type(sip_degree) != int):
         raise ValueError("sip_degree must be None, or integer.")
 
+    # compute bounding box for sources in image coordinates:
+    xpmin, xpmax, ypmin, ypmax = xp.min(), xp.max(), yp.min(), yp.max()
+
     # set pixel_shape to span of input points
-    wcs.pixel_shape = (xp.max()-xp.min(), yp.max()-yp.min())
+    wcs.pixel_shape = (1 if xpmax <= 0.0 else int(np.ceil(xpmax)),
+                       1 if ypmax <= 0.0 else int(np.ceil(ypmax)))
 
     # determine CRVAL from input
     close = lambda l, p: p[np.argmin(np.abs(l))]
-    if str(proj_point) == 'center':  # use center of input points
+    if use_center_as_proj_point:  # use center of input points
         sc1 = SkyCoord(lon.min()*u.deg, lat.max()*u.deg)
         sc2 = SkyCoord(lon.max()*u.deg, lat.min()*u.deg)
         pa = sc1.position_angle(sc2)
         sep = sc1.separation(sc2)
         midpoint_sc = sc1.directional_offset_by(pa, sep/2)
         wcs.wcs.crval = ((midpoint_sc.data.lon.deg, midpoint_sc.data.lat.deg))
-        wcs.wcs.crpix = ((xp.max()+xp.min())/2., (yp.max()+yp.min())/2.)
-    elif proj_point is not None:  # convert units, initial guess for crpix
+        wcs.wcs.crpix = ((xpmax + xpmin) / 2., (ypmax + ypmin) / 2.)
+    else:  # convert units, initial guess for crpix
         proj_point.transform_to(world_coords)
         wcs.wcs.crval = (proj_point.data.lon.deg, proj_point.data.lat.deg)
-        wcs.wcs.crpix = (close(lon-wcs.wcs.crval[0], xp),
-                         close(lon-wcs.wcs.crval[1], yp))
+        wcs.wcs.crpix = (close(lon - wcs.wcs.crval[0], xp + 1),
+                         close(lon - wcs.wcs.crval[1], yp + 1))
 
     # fit linear terms, assign to wcs
     # use (1, 0, 0, 1) as initial guess, in case input wcs was passed in
     # and cd terms are way off.
+    # Use bounds to require that the fit center pixel is on the input image
+    if xpmin == xpmax:
+        xpmin, xpmax = xpmin - 0.5, xpmax + 0.5
+    if ypmin == ypmax:
+        ypmin, ypmax = ypmin - 0.5, ypmax + 0.5
+
     p0 = np.concatenate([wcs.wcs.cd.flatten(), wcs.wcs.crpix.flatten()])
-    fit = least_squares(_linear_wcs_fit, p0,
-                        args=(lon, lat, xp, yp, wcs))
+    fit = least_squares(
+        _linear_wcs_fit, p0,
+        args=(lon, lat, xp, yp, wcs),
+        bounds=[[-np.inf, -np.inf, -np.inf, -np.inf, xpmin + 1, ypmin + 1],
+                [ np.inf, np.inf, np.inf, np.inf, xpmax + 1, ypmax + 1]]
+    )
     wcs.wcs.crpix = np.array(fit.x[4:6])
     wcs.wcs.cd = np.array(fit.x[0:4].reshape((2, 2)))
 
@@ -1085,14 +1111,18 @@ def fit_wcs_from_points(xy, world_coords, proj_point='center',
         if '-SIP' not in wcs.wcs.ctype[0]:
             wcs.wcs.ctype = [x + '-SIP' for x in wcs.wcs.ctype]
 
-        coef_names = ['{0}_{1}'.format(i, j) for i in range(degree+1)
+        coef_names = [f'{i}_{j}' for i in range(degree+1)
                       for j in range(degree+1) if (i+j) < (degree+1) and
                       (i+j) > 1]
         p0 = np.concatenate((np.array(wcs.wcs.crpix), wcs.wcs.cd.flatten(),
                              np.zeros(2*len(coef_names))))
 
-        fit = least_squares(_sip_fit, p0,
-                            args=(lon, lat, xp, yp, wcs, degree, coef_names))
+        fit = least_squares(
+            _sip_fit, p0,
+            args=(lon, lat, xp, yp, wcs, degree, coef_names),
+            bounds=[[xpmin + 1, ypmin + 1] + [-np.inf]*(4 + 2*len(coef_names)),
+                    [xpmax + 1, ypmax + 1] + [np.inf]*(4 + 2*len(coef_names))]
+        )
         coef_fit = (list(fit.x[6:6+len(coef_names)]),
                     list(fit.x[6+len(coef_names):]))
 
@@ -1111,3 +1141,59 @@ def fit_wcs_from_points(xy, world_coords, proj_point='center',
                       np.zeros((degree+1, degree+1)), wcs.wcs.crpix)
 
     return wcs
+
+
+def obsgeo_to_frame(obsgeo, obstime):
+    """
+    Convert a WCS obsgeo property into an `~.builtin_frames.ITRS` coordinate frame.
+
+    Parameters
+    ----------
+    obsgeo : array-like
+        A shape ``(6, )`` array representing ``OBSGEO-[XYZ], OBSGEO-[BLH]`` as
+        returned by ``WCS.wcs.obsgeo``.
+
+    obstime : time-like
+        The time assiociated with the coordinate, will be passed to
+        `~.builtin_frames.ITRS` as the obstime keyword.
+
+    Returns
+    -------
+    `~.builtin_frames.ITRS`
+        An `~.builtin_frames.ITRS` coordinate frame
+        representing the coordinates.
+
+    Notes
+    -----
+
+    The obsgeo array as accessed on a `.WCS` object is a length 6 numpy array
+    where the first three elements are the coordinate in a cartesian
+    representation and the second 3 are the coordinate in a spherical
+    representation.
+
+    This function priorities reading the cartesian coordinates, and will only
+    read the spherical coordinates if the cartesian coordinates are either all
+    zero or any of the cartesian coordinates are non-finite.
+
+    In the case where both the spherical and cartesian coordinates have some
+    non-finite values the spherical coordinates will be returned with the
+    non-finite values included.
+
+    """
+    if (obsgeo is None
+        or len(obsgeo) != 6
+        or np.all(np.array(obsgeo) == 0)
+        or np.all(~np.isfinite(obsgeo))
+    ):
+        raise ValueError(f"Can not parse the 'obsgeo' location ({obsgeo}). "
+                         "obsgeo should be a length 6 non-zero, finite numpy array")
+
+    # If the cartesian coords are zero or have NaNs in them use the spherical ones
+    if np.all(obsgeo[:3] == 0) or np.any(~np.isfinite(obsgeo[:3])):
+        data = SphericalRepresentation(*(obsgeo[3:] * (u.deg, u.deg, u.m)))
+
+    # Otherwise we assume the cartesian ones are valid
+    else:
+        data = CartesianRepresentation(*obsgeo[:3] * u.m)
+
+    return ITRS(data, obstime=obstime)

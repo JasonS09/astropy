@@ -20,7 +20,6 @@ from .core import (Unit, dimensionless_unscaled, get_current_unit_registry,
                    UnitBase, UnitsError, UnitConversionError, UnitTypeError)
 from .utils import is_effectively_unity
 from .format.latex import Latex
-from astropy.utils.compat import NUMPY_LT_1_17
 from astropy.utils.compat.misc import override__dir__
 from astropy.utils.exceptions import AstropyDeprecationWarning, AstropyWarning
 from astropy.utils.misc import isiterable
@@ -111,6 +110,27 @@ class QuantityIterator:
 
     next = __next__
 
+    #### properties and methods to match `numpy.ndarray.flatiter` ####
+
+    @property
+    def base(self):
+        """A reference to the array that is iterated over."""
+        return self._quantity
+
+    @property
+    def coords(self):
+        """An N-dimensional tuple of current coordinates."""
+        return self._dataiter.coords
+
+    @property
+    def index(self):
+        """Current flat index into the array."""
+        return self._dataiter.index
+
+    def copy(self):
+        """Get a copy of the iterator as a 1-D array."""
+        return self._quantity.flatten()
+
 
 class QuantityInfoBase(ParentDtypeInfo):
     # This is on a base class rather than QuantityInfo directly, so that
@@ -169,7 +189,7 @@ class QuantityInfo(QuantityInfoBase):
 
         Returns
         -------
-        col : Quantity (or subclass)
+        col : `~astropy.units.Quantity` (or subclass)
             Empty instance of this class consistent with ``cols``
 
         """
@@ -214,18 +234,18 @@ class QuantityInfo(QuantityInfoBase):
 class Quantity(np.ndarray):
     """A `~astropy.units.Quantity` represents a number with some associated unit.
 
-    See also: http://docs.astropy.org/en/stable/units/quantity.html
+    See also: https://docs.astropy.org/en/stable/units/quantity.html
 
     Parameters
     ----------
-    value : number, `~numpy.ndarray`, `Quantity` object (sequence), str
+    value : number, `~numpy.ndarray`, `~astropy.units.Quantity` (sequence), or str
         The numerical value of this quantity in the units given by unit.  If a
         `Quantity` or sequence of them (or any other valid object with a
         ``unit`` attribute), creates a new `Quantity` object, converting to
         `unit` units as needed.  If a string, it is converted to a number or
         `Quantity`, depending on whether a unit is present.
 
-    unit : `~astropy.units.UnitBase` instance, str
+    unit : unit-like
         An object that represents the unit associated with the input value.
         Must be an `~astropy.units.UnitBase` object or a string parseable by
         the :mod:`~astropy.units` package.
@@ -271,8 +291,10 @@ class Quantity(np.ndarray):
     Notes
     -----
     Quantities can also be created by multiplying a number or array with a
-    :class:`~astropy.units.Unit`. See http://docs.astropy.org/en/latest/units/
+    :class:`~astropy.units.Unit`. See https://docs.astropy.org/en/latest/units/
 
+    Unless the ``dtype`` argument is explicitly specified, integer
+    or (non-Quantity) object inputs are converted to `float` by default.
     """
     # Need to set a class-level default for _equivalencies, or
     # Constants can not initialize properly
@@ -305,12 +327,8 @@ class Quantity(np.ndarray):
                                                isinstance(value, cls)):
                 value = value.view(cls)
 
-            if dtype is None:
-                if not copy:
-                    return value
-
-                if value.dtype.kind in 'iu':
-                    dtype = float
+            if dtype is None and value.dtype.kind in 'iu':
+                dtype = float
 
             return np.array(value, dtype=dtype, copy=copy, order=order,
                             subok=True, ndmin=ndmin)
@@ -378,7 +396,7 @@ class Quantity(np.ndarray):
                     copy = False  # copy will be made in conversion at end
 
         value = np.array(value, dtype=dtype, copy=copy, order=order,
-                         subok=False, ndmin=ndmin)
+                         subok=True, ndmin=ndmin)
 
         # check that array contains numbers or long int objects
         if (value.dtype.kind in 'OSU' and
@@ -407,6 +425,13 @@ class Quantity(np.ndarray):
             return value.to(unit)
 
     def __array_finalize__(self, obj):
+        # Check whether super().__array_finalize should be called
+        # (sadly, ndarray.__array_finalize__ is None; we cannot be sure
+        # what is above us).
+        super_array_finalize = super().__array_finalize__
+        if super_array_finalize is not None:
+            super_array_finalize(obj)
+
         # If we're a new object or viewing an ndarray, nothing has to be done.
         if obj is None or obj.__class__ is np.ndarray:
             return
@@ -431,8 +456,9 @@ class Quantity(np.ndarray):
             return self._new_view(obj)
 
         raise NotImplementedError('__array_wrap__ should not be used '
-                                  'with a context any more, since we require '
-                                  'numpy >=1.16.  Please raise an issue on '
+                                  'with a context any more since all use '
+                                  'should go through array_function. '
+                                  'Please raise an issue on '
                                   'https://github.com/astropy/astropy')
 
     def __array_ufunc__(self, function, method, *inputs, **kwargs):
@@ -498,7 +524,7 @@ class Quantity(np.ndarray):
 
         Parameters
         ----------
-        result : `~numpy.ndarray` or tuple of `~numpy.ndarray`
+        result : ndarray or tuple thereof
             Array(s) which need to be turned into quantity.
         unit : `~astropy.units.Unit`
             Unit for the quantities to be returned (or `None` if the result
@@ -543,7 +569,7 @@ class Quantity(np.ndarray):
         Returns
         -------
         tuple :
-            - `Quantity` subclass
+            - `~astropy.units.Quantity` subclass
             - bool: True if subclasses of the given class are ok
         """
         return Quantity, True
@@ -567,14 +593,14 @@ class Quantity(np.ndarray):
             it will be converted to an array scalar.  By default, ``self``
             is converted.
 
-        unit : `UnitBase`, or anything convertible to a :class:`~astropy.units.Unit`, optional
+        unit : unit-like, optional
             The unit of the resulting object.  It is used to select a
             subclass, and explicitly assigned to the view if given.
             If not given, the subclass and unit will be that of ``self``.
 
         Returns
         -------
-        view : Quantity subclass
+        view : `~astropy.units.Quantity` subclass
         """
         # Determine the unit and quantity subclass that we need for the view.
         if unit is None:
@@ -604,7 +630,7 @@ class Quantity(np.ndarray):
         if obj is None:
             obj = self.view(np.ndarray)
         else:
-            obj = np.array(obj, copy=False)
+            obj = np.array(obj, copy=False, subok=True)
 
         # Take the view, set the unit, and update possible other properties
         # such as ``info``, ``wrap_angle`` in `Longitude`, etc.
@@ -664,24 +690,28 @@ class Quantity(np.ndarray):
         return self.unit.to(unit, self.view(np.ndarray),
                             equivalencies=equivalencies)
 
-    def to(self, unit, equivalencies=[]):
+    def to(self, unit, equivalencies=[], copy=True):
         """
         Return a new `~astropy.units.Quantity` object with the specified unit.
 
         Parameters
         ----------
-        unit : `~astropy.units.UnitBase` instance, str
+        unit : unit-like
             An object that represents the unit to convert to. Must be
             an `~astropy.units.UnitBase` object or a string parseable
             by the `~astropy.units` package.
 
-        equivalencies : list of equivalence pairs, optional
+        equivalencies : list of tuple
             A list of equivalence pairs to try if the units are not
-            directly convertible.  See :ref:`unit_equivalencies`.
+            directly convertible.  See :ref:`astropy:unit_equivalencies`.
             If not provided or ``[]``, class default equivalencies will be used
             (none for `~astropy.units.Quantity`, but may be set for subclasses)
             If `None`, no equivalencies will be applied at all, not even any
             set globally or within a context.
+
+        copy : bool, optional
+            If `True` (default), then the value is copied.  Otherwise, a copy
+            will only be made if necessary.
 
         See also
         --------
@@ -690,7 +720,14 @@ class Quantity(np.ndarray):
         # We don't use `to_value` below since we always want to make a copy
         # and don't want to slow down this method (esp. the scalar case).
         unit = Unit(unit)
-        return self._new_view(self._to_value(unit, equivalencies), unit)
+        if copy:
+            # Avoid using to_value to ensure that we make a copy. We also
+            # don't want to slow down this method (esp. the scalar case).
+            value = self._to_value(unit, equivalencies)
+        else:
+            # to_value only copies if necessary
+            value = self.to_value(unit, equivalencies)
+        return self._new_view(value, unit)
 
     def to_value(self, unit=None, equivalencies=[]):
         """
@@ -698,21 +735,21 @@ class Quantity(np.ndarray):
 
         Parameters
         ----------
-        unit : `~astropy.units.UnitBase` instance or str, optional
+        unit : unit-like, optional
             The unit in which the value should be given. If not given or `None`,
             use the current unit.
 
-        equivalencies : list of equivalence pairs, optional
+        equivalencies : list of tuple, optional
             A list of equivalence pairs to try if the units are not directly
-            convertible (see :ref:`unit_equivalencies`). If not provided or
-            ``[]``, class default equivalencies will be used (none for
+            convertible (see :ref:`astropy:unit_equivalencies`). If not provided
+            or ``[]``, class default equivalencies will be used (none for
             `~astropy.units.Quantity`, but may be set for subclasses).
             If `None`, no equivalencies will be applied at all, not even any
             set globally or within a context.
 
         Returns
         -------
-        value : `~numpy.ndarray` or scalar
+        value : ndarray or scalar
             The value in the units specified. For arrays, this will be a view
             of the data if no unit conversion was necessary.
 
@@ -830,9 +867,7 @@ class Quantity(np.ndarray):
         """
         if not self._include_easy_conversion_members:
             raise AttributeError(
-                "'{}' object has no '{}' member".format(
-                    self.__class__.__name__,
-                    attr))
+                f"'{self.__class__.__name__}' object has no '{attr}' member")
 
         def get_virtual_unit_attribute():
             registry = get_current_unit_registry().registry
@@ -850,8 +885,7 @@ class Quantity(np.ndarray):
 
         if value is None:
             raise AttributeError(
-                "{} instance has no attribute '{}'".format(
-                    self.__class__.__name__, attr))
+                f"{self.__class__.__name__} instance has no attribute '{attr}'")
         else:
             return value
 
@@ -1122,11 +1156,11 @@ class Quantity(np.ndarray):
 
         Parameters
         ----------
-        unit : `~astropy.units.UnitBase`, optional
+        unit : unit-like, optional
             Specifies the unit.  If not provided,
             the unit used to initialize the quantity will be used.
 
-        precision : numeric, optional
+        precision : number, optional
             The level of decimal precision. If `None`, or not provided,
             it will be determined from NumPy print options.
 
@@ -1146,7 +1180,7 @@ class Quantity(np.ndarray):
 
         Returns
         -------
-        lstr
+        str
             A string with the contents of this Quantity
         """
         if unit is not None and unit != self.unit:
@@ -1165,16 +1199,21 @@ class Quantity(np.ndarray):
         if format not in formats:
             raise ValueError(f"Unknown format '{format}'")
         elif format is None:
-            return f'{self.value}{self._unitstr:s}'
+            if precision is None:
+                # Use default formatting settings
+                return f'{self.value}{self._unitstr:s}'
+            else:
+                # np.array2string properly formats arrays as well as scalars
+                return np.array2string(self.value, precision=precision, floatmode="fixed") + self._unitstr
 
         # else, for the moment we assume format="latex"
 
         # need to do try/finally because "threshold" cannot be overridden
         # with array2string
-        pops = np.get_printoptions()
 
-        format_spec = '.{}g'.format(
-            precision if precision is not None else pops['precision'])
+        # Set the precision if set, otherwise use numpy default
+        pops = np.get_printoptions()
+        format_spec = f".{precision if precision is not None else pops['precision']}g"
 
         def float_formatter(value):
             return Latex.format_exponential_notation(value,
@@ -1264,7 +1303,7 @@ class Quantity(np.ndarray):
 
         Parameters
         ----------
-        bases : sequence of UnitBase, optional
+        bases : sequence of `~astropy.units.UnitBase`, optional
             The bases to decompose into.  When not provided,
             decomposes down to any irreducible units.  When provided,
             the decomposed result will only contain the given units.
@@ -1318,35 +1357,40 @@ class Quantity(np.ndarray):
 
     # These functions need to be overridden to take into account the units
     # Array conversion
-    # http://docs.scipy.org/doc/numpy/reference/arrays.ndarray.html#array-conversion
+    # https://numpy.org/doc/stable/reference/arrays.ndarray.html#array-conversion
 
     def item(self, *args):
+        """Copy an element of an array to a scalar Quantity and return it.
+
+        Like :meth:`~numpy.ndarray.item` except that it always
+        returns a `Quantity`, not a Python scalar.
+
+        """
         return self._new_view(super().item(*args))
 
     def tolist(self):
         raise NotImplementedError("cannot make a list of Quantities.  Get "
-                                  "list of values with q.value.list()")
+                                  "list of values with q.value.tolist()")
 
     def _to_own_unit(self, value, check_precision=True):
         try:
             _value = value.to_value(self.unit)
         except AttributeError:
-            # We're not a Quantity, so let's try a more general conversion.
+            # We're not a Quantity.
+            # First remove two special cases (with a fast test):
+            # 1) Maybe masked printing? MaskedArray with quantities does not
+            # work very well, but no reason to break even repr and str.
+            # 2) np.ma.masked? useful if we're a MaskedQuantity.
+            if (value is np.ma.masked
+                or (value is np.ma.masked_print_option
+                    and self.dtype.kind == 'O')):
+                return value
+            # Now, let's try a more general conversion.
             # Plain arrays will be converted to dimensionless in the process,
             # but anything with a unit attribute will use that.
             try:
                 as_quantity = Quantity(value)
                 _value = as_quantity.to_value(self.unit)
-            except TypeError:
-                # Could not make a Quantity.  Maybe masked printing?
-                # Note: masked quantities do not work very well, but no reason
-                # to break even repr and str.
-                if (value is np.ma.masked_print_option and
-                        self.dtype.kind == 'O'):
-                    return value
-                else:
-                    raise
-
             except UnitsError:
                 # last chance: if this was not something with a unit
                 # and is all 0, inf, or nan, we treat it as arbitrary unit.
@@ -1356,12 +1400,12 @@ class Quantity(np.ndarray):
                 else:
                     raise
 
-        if check_precision:
-            # If, e.g., we are casting double to float, we want to fail if
+        if self.dtype.kind == 'i' and check_precision:
+            # If, e.g., we are casting float to int, we want to fail if
             # precision is lost, but let things pass if it works.
-            _value = np.array(_value, copy=False)
+            _value = np.array(_value, copy=False, subok=True)
             if not np.can_cast(_value.dtype, self.dtype):
-                self_dtype_array = np.array(_value, self.dtype)
+                self_dtype_array = np.array(_value, self.dtype, subok=True)
                 if not np.all(np.logical_or(self_dtype_array == _value,
                                             np.isnan(_value))):
                     raise TypeError("cannot convert value type to array type "
@@ -1378,6 +1422,10 @@ class Quantity(np.ndarray):
     def tostring(self, order='C'):
         raise NotImplementedError("cannot write Quantities to string.  Write "
                                   "array with q.value.tostring(...).")
+
+    def tobytes(self, order='C'):
+        raise NotImplementedError("cannot write Quantities to string.  Write "
+                                  "array with q.value.tobytes(...).")
 
     def tofile(self, fid, sep="", format="%s"):
         raise NotImplementedError("cannot write Quantities to file.  Write "
@@ -1596,24 +1644,22 @@ class Quantity(np.ndarray):
         result = function(*args, **kwargs)
         return self._result_as_quantity(result, unit, out)
 
-    if NUMPY_LT_1_17:
-        def clip(self, a_min, a_max, out=None):
-            return self._wrap_function(np.clip, self._to_own_unit(a_min),
-                                       self._to_own_unit(a_max), out=out)
-
     def trace(self, offset=0, axis1=0, axis2=1, dtype=None, out=None):
         return self._wrap_function(np.trace, offset, axis1, axis2, dtype,
                                    out=out)
 
-    def var(self, axis=None, dtype=None, out=None, ddof=0):
+    def var(self, axis=None, dtype=None, out=None, ddof=0, keepdims=False):
         return self._wrap_function(np.var, axis, dtype,
-                                   out=out, ddof=ddof, unit=self.unit**2)
+                                   out=out, ddof=ddof, keepdims=keepdims,
+                                   unit=self.unit**2)
 
-    def std(self, axis=None, dtype=None, out=None, ddof=0):
-        return self._wrap_function(np.std, axis, dtype, out=out, ddof=ddof)
+    def std(self, axis=None, dtype=None, out=None, ddof=0, keepdims=False):
+        return self._wrap_function(np.std, axis, dtype, out=out, ddof=ddof,
+                                   keepdims=keepdims)
 
-    def mean(self, axis=None, dtype=None, out=None):
-        return self._wrap_function(np.mean, axis, dtype, out=out)
+    def mean(self, axis=None, dtype=None, out=None, keepdims=False):
+        return self._wrap_function(np.mean, axis, dtype, out=out,
+                                   keepdims=keepdims)
 
     def round(self, decimals=0, out=None):
         return self._wrap_function(np.round, decimals, out=out)
@@ -1653,7 +1699,7 @@ class Quantity(np.ndarray):
 
         Parameters
         ----------
-        obj : int, slice or sequence of ints
+        obj : int, slice or sequence of int
             Object that defines the index or indices before which ``values`` is
             inserted.
         values : array-like
@@ -1736,30 +1782,93 @@ class SpecificTypeQuantity(Quantity):
         super()._set_unit(unit)
 
 
-def isclose(a, b, rtol=1.e-5, atol=None, **kwargs):
+def isclose(a, b, rtol=1.e-5, atol=None, equal_nan=False, **kwargs):
     """
+    Return a boolean array where two arrays are element-wise equal
+    within a tolerance.
+
+    Parameters
+    ----------
+    a, b : array-like or `~astropy.units.Quantity`
+        Input values or arrays to compare
+    rtol : array-like or `~astropy.units.Quantity`
+        The relative tolerance for the comparison, which defaults to
+        ``1e-5``.  If ``rtol`` is a :class:`~astropy.units.Quantity`,
+        then it must be dimensionless.
+    atol : number or `~astropy.units.Quantity`
+        The absolute tolerance for the comparison.  The units (or lack
+        thereof) of ``a``, ``b``, and ``atol`` must be consistent with
+        each other.  If `None`, ``atol`` defaults to zero in the
+        appropriate units.
+    equal_nan : `bool`
+        Whether to compare NaN’s as equal. If `True`, NaNs in ``a`` will
+        be considered equal to NaN’s in ``b``.
+
     Notes
     -----
-    Returns True if two arrays are element-wise equal within a tolerance.
-
     This is a :class:`~astropy.units.Quantity`-aware version of
-    :func:`numpy.isclose`.
+    :func:`numpy.isclose`. However, this differs from the `numpy` function in
+    that the default for the absolute tolerance here is zero instead of
+    ``atol=1e-8`` in `numpy`, as there is no natural way to set a default
+    *absolute* tolerance given two inputs that may have differently scaled
+    units.
+
+    Raises
+    ------
+    `~astropy.units.UnitsError`
+        If the dimensions of ``a``, ``b``, or ``atol`` are incompatible,
+        or if ``rtol`` is not dimensionless.
+
+    See also
+    --------
+    allclose
     """
-    return np.isclose(*_unquantify_allclose_arguments(a, b, rtol, atol),
-                      **kwargs)
+    unquantified_args = _unquantify_allclose_arguments(a, b, rtol, atol)
+    return np.isclose(*unquantified_args, equal_nan=equal_nan, **kwargs)
 
 
-def allclose(a, b, rtol=1.e-5, atol=None, **kwargs):
+def allclose(a, b, rtol=1.e-5, atol=None, equal_nan=False, **kwargs) -> bool:
     """
+    Whether two arrays are element-wise equal within a tolerance.
+
+    Parameters
+    ----------
+    a, b : array-like or `~astropy.units.Quantity`
+        Input values or arrays to compare
+    rtol : array-like or `~astropy.units.Quantity`
+        The relative tolerance for the comparison, which defaults to
+        ``1e-5``.  If ``rtol`` is a :class:`~astropy.units.Quantity`,
+        then it must be dimensionless.
+    atol : number or `~astropy.units.Quantity`
+        The absolute tolerance for the comparison.  The units (or lack
+        thereof) of ``a``, ``b``, and ``atol`` must be consistent with
+        each other.  If `None`, ``atol`` defaults to zero in the
+        appropriate units.
+    equal_nan : `bool`
+        Whether to compare NaN’s as equal. If `True`, NaNs in ``a`` will
+        be considered equal to NaN’s in ``b``.
+
     Notes
     -----
-    Returns True if two arrays are element-wise equal within a tolerance.
-
     This is a :class:`~astropy.units.Quantity`-aware version of
-    :func:`numpy.allclose`.
+    :func:`numpy.allclose`. However, this differs from the `numpy` function in
+    that the default for the absolute tolerance here is zero instead of
+    ``atol=1e-8`` in `numpy`, as there is no natural way to set a default
+    *absolute* tolerance given two inputs that may have differently scaled
+    units.
+
+    Raises
+    ------
+    `~astropy.units.UnitsError`
+        If the dimensions of ``a``, ``b``, or ``atol`` are incompatible,
+        or if ``rtol`` is not dimensionless.
+
+    See also
+    --------
+    isclose
     """
-    return np.allclose(*_unquantify_allclose_arguments(a, b, rtol, atol),
-                       **kwargs)
+    unquantified_args = _unquantify_allclose_arguments(a, b, rtol, atol)
+    return np.allclose(*unquantified_args, equal_nan=equal_nan, **kwargs)
 
 
 def _unquantify_allclose_arguments(actual, desired, rtol, atol):
@@ -1769,26 +1878,31 @@ def _unquantify_allclose_arguments(actual, desired, rtol, atol):
     try:
         desired = desired.to(actual.unit)
     except UnitsError:
-        raise UnitsError("Units for 'desired' ({}) and 'actual' ({}) "
-                         "are not convertible"
-                         .format(desired.unit, actual.unit))
+        raise UnitsError(
+            f"Units for 'desired' ({desired.unit}) and 'actual' "
+            f"({actual.unit}) are not convertible"
+        )
 
     if atol is None:
-        # by default, we assume an absolute tolerance of 0
+        # By default, we assume an absolute tolerance of zero in the
+        # appropriate units.  The default value of None for atol is
+        # needed because the units of atol must be consistent with the
+        # units for a and b.
         atol = Quantity(0)
     else:
         atol = Quantity(atol, subok=True, copy=False)
         try:
             atol = atol.to(actual.unit)
         except UnitsError:
-            raise UnitsError("Units for 'atol' ({}) and 'actual' ({}) "
-                             "are not convertible"
-                             .format(atol.unit, actual.unit))
+            raise UnitsError(
+                f"Units for 'atol' ({atol.unit}) and 'actual' "
+                f"({actual.unit}) are not convertible"
+            )
 
     rtol = Quantity(rtol, subok=True, copy=False)
     try:
         rtol = rtol.to(dimensionless_unscaled)
     except Exception:
-        raise UnitsError("`rtol` should be dimensionless")
+        raise UnitsError("'rtol' should be dimensionless")
 
     return actual.value, desired.value, rtol.value, atol.value

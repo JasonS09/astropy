@@ -101,6 +101,12 @@ class Row:
         for col in self._table.columns.values():
             yield col[index]
 
+    def keys(self):
+        return self._table.columns.keys()
+
+    def values(self):
+        return self.__iter__()
+
     @property
     def table(self):
         return self._table
@@ -118,8 +124,9 @@ class Row:
 
         Returns
         -------
-        void_row : np.void (unmasked) or np.ma.mvoid (masked)
-            Copy of row values
+        void_row : ``numpy.void`` or ``numpy.ma.mvoid``
+            Copy of row values.
+            ``numpy.void`` if unmasked, ``numpy.ma.mvoid`` else.
         """
         index = self._index
         cols = self._table.columns.values()
@@ -173,7 +180,7 @@ class Row:
             descr_vals.append('masked=True')
 
         return table._base_repr_(html, descr_vals, max_width=-1,
-                                 tableid='table{}'.format(id(self._table)))
+                                 tableid=f'table{id(self._table)}')
 
     def _repr_html_(self):
         return self._base_repr_(html=True)

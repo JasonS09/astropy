@@ -172,13 +172,13 @@ class FunctionUnitBase(metaclass=ABCMeta):
 
         Parameters
         ----------
-        other : unit object or string or tuple
+        other : `~astropy.units.Unit`, string, or tuple
             The unit to convert to. If a tuple of units is specified, this
             method returns true if the unit matches any of those in the tuple.
 
-        equivalencies : list of equivalence pairs, optional
+        equivalencies : list of tuple
             A list of equivalence pairs to try if the units are not
-            directly convertible.  See :ref:`unit_equivalencies`.
+            directly convertible.  See :ref:`astropy:unit_equivalencies`.
             This list is in addition to the built-in equivalencies between the
             function unit and the physical one, as well as possible global
             defaults set by, e.g., `~astropy.units.set_enabled_equivalencies`.
@@ -205,16 +205,16 @@ class FunctionUnitBase(metaclass=ABCMeta):
 
         Parameters
         ----------
-        other : `~astropy.units.Unit` object, `~astropy.units.function.FunctionUnitBase` object or string
+        other : `~astropy.units.Unit`, `~astropy.units.function.FunctionUnitBase`, or str
             The unit to convert to.
 
-        value : scalar int or float, or sequence convertible to array, optional
+        value : int, float, or scalar array-like, optional
             Value(s) in the current unit to be converted to the specified unit.
             If not provided, defaults to 1.0.
 
-        equivalencies : list of equivalence pairs, optional
+        equivalencies : list of tuple
             A list of equivalence pairs to try if the units are not
-            directly convertible.  See :ref:`unit_equivalencies`.
+            directly convertible.  See :ref:`astropy:unit_equivalencies`.
             This list is in meant to treat only equivalencies between different
             physical units; the build-in equivalency between the function
             unit and the physical one is automatically taken into account.
@@ -227,7 +227,7 @@ class FunctionUnitBase(metaclass=ABCMeta):
 
         Raises
         ------
-        UnitsError
+        `~astropy.units.UnitsError`
             If units are inconsistent.
         """
         # conversion to one's own physical unit should be fastest
@@ -387,7 +387,7 @@ class FunctionUnitBase(metaclass=ABCMeta):
         # By default, try to give a representation using `Unit(<string>)`,
         # with string such that parsing it would give the correct FunctionUnit.
         if callable(self.function_unit):
-            return 'Unit("{}")'.format(self.to_string())
+            return f'Unit("{self.to_string()}")'
 
         else:
             return '{}("{}"{})'.format(
@@ -423,7 +423,7 @@ class FunctionQuantity(Quantity):
 
     Parameters
     ----------
-    value : number, sequence of convertible items, `~astropy.units.Quantity`, or `~astropy.units.function.FunctionQuantity`
+    value : number, quantity-like, or sequence thereof
         The numerical value of the function quantity. If a number or
         a `~astropy.units.Quantity` with a function unit, it will be converted
         to ``unit`` and the physical unit will be inferred from ``unit``.
@@ -431,7 +431,7 @@ class FunctionQuantity(Quantity):
         converted to the function unit, after, if necessary, converting it to
         the physical unit inferred from ``unit``.
 
-    unit : string, `~astropy.units.UnitBase` or `~astropy.units.function.FunctionUnitBase` instance, optional
+    unit : str, `~astropy.units.UnitBase`, or `~astropy.units.function.FunctionUnitBase`, optional
         For an `~astropy.units.function.FunctionUnitBase` instance, the
         physical unit will be taken from it; for other input, it will be
         inferred from ``value``. By default, ``unit`` is set by the subclass.
@@ -570,8 +570,7 @@ class FunctionQuantity(Quantity):
         # another argument might know what to do.
         if function not in self._supported_ufuncs:
             raise UnitTypeError(
-                "Cannot use ufunc '{}' with function quantities"
-                .format(function.__name__))
+                f"Cannot use ufunc '{function.__name__}' with function quantities")
 
         return super().__array_ufunc__(function, method, *inputs, **kwargs)
 

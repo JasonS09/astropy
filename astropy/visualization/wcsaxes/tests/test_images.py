@@ -13,12 +13,12 @@ from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.io import fits
 from astropy.tests.image_tests import IMAGE_REFERENCE_DIR
+from astropy.utils.data import get_pkg_data_filename
+from astropy.utils.exceptions import AstropyUserWarning
 from astropy.visualization.wcsaxes import WCSAxes
 from astropy.visualization.wcsaxes.frame import EllipticalFrame
-from astropy.visualization.wcsaxes.patches import SphericalCircle
+from astropy.visualization.wcsaxes.patches import Quadrangle, SphericalCircle
 from astropy.wcs import WCS
-
-from . import datasets
 
 
 class BaseImageTests:
@@ -26,21 +26,19 @@ class BaseImageTests:
     @classmethod
     def setup_class(cls):
 
-        cls._data_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), 'data'))
-
-        msx_header = os.path.join(cls._data_dir, 'msx_header')
+        msx_header = get_pkg_data_filename('data/msx_header')
         cls.msx_header = fits.Header.fromtextfile(msx_header)
 
-        rosat_header = os.path.join(cls._data_dir, 'rosat_header')
+        rosat_header = get_pkg_data_filename('data/rosat_header')
         cls.rosat_header = fits.Header.fromtextfile(rosat_header)
 
-        twoMASS_k_header = os.path.join(cls._data_dir, '2MASS_k_header')
+        twoMASS_k_header = get_pkg_data_filename('data/2MASS_k_header')
         cls.twoMASS_k_header = fits.Header.fromtextfile(twoMASS_k_header)
 
-        cube_header = os.path.join(cls._data_dir, 'cube_header')
+        cube_header = get_pkg_data_filename('data/cube_header')
         cls.cube_header = fits.Header.fromtextfile(cube_header)
 
-        slice_header = os.path.join(cls._data_dir, 'slice_header')
+        slice_header = get_pkg_data_filename('data/slice_header')
         cls.slice_header = fits.Header.fromtextfile(slice_header)
 
     def teardown_method(self, method):
@@ -106,7 +104,10 @@ class TestBasic(BaseImageTests):
                                    tolerance=0, style={})
     def test_contour_overlay(self):
         # Test for overlaying contours on images
-        hdu_msx = datasets.fetch_msx_hdu()
+        path = get_pkg_data_filename('galactic_center/gc_msx_e.fits')
+        with fits.open(path) as pf:
+            data = pf[0].data
+
         wcs_msx = WCS(self.msx_header)
 
         fig = plt.figure(figsize=(6, 6))
@@ -117,7 +118,7 @@ class TestBasic(BaseImageTests):
         ax.set_ylim(-0.5, 720.5)
 
         # Overplot contour
-        ax.contour(hdu_msx.data, transform=ax.get_transform(wcs_msx),
+        ax.contour(data, transform=ax.get_transform(wcs_msx),
                    colors='orange', levels=[2.5e-5, 5e-5, 1.e-4])
         ax.coords[0].set_ticks(size=5, width=1)
         ax.coords[1].set_ticks(size=5, width=1)
@@ -137,7 +138,10 @@ class TestBasic(BaseImageTests):
                                    tolerance=0, style={})
     def test_contourf_overlay(self):
         # Test for overlaying contours on images
-        hdu_msx = datasets.fetch_msx_hdu()
+        path = get_pkg_data_filename('galactic_center/gc_msx_e.fits')
+        with fits.open(path) as pf:
+            data = pf[0].data
+
         wcs_msx = WCS(self.msx_header)
 
         fig = plt.figure(figsize=(6, 6))
@@ -148,7 +152,7 @@ class TestBasic(BaseImageTests):
         ax.set_ylim(-0.5, 720.5)
 
         # Overplot contour
-        ax.contourf(hdu_msx.data, transform=ax.get_transform(wcs_msx),
+        ax.contourf(data, transform=ax.get_transform(wcs_msx),
                     levels=[2.5e-5, 5e-5, 1.e-4])
         ax.coords[0].set_ticks(size=5, width=1)
         ax.coords[1].set_ticks(size=5, width=1)
@@ -661,9 +665,55 @@ class TestBasic(BaseImageTests):
                    edgecolor='red', facecolor='none')
 
         # World coordinates (should not be distorted)
-        r = SphericalCircle((266.4 * u.deg, -29.1 * u.deg), 0.15 * u.degree,
-                            edgecolor='purple', facecolor='none',
-                            transform=ax.get_transform('fk5'))
+        r1 = SphericalCircle((266.4 * u.deg, -29.1 * u.deg), 0.15 * u.degree,
+                             edgecolor='purple', facecolor='none',
+                             transform=ax.get_transform('fk5'))
+        ax.add_patch(r1)
+
+        r2 = SphericalCircle(SkyCoord(266.4 * u.deg, -29.1 * u.deg), 0.15 * u.degree,
+                             edgecolor='purple', facecolor='none',
+                             transform=ax.get_transform('fk5'))
+
+        with pytest.warns(AstropyUserWarning,
+                          match="Received `center` of representation type "
+                                "<class 'astropy.coordinates.representation.CartesianRepresentation'> "
+                                "will be converted to SphericalRepresentation"):
+            r3 = SphericalCircle(SkyCoord(x=-0.05486461, y=-0.87204803, z=-0.48633538, representation_type='cartesian'),
+                                 0.15 * u.degree, edgecolor='purple',
+                                 facecolor='none', transform=ax.get_transform('fk5'))
+
+        ax.coords[0].set_ticklabel_visible(False)
+        ax.coords[1].set_ticklabel_visible(False)
+
+        # Test to verify that SphericalCircle works irrespective of whether
+        # the input(center) is a tuple or a SkyCoord object.
+        assert (r1.get_xy() == r2.get_xy()).all()
+        assert np.allclose(r1.get_xy(), r3.get_xy())
+        assert (r2.get_xy()[0] == [266.4, -29.25]).all()
+
+        return fig
+
+    @pytest.mark.remote_data(source='astropy')
+    @pytest.mark.mpl_image_compare(baseline_dir=IMAGE_REFERENCE_DIR,
+                                   tolerance=0, style={})
+    def test_quadrangle(self, tmpdir):
+        # Test that Quadrangle can have curved edges while Rectangle does not
+        wcs = WCS(self.msx_header)
+        fig = plt.figure(figsize=(3, 3))
+        ax = fig.add_axes([0.25, 0.25, 0.5, 0.5], projection=wcs, aspect='equal')
+        ax.set_xlim(0, 10000)
+        ax.set_ylim(-10000, 0)
+
+        # Add a quadrangle patch (100 degrees by 20 degrees)
+        q = Quadrangle((255, -70)*u.deg, 100*u.deg, 20*u.deg,
+                       label='Quadrangle', edgecolor='blue', facecolor='none',
+                       transform=ax.get_transform('icrs'))
+        ax.add_patch(q)
+
+        # Add a rectangle patch (100 degrees by 20 degrees)
+        r = Rectangle((255, -70), 100, 20,
+                       label='Rectangle', edgecolor='red', facecolor='none', linestyle='--',
+                       transform=ax.get_transform('icrs'))
         ax.add_patch(r)
 
         ax.coords[0].set_ticklabel_visible(False)

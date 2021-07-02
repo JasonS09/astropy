@@ -53,9 +53,9 @@ def table_info(tbl, option='attributes', out=''):
 
     Parameters
     ----------
-    option : str, function, list of (str or function)
+    option : str, callable, list of (str or callable)
         Info option, defaults to 'attributes'.
-    out : file-like object, None
+    out : file-like, None
         Output destination, default is sys.stdout.  If None then a
         Table with information attributes is returned
 
@@ -71,11 +71,11 @@ def table_info(tbl, option='attributes', out=''):
     descr_vals = [tbl.__class__.__name__]
     if tbl.masked:
         descr_vals.append('masked=True')
-    descr_vals.append('length={}'.format(len(tbl)))
+    descr_vals.append(f'length={len(tbl)}')
 
     outlines = ['<' + ' '.join(descr_vals) + '>']
 
-    cols = tbl.columns.values()
+    cols = list(tbl.columns.values())
     if tbl.colnames:
         infos = []
         for col in cols:

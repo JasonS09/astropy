@@ -1,4 +1,4 @@
-.. Astropy documentation master file, created by
+.. Astropy documentation index file, created by
    sphinx-quickstart on Tue Jul 26 02:59:34 2011.
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
@@ -31,15 +31,15 @@ Astropy Documentation
 The ``astropy`` package contains key functionality and common tools needed for
 performing astronomy and astrophysics with Python.  It is at the core of the
 `Astropy Project <http://www.astropy.org/about.html>`_, which aims to enable
-the community to develop a robust ecosystem of `Affiliated Packages
-<http://www.astropy.org/affiliated/index.html>`_ covering a broad range of
-needs for astronomical research, data processing, and data analysis.
+the community to develop a robust ecosystem of `affiliated packages`_
+covering a broad range of needs for astronomical research, data
+processing, and data analysis.
 
 .. Important:: If you use Astropy for work presented in a publication or talk
    please help the project via proper `citation or acknowledgement
    <https://www.astropy.org/acknowledging.html>`_.  This also applies to use of
-   software or `affliated packages <http://www.astropy.org/affiliated/>`_ that
-   depend on the astropy core package.
+   software or `affiliated packages`_ that depend on the astropy
+   core package.
 
 .. _getting-started:
 
@@ -51,10 +51,10 @@ Getting Started
    :maxdepth: 1
 
    install
-   whatsnew/4.0
+   whatsnew/5.0
    importing_astropy
    Example Gallery <generated/examples/index>
-   Tutorials <http://learn.astropy.org/>
+   Tutorials <https://learn.astropy.org/>
    Get Help <http://www.astropy.org/help.html>
    Contribute and Report Problems <http://www.astropy.org/contribute.html>
    About the Astropy Project <http://www.astropy.org/about.html>
@@ -117,8 +117,7 @@ Nuts and bolts
    logging
    warnings
    utils/index
-   testhelpers
-   development/workflow/get_devel_version
+   glossary
 
 .. _developer-docs:
 
@@ -127,19 +126,25 @@ Developer Documentation
 ***********************
 
 The developer documentation contains instructions for how to contribute to
-Astropy or affiliated packages, as well as coding, documentation, and
-testing guidelines. For the guiding vision of this process and the project
+Astropy or affiliated packages, install and test the development version,
+as well as coding, documentation, and testing guidelines.
+
+{% if is_development %}
+
+For the guiding vision of this process and the project
 as a whole, see :doc:`development/vision`.
 
 .. toctree::
    :maxdepth: 1
 
    development/workflow/development_workflow
+   development/workflow/get_devel_version
    development/when_to_rebase
    development/codeguide
    development/docguide
    development/style-guide
    development/testguide
+   testhelpers
    development/scripts
    development/building
    development/ccython
@@ -151,6 +156,19 @@ as a whole, see :doc:`development/vision`.
 There are some additional tools, mostly of use for maintainers, in the
 `astropy/astropy-procedures repository
 <https://github.com/astropy/astropy-procedures>`__.
+
+{%else%}
+
+To read the developer documentation, you will need to go to the :ref:`latest
+developer version of the documentation
+<astropy-dev:developer-docs>`.
+
+.. toctree::
+   :maxdepth: 1
+
+   changelog
+
+{%endif%}
 
 .. _project-details:
 
@@ -176,3 +194,4 @@ Index
 * :ref:`search`
 
 .. _feedback@astropy.org: mailto:feedback@astropy.org
+.. _affiliated packages: https://www.astropy.org/affiliated/

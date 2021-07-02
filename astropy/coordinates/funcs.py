@@ -12,10 +12,10 @@ import warnings
 from collections.abc import Sequence
 
 import numpy as np
+import erfa
 
 from astropy import units as u
 from astropy.constants import c
-from astropy import _erfa as erfa
 from astropy.io import ascii
 from astropy.utils import isiterable, data
 from .sky_coordinate import SkyCoord
@@ -47,19 +47,19 @@ def cartesian_to_spherical(x, y, z):
     Parameters
     ----------
     x : scalar, array-like, or `~astropy.units.Quantity`
-        The first cartesian coordinate.
+        The first Cartesian coordinate.
     y : scalar, array-like, or `~astropy.units.Quantity`
-        The second cartesian coordinate.
+        The second Cartesian coordinate.
     z : scalar, array-like, or `~astropy.units.Quantity`
-        The third cartesian coordinate.
+        The third Cartesian coordinate.
 
     Returns
     -------
     r : `~astropy.units.Quantity`
         The radial coordinate (in the same units as the inputs).
-    lat : `~astropy.units.Quantity`
+    lat : `~astropy.units.Quantity` ['angle']
         The latitude in radians
-    lon : `~astropy.units.Quantity`
+    lon : `~astropy.units.Quantity` ['angle']
         The longitude in radians
     """
     if not hasattr(x, 'unit'):
@@ -94,9 +94,9 @@ def spherical_to_cartesian(r, lat, lon):
     ----------
     r : scalar, array-like, or `~astropy.units.Quantity`
         The radial coordinate (in the same units as the inputs).
-    lat : scalar, array-like, or `~astropy.units.Quantity`
+    lat : scalar, array-like, or `~astropy.units.Quantity` ['angle']
         The latitude (in radians if array or scalar)
-    lon : scalar, array-like, or `~astropy.units.Quantity`
+    lon : scalar, array-like, or `~astropy.units.Quantity` ['angle']
         The longitude (in radians if array or scalar)
 
     Returns
@@ -180,7 +180,7 @@ def get_constellation(coord, short_name=False, constellation_list='iau'):
 
     Parameters
     ----------
-    coord : coordinate object
+    coord : coordinate-like
         The object to determine the constellation of.
     short_name : bool
         If True, the returned names are the IAU-sanctioned abbreviated
@@ -250,7 +250,7 @@ def get_constellation(coord, short_name=False, constellation_list='iau'):
         if np.sum(notided) == 0:
             break
     else:
-        raise ValueError('Could not find constellation for coordinates {}'.format(constel_coord[notided]))
+        raise ValueError(f'Could not find constellation for coordinates {constel_coord[notided]}')
 
     if short_name:
         names = ctable['name'][constellidx]
@@ -291,14 +291,15 @@ def concatenate_representations(reps):
 
     Parameters
     ----------
-    reps : sequence of representation objects
+    reps : sequence of `~astropy.coordinates.BaseRepresentation`
         The objects to concatenate
 
     Returns
     -------
-    rep : `~astropy.coordinates.BaseRepresentation` subclass
+    rep : `~astropy.coordinates.BaseRepresentation` subclass instance
         A single representation object with its data set to the concatenation of
         all the elements of the input sequence of representations.
+
     """
     if not isinstance(reps, (Sequence, np.ndarray)):
         raise TypeError('Input must be a list or iterable of representation '
@@ -350,7 +351,7 @@ def concatenate(coords):
 
     Parameters
     ----------
-    coords : sequence of coordinate objects
+    coords : sequence of coordinate-like
         The objects to concatenate
 
     Returns

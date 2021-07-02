@@ -54,7 +54,6 @@ explanation of all the different formats.
     around a single format and officially deprecate the other formats.
 """
 
-
 import operator
 import os
 import warnings
@@ -72,6 +71,11 @@ from .util import fileobj_closed, fileobj_name, fileobj_mode, _is_int
 from astropy.utils.exceptions import AstropyUserWarning
 from astropy.utils.decorators import deprecated_renamed_argument
 
+try:
+    from dask.array import Array as DaskArray
+except ImportError:
+    class DaskArray:
+        pass
 
 __all__ = ['getheader', 'getdata', 'getval', 'setval', 'delval', 'writeto',
            'append', 'update', 'info', 'tabledump', 'tableload',
@@ -84,7 +88,7 @@ def getheader(filename, *args, **kwargs):
 
     Parameters
     ----------
-    filename : file path, file object, or file like object
+    filename : path-like or file-like
         File to get header from.  If an opened file object, its mode
         must be one of the following rb, rb+, or ab+).
 
@@ -120,7 +124,7 @@ def getdata(filename, *args, header=None, lower=None, upper=None, view=None,
 
     Parameters
     ----------
-    filename : file path, file object, or file like object
+    filename : path-like or file-like
         File to get data from.  If opened, mode must be one of the
         following rb, rb+, or ab+.
 
@@ -131,6 +135,11 @@ def getdata(filename, *args, header=None, lower=None, upper=None, view=None,
         No extra arguments implies the primary header::
 
             getdata('in.fits')
+
+        .. note::
+            Exclusive to ``getdata``: if extension is not specified
+            and primary header contains no data, ``getdata`` attempts
+            to retrieve data from first extension.
 
         By extension number::
 
@@ -177,27 +186,46 @@ def getdata(filename, *args, header=None, lower=None, upper=None, view=None,
 
     Returns
     -------
-    array : array, record array or groups data object
+    array : ndarray or `~numpy.recarray` or `~astropy.io.fits.Group`
         Type depends on the type of the extension being referenced.
 
         If the optional keyword ``header`` is set to `True`, this
         function will return a (``data``, ``header``) tuple.
+
+    Raises
+    ------
+    IndexError
+        If no data is found in searched extensions.
     """
 
     mode, closed = _get_file_mode(filename)
+
+    ext = kwargs.get('ext')
+    extname = kwargs.get('extname')
+    extver = kwargs.get('extver')
+    ext_given = not (len(args) == 0 and ext is None and
+                     extname is None and extver is None)
 
     hdulist, extidx = _getext(filename, mode, *args, **kwargs)
     try:
         hdu = hdulist[extidx]
         data = hdu.data
-        if data is None and extidx == 0:
-            try:
-                hdu = hdulist[1]
-                data = hdu.data
-            except IndexError:
-                raise IndexError('No data in this HDU.')
         if data is None:
-            raise IndexError('No data in this HDU.')
+            if ext_given:
+                raise IndexError(f"No data in HDU #{extidx}.")
+
+            # fallback to the first non-primary extension
+            if len(hdulist) == 1:
+                raise IndexError(
+                    "No data in Primary HDU and no extension HDU found."
+                    )
+            hdu = hdulist[1]
+            data = hdu.data
+            if data is None:
+                raise IndexError(
+                    "No data in either Primary or first extension HDUs."
+                    )
+
         if header:
             hdr = hdu.header
     finally:
@@ -235,7 +263,7 @@ def getval(filename, keyword, *args, **kwargs):
 
     Parameters
     ----------
-    filename : file path, file object, or file like object
+    filename : path-like or file-like
         Name of the FITS file, or file object (if opened, mode must be
         one of the following rb, rb+, or ab+).
 
@@ -281,7 +309,7 @@ def setval(filename, keyword, *args, value=None, comment=None, before=None,
 
     Parameters
     ----------
-    filename : file path, file object, or file like object
+    filename : path-like or file-like
         Name of the FITS file, or file object If opened, mode must be update
         (rb+).  An opened file object or `~gzip.GzipFile` object will be closed
         upon return.
@@ -342,7 +370,7 @@ def delval(filename, keyword, *args, **kwargs):
     Parameters
     ----------
 
-    filename : file path, file object, or file like object
+    filename : path-like or file-like
         Name of the FITS file, or file object If opened, mode must be update
         (rb+).  An opened file object or `~gzip.GzipFile` object will be closed
         upon return.
@@ -381,11 +409,11 @@ def writeto(filename, data, header=None, output_verify='exception',
 
     Parameters
     ----------
-    filename : file path, file object, or file like object
-        File to write to.  If opened, must be opened in a writeable binary
+    filename : path-like or file-like
+        File to write to.  If opened, must be opened in a writable binary
         mode such as 'wb' or 'ab+'.
 
-    data : array, record array, or groups data object
+    data : array or `~numpy.recarray` or `~astropy.io.fits.Group`
         data to write to the new file
 
     header : `Header` object, optional
@@ -397,8 +425,8 @@ def writeto(filename, data, header=None, output_verify='exception',
         Output verification option.  Must be one of ``"fix"``, ``"silentfix"``,
         ``"ignore"``, ``"warn"``, or ``"exception"``.  May also be any
         combination of ``"fix"`` or ``"silentfix"`` with ``"+ignore"``,
-        ``+warn``, or ``+exception" (e.g. ``"fix+warn"``).  See :ref:`verify`
-        for more info.
+        ``+warn``, or ``+exception" (e.g. ``"fix+warn"``).  See
+        :ref:`astropy:verify` for more info.
 
     overwrite : bool, optional
         If ``True``, overwrite the output file if it exists. Raises an
@@ -468,33 +496,42 @@ def table_to_hdu(table, character_as_bytes=False):
             table, hdr = time_to_fits(table)
 
     # Create a new HDU object
-    if table.masked:
-        # float column's default mask value needs to be Nan
-        for column in table.columns.values():
-            fill_value = column.get_fill_value()
-            if column.dtype.kind == 'f' and np.allclose(fill_value, 1e20):
-                column.set_fill_value(np.nan)
+    tarray = table.as_array()
+    if isinstance(tarray, np.ma.MaskedArray):
+        # Fill masked values carefully:
+        # float column's default mask value needs to be Nan and
+        # string column's default mask should be an empty string.
+        # Note: getting the fill value for the structured array is
+        # more reliable than for individual columns for string entries.
+        # (no 'N/A' for a single-element string, where it should be 'N').
+        default_fill_value = np.ma.default_fill_value(tarray.dtype)
+        for colname, (coldtype, _) in tarray.dtype.fields.items():
+            if np.all(tarray.fill_value[colname] == default_fill_value[colname]):
+                if issubclass(coldtype.type, np.complexfloating):
+                    tarray.fill_value[colname] = complex(np.nan, np.nan)
+                elif issubclass(coldtype.type, np.inexact):
+                    tarray.fill_value[colname] = np.nan
+                elif issubclass(coldtype.type, np.character):
+                    tarray.fill_value[colname] = ''
 
         # TODO: it might be better to construct the FITS table directly from
         # the Table columns, rather than go via a structured array.
-        table_hdu = BinTableHDU.from_columns(np.array(table.filled()), header=hdr, character_as_bytes=True)
+        table_hdu = BinTableHDU.from_columns(tarray.filled(), header=hdr,
+                                             character_as_bytes=character_as_bytes)
         for col in table_hdu.columns:
             # Binary FITS tables support TNULL *only* for integer data columns
             # TODO: Determine a schema for handling non-integer masked columns
-            # in FITS (if at all possible)
+            # with non-default fill values in FITS (if at all possible).
             int_formats = ('B', 'I', 'J', 'K')
             if not (col.format in int_formats or
                     col.format.p_format in int_formats):
                 continue
 
-            # The astype is necessary because if the string column is less
-            # than one character, the fill value will be N/A by default which
-            # is too long, and so no values will get masked.
-            fill_value = table[col.name].get_fill_value()
-
-            col.null = fill_value.astype(table[col.name].dtype)
+            fill_value = tarray[col.name].fill_value
+            col.null = fill_value.astype(int)
     else:
-        table_hdu = BinTableHDU.from_columns(np.array(table.filled()), header=hdr, character_as_bytes=character_as_bytes)
+        table_hdu = BinTableHDU.from_columns(tarray, header=hdr,
+                                             character_as_bytes=character_as_bytes)
 
     # Set units and format display for output HDU
     for col in table_hdu.columns:
@@ -538,10 +575,9 @@ def table_to_hdu(table, character_as_bytes=False):
                         "though one has to enable the unit before reading.")
                 else:
                     warning += (
-                        "and cannot be recovered in reading. If pyyaml is "
-                        "installed, it can roundtrip within astropy by "
-                        "using QTable both to write and read back, "
-                        "though one has to enable the unit before reading.")
+                        "and cannot be recovered in reading. It can roundtrip "
+                        "within astropy by using QTable both to write and read "
+                        "back, though one has to enable the unit before reading.")
                 warnings.warn(warning, AstropyUserWarning)
 
             else:
@@ -598,13 +634,13 @@ def append(filename, data, header=None, checksum=False, verify=True, **kwargs):
 
     Parameters
     ----------
-    filename : file path, file object, or file like object
+    filename : path-like or file-like
         File to write to.  If opened, must be opened for update (rb+) unless it
         is a new file, then it must be opened for append (ab+).  A file or
         `~gzip.GzipFile` object opened for update will be closed after return.
 
-    data : array, table, or group data object
-        the new data used for appending
+    data : array, :class:`~astropy.table.Table`, or `~astropy.io.fits.Group`
+        The new data used for appending.
 
     header : `Header` object, optional
         The header associated with ``data``.  If `None`, an appropriate header
@@ -670,12 +706,12 @@ def update(filename, data, *args, **kwargs):
 
     Parameters
     ----------
-    filename : file path, file object, or file like object
+    filename : path-like or file-like
         File to update.  If opened, mode must be update (rb+).  An opened file
         object or `~gzip.GzipFile` object will be closed upon return.
 
-    data : array, table, or group data object
-        the new data used for updating
+    data : array, `~astropy.table.Table`, or `~astropy.io.fits.Group`
+        The new data used for updating.
 
     header : `Header` object, optional
         The header associated with ``data``.  If `None`, an appropriate header
@@ -695,7 +731,7 @@ def update(filename, data, *args, **kwargs):
             update(file, dat, 3, header=hdr)  # update the 3rd extension
             update(file, dat, header=hdr, ext=5)  # update the 5th extension
 
-    kwargs
+    **kwargs
         Any additional keyword arguments to be passed to
         `astropy.io.fits.open`.
     """
@@ -732,7 +768,7 @@ def info(filename, output=None, **kwargs):
 
     Parameters
     ----------
-    filename : file path, file object, or file like object
+    filename : path-like or file-like
         FITS file to obtain info from.  If opened, mode must be one of
         the following: rb, rb+, or ab+ (i.e. the file must be readable).
 
@@ -881,19 +917,19 @@ def tabledump(filename, datafile=None, cdfile=None, hfile=None, ext=1,
 
     Parameters
     ----------
-    filename : file path, file object or file-like object
+    filename : path-like or file-like
         Input fits file.
 
-    datafile : file path, file object or file-like object, optional
+    datafile : path-like or file-like, optional
         Output data file.  The default is the root name of the input
         fits file appended with an underscore, followed by the
         extension number (ext), followed by the extension ``.txt``.
 
-    cdfile : file path, file object or file-like object, optional
+    cdfile : path-like or file-like, optional
         Output column definitions file.  The default is `None`,
         no column definitions output is produced.
 
-    hfile : file path, file object or file-like object, optional
+    hfile : path-like or file-like, optional
         Output header parameters file.  The default is `None`,
         no header parameters output is produced.
 
@@ -951,16 +987,16 @@ def tableload(datafile, cdfile, hfile=None):
 
     Parameters
     ----------
-    datafile : file path, file object or file-like object
+    datafile : path-like or file-like
         Input data file containing the table data in ASCII format.
 
-    cdfile : file path, file object or file-like object
+    cdfile : path-like or file-like
         Input column definition file containing the names, formats,
         display formats, physical units, multidimensional array
         dimensions, undefined values, scale factors, and offsets
         associated with the columns in the table.
 
-    hfile : file path, file object or file-like object, optional
+    hfile : path-like or file-like, optional
         Input parameter definition file containing the header
         parameter definitions to be associated with the table.
         If `None`, a minimal header is constructed.
@@ -1061,7 +1097,7 @@ def _makehdu(data, header):
         if ((isinstance(data, np.ndarray) and data.dtype.fields is not None) or
                 isinstance(data, np.recarray)):
             hdu = BinTableHDU(data, header=header)
-        elif isinstance(data, np.ndarray):
+        elif isinstance(data, (np.ndarray, DaskArray)):
             hdu = ImageHDU(data, header=header)
         else:
             raise KeyError('Data must be a numpy array.')
@@ -1069,6 +1105,8 @@ def _makehdu(data, header):
 
 
 def _stat_filename_or_fileobj(filename):
+    if isinstance(filename, os.PathLike):
+        filename = os.fspath(filename)
     closed = fileobj_closed(filename)
     name = fileobj_name(filename) or ''
 

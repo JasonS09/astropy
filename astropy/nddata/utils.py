@@ -2,21 +2,43 @@
 """
 This module includes helper functions for array operations.
 """
+
 from copy import deepcopy
+import sys
+import types
+import warnings
 
 import numpy as np
 
-from .decorators import support_nddata
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.utils import lazyproperty
+from astropy.utils.decorators import AstropyDeprecationWarning
 from astropy.wcs.utils import skycoord_to_pixel, proj_plane_pixel_scales
 from astropy.wcs import Sip
 
+from .blocks import block_reduce as _block_reduce
+from .blocks import block_replicate as _block_replicate
 
 __all__ = ['extract_array', 'add_array', 'subpixel_indices',
-           'overlap_slices', 'block_reduce', 'block_replicate',
-           'NoOverlapError', 'PartialOverlapError', 'Cutout2D']
+           'overlap_slices', 'NoOverlapError', 'PartialOverlapError',
+           'Cutout2D']
+
+
+# this can be replaced with PEP562 when the minimum required Python
+# version is 3.7
+class _ModuleWithDeprecation(types.ModuleType):
+    def __getattribute__(self, name):
+        deprecated = ('block_reduce', 'block_replicate')
+        if name in deprecated:
+            warnings.warn(f'{name} was moved to the astropy.nddata.blocks '
+                          'module.  Please update your import statement.',
+                          AstropyDeprecationWarning)
+            return object.__getattribute__(self, f'_{name}')
+        return object.__getattribute__(self, name)
+
+
+sys.modules[__name__].__class__ = _ModuleWithDeprecation
 
 
 class NoOverlapError(ValueError):
@@ -46,10 +68,10 @@ def overlap_slices(large_array_shape, small_array_shape, position,
     large_array_shape : tuple of int or int
         The shape of the large array (for 1D arrays, this can be an
         `int`).
-    small_array_shape : tuple of int or int
+    small_array_shape : int or tuple thereof
         The shape of the small array (for 1D arrays, this can be an
         `int`).  See the ``mode`` keyword for additional details.
-    position : tuple of numbers or number
+    position : number or tuple thereof
         The position of the small array's center with respect to the
         large array.  The pixel coordinates should be in the same order
         as the array shape.  Integer positions are at the pixel centers.
@@ -68,11 +90,11 @@ def overlap_slices(large_array_shape, small_array_shape, position,
 
     Returns
     -------
-    slices_large : tuple of slices
+    slices_large : tuple of slice
         A tuple of slice objects for each axis of the large array, such
         that ``large_array[slices_large]`` extracts the region of the
         large array that overlaps with the small array.
-    slices_small : tuple of slices
+    slices_small : tuple of slice
         A tuple of slice objects for each axis of the small array, such
         that ``small_array[slices_small]`` extracts the region that is
         inside the large array.
@@ -146,12 +168,12 @@ def extract_array(array_large, shape, position, mode='partial',
 
     Parameters
     ----------
-    array_large : `~numpy.ndarray`
+    array_large : ndarray
         The array from which to extract the small array.
-    shape : tuple or int
+    shape : int or tuple thereof
         The shape of the extracted array (for 1D arrays, this can be an
         `int`).  See the ``mode`` keyword for additional details.
-    position : tuple of numbers or number
+    position : number or tuple thereof
         The position of the small array's center with respect to the
         large array.  The pixel coordinates should be in the same order
         as the array shape.  Integer positions are at the pixel centers
@@ -172,15 +194,17 @@ def extract_array(array_large, shape, position, mode='partial',
     fill_value : number, optional
         If ``mode='partial'``, the value to fill pixels in the extracted
         small array that do not overlap with the input ``array_large``.
-        ``fill_value`` must have the same ``dtype`` as the
-        ``array_large`` array.
-    return_position : boolean, optional
+        ``fill_value`` will be changed to have the same ``dtype`` as the
+        ``array_large`` array, with one exception. If ``array_large``
+        has integer type and ``fill_value`` is ``np.nan``, then a
+        `ValueError` will be raised.
+    return_position : bool, optional
         If `True`, return the coordinates of ``position`` in the
         coordinate system of the returned array.
 
     Returns
     -------
-    array_small : `~numpy.ndarray`
+    array_small : ndarray
         The extracted array.
     new_position : tuple
         If ``return_position`` is true, this tuple will contain the
@@ -221,7 +245,16 @@ def extract_array(array_large, shape, position, mode='partial',
     # Extracting on the edges is presumably a rare case, so treat special here
     if (extracted_array.shape != shape) and (mode == 'partial'):
         extracted_array = np.zeros(shape, dtype=array_large.dtype)
-        extracted_array[:] = fill_value
+        try:
+            extracted_array[:] = fill_value
+        except ValueError as exc:
+            exc.args += ('fill_value is inconsistent with the data type of '
+                         'the input array (e.g., fill_value cannot be set to '
+                         'np.nan if the input array has integer type). Please '
+                         'change either the input array dtype or the '
+                         'fill_value.',)
+            raise exc
+
         extracted_array[small_slices] = array_large[large_slices]
         if return_position:
             new_position = [i + s.start for i, s in zip(new_position,
@@ -238,9 +271,9 @@ def add_array(array_large, array_small, position):
 
     Parameters
     ----------
-    array_large : `~numpy.ndarray`
+    array_large : ndarray
         Large array.
-    array_small : `~numpy.ndarray`
+    array_small : ndarray
         Small array to add. Can be equal to ``array_large`` in size in a given
         dimension, but not larger.
     position : tuple
@@ -249,7 +282,7 @@ def add_array(array_large, array_small, position):
 
     Returns
     -------
-    new_array : `~numpy.ndarray`
+    new_array : ndarray
         The new array formed from the sum of ``array_large`` and
         ``array_small``.
 
@@ -296,14 +329,14 @@ def subpixel_indices(position, subsampling):
 
     Parameters
     ----------
-    position : `~numpy.ndarray` or array-like
+    position : ndarray or array-like
         Positions in pixels.
     subsampling : int
         Subsampling factor per pixel.
 
     Returns
     -------
-    indices : `~numpy.ndarray`
+    indices : ndarray
         The integer subpixel indices corresponding to the input positions.
 
     Examples
@@ -328,138 +361,6 @@ def subpixel_indices(position, subsampling):
     return np.floor(fractions * subsampling)
 
 
-@support_nddata
-def block_reduce(data, block_size, func=np.sum):
-    """
-    Downsample a data array by applying a function to local blocks.
-
-    If ``data`` is not perfectly divisible by ``block_size`` along a
-    given axis then the data will be trimmed (from the end) along that
-    axis.
-
-    Parameters
-    ----------
-    data : array_like
-        The data to be resampled.
-
-    block_size : int or array_like (int)
-        The integer block size along each axis.  If ``block_size`` is a
-        scalar and ``data`` has more than one dimension, then
-        ``block_size`` will be used for for every axis.
-
-    func : callable, optional
-        The method to use to downsample the data.  Must be a callable
-        that takes in a `~numpy.ndarray` along with an ``axis`` keyword,
-        which defines the axis along which the function is applied.  The
-        default is `~numpy.sum`, which provides block summation (and
-        conserves the data sum).
-
-    Returns
-    -------
-    output : array-like
-        The resampled data.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from astropy.nddata.utils import block_reduce
-    >>> data = np.arange(16).reshape(4, 4)
-    >>> block_reduce(data, 2)    # doctest: +SKIP
-    array([[10, 18],
-           [42, 50]])
-
-    >>> block_reduce(data, 2, func=np.mean)    # doctest: +SKIP
-    array([[  2.5,   4.5],
-           [ 10.5,  12.5]])
-    """
-
-    from skimage.measure import block_reduce
-
-    data = np.asanyarray(data)
-
-    block_size = np.atleast_1d(block_size)
-    if data.ndim > 1 and len(block_size) == 1:
-        block_size = np.repeat(block_size, data.ndim)
-
-    if len(block_size) != data.ndim:
-        raise ValueError('`block_size` must be a scalar or have the same '
-                         'length as `data.shape`')
-
-    block_size = np.array([int(i) for i in block_size])
-    size_resampled = np.array(data.shape) // block_size
-    size_init = size_resampled * block_size
-
-    # trim data if necessary
-    for i in range(data.ndim):
-        if data.shape[i] != size_init[i]:
-            data = data.swapaxes(0, i)
-            data = data[:size_init[i]]
-            data = data.swapaxes(0, i)
-
-    return block_reduce(data, tuple(block_size), func=func)
-
-
-@support_nddata
-def block_replicate(data, block_size, conserve_sum=True):
-    """
-    Upsample a data array by block replication.
-
-    Parameters
-    ----------
-    data : array_like
-        The data to be block replicated.
-
-    block_size : int or array_like (int)
-        The integer block size along each axis.  If ``block_size`` is a
-        scalar and ``data`` has more than one dimension, then
-        ``block_size`` will be used for for every axis.
-
-    conserve_sum : bool, optional
-        If `True` (the default) then the sum of the output
-        block-replicated data will equal the sum of the input ``data``.
-
-    Returns
-    -------
-    output : array_like
-        The block-replicated data.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from astropy.nddata.utils import block_replicate
-    >>> data = np.array([[0., 1.], [2., 3.]])
-    >>> block_replicate(data, 2)  # doctest: +FLOAT_CMP
-    array([[0.  , 0.  , 0.25, 0.25],
-           [0.  , 0.  , 0.25, 0.25],
-           [0.5 , 0.5 , 0.75, 0.75],
-           [0.5 , 0.5 , 0.75, 0.75]])
-
-    >>> block_replicate(data, 2, conserve_sum=False)  # doctest: +FLOAT_CMP
-    array([[0., 0., 1., 1.],
-           [0., 0., 1., 1.],
-           [2., 2., 3., 3.],
-           [2., 2., 3., 3.]])
-    """
-
-    data = np.asanyarray(data)
-
-    block_size = np.atleast_1d(block_size)
-    if data.ndim > 1 and len(block_size) == 1:
-        block_size = np.repeat(block_size, data.ndim)
-
-    if len(block_size) != data.ndim:
-        raise ValueError('`block_size` must be a scalar or have the same '
-                         'length as `data.shape`')
-
-    for i in range(data.ndim):
-        data = np.repeat(data, block_size[i], axis=i)
-
-    if conserve_sum:
-        data = data / float(np.prod(block_size))
-
-    return data
-
-
 class Cutout2D:
     """
     Create a cutout object from a 2D array.
@@ -473,7 +374,7 @@ class Cutout2D:
     will also contain a copy of the original WCS, but updated for the
     cutout array.
 
-    For example usage, see :ref:`cutout_images`.
+    For example usage, see :ref:`astropy:cutout_images`.
 
     .. warning::
 
@@ -484,7 +385,7 @@ class Cutout2D:
 
     Parameters
     ----------
-    data : `~numpy.ndarray`
+    data : ndarray
         The 2D data array from which to extract the cutout array.
 
     position : tuple or `~astropy.coordinates.SkyCoord`
@@ -494,7 +395,7 @@ class Cutout2D:
         `~astropy.coordinates.SkyCoord`, in which case ``wcs`` is a
         required input.
 
-    size : int, array-like, `~astropy.units.Quantity`
+    size : int, array-like, or `~astropy.units.Quantity`
         The size of the cutout array along each axis.  If ``size``
         is a scalar number or a scalar `~astropy.units.Quantity`,
         then a square cutout of ``size`` will be created.  If
@@ -536,7 +437,7 @@ class Cutout2D:
         thus the resulting cutout array may be smaller than the
         requested ``shape``.
 
-    fill_value : number, optional
+    fill_value : float or int, optional
         If ``mode='partial'``, the value to fill pixels in the
         cutout array that do not overlap with the input ``data``.
         ``fill_value`` must have the same ``dtype`` as the input
@@ -552,27 +453,27 @@ class Cutout2D:
     data : 2D `~numpy.ndarray`
         The 2D cutout array.
 
-    shape : 2 tuple
+    shape : (2,) tuple
         The ``(ny, nx)`` shape of the cutout array.
 
-    shape_input : 2 tuple
+    shape_input : (2,) tuple
         The ``(ny, nx)`` shape of the input (original) array.
 
-    input_position_cutout : 2 tuple
+    input_position_cutout : (2,) tuple
         The (unrounded) ``(x, y)`` position with respect to the cutout
         array.
 
-    input_position_original : 2 tuple
+    input_position_original : (2,) tuple
         The original (unrounded) ``(x, y)`` input position (with respect
         to the original array).
 
-    slices_original : 2 tuple of slice objects
+    slices_original : (2,) tuple of slice object
         A tuple of slice objects for the minimal bounding box of the
         cutout with respect to the original array.  For
         ``mode='partial'``, the slices are for the valid (non-filled)
         cutout values.
 
-    slices_cutout : 2 tuple of slice objects
+    slices_cutout : (2,) tuple of slice object
         A tuple of slice objects for the minimal bounding box of the
         cutout with respect to the cutout array.  For
         ``mode='partial'``, the slices are for the valid (non-filled)
@@ -592,7 +493,7 @@ class Cutout2D:
         are for the valid (non-filled) cutout values.  These values are
         the same as those in `bbox_cutout`.
 
-    wcs : `~astropy.wcs.WCS` or `None`
+    wcs : `~astropy.wcs.WCS` or None
         A WCS object associated with the cutout array if a ``wcs``
         was input.
 

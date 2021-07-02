@@ -1,4 +1,5 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
+# pylint: disable=invalid-name
 
 """
 This module defines classes that deal with parameters.
@@ -15,7 +16,7 @@ import operator
 import numpy as np
 
 from astropy.units import Quantity
-from astropy.utils import isiterable, OrderedDescriptor
+from astropy.utils import isiterable
 from .utils import array_repr_oneline
 from .utils import get_inputs_and_params
 
@@ -45,8 +46,7 @@ def _tofloat(value):
             # catch arrays with strings or user errors like different
             # types of parameters in a parameter set
             raise InputParameterError(
-                "Parameter of {} could not be converted to "
-                "float".format(type(value)))
+                f"Parameter of {type(value)} could not be converted to float")
     elif isinstance(value, Quantity):
         # Quantities are fine as is
         pass
@@ -60,8 +60,7 @@ def _tofloat(value):
             "Expected parameter to be of numerical type, not boolean")
     else:
         raise InputParameterError(
-            "Don't know how to convert parameter of {} to "
-            "float".format(type(value)))
+            f"Don't know how to convert parameter of {type(value)} to float")
     return value
 
 
@@ -112,14 +111,13 @@ def _unary_arithmetic_operation(op):
     return wrapper
 
 
-class Parameter(OrderedDescriptor):
+class Parameter:
     """
     Wraps individual parameters.
 
-    Since 4.0 Parameters are no longer descriptors (despite the fact that
-    it inherits from OrderedDescriptor) and are based on a new implementation
-    of the Parameter class. Parameters now  (as of 4.0) store values locally
-    (as instead previously in the associated model)
+    Since 4.0 Parameters are no longer descriptors and are based on a new
+    implementation of the Parameter class. Parameters now  (as of 4.0) store
+    values locally (as instead previously in the associated model)
 
     This class represents a model's parameter (in a somewhat broad sense). It
     serves a number of purposes:
@@ -140,7 +138,7 @@ class Parameter(OrderedDescriptor):
 
 
 
-    See :ref:`modeling-parameters` for more details.
+    See :ref:`astropy:modeling-parameters` for more details.
 
     Parameters
     ----------
@@ -191,10 +189,6 @@ class Parameter(OrderedDescriptor):
     are available for use by user fitters but are not used by any built-in
     fitters as of this writing.
     """
-
-    # Settings for OrderedDescriptor
-    _class_attribute_ = '_parameters_'
-    _name_attribute_ = '_name'
 
     def __init__(self, name='', description='', default=None, unit=None,
                  getter=None, setter=None, fixed=False, tied=False, min=None,
@@ -247,9 +241,13 @@ class Parameter(OrderedDescriptor):
         self._order = None
 
         self._validator = None
+        self._prior = None
+        self._posterior = None
 
-        # Only Parameters declared as class-level descriptors require
-        # and ordering ID
+        self._std = None
+
+    def __set_name__(self, owner, name):
+        self._name = name
 
     def __len__(self):
         val = self.value
@@ -325,7 +323,8 @@ class Parameter(OrderedDescriptor):
             # uses internally.
             if self.internal_unit:
                 return np.float64(self._getter(self._internal_value,
-                                  self.internal_unit, self.unit).value)
+                                               self.internal_unit,
+                                               self.unit).value)
             elif self._getter:
                 return np.float64(self._getter(self._internal_value))
             elif self._setter:
@@ -396,10 +395,9 @@ class Parameter(OrderedDescriptor):
         """
         This parameter, as a :class:`~astropy.units.Quantity` instance.
         """
-        if self.unit is not None:
-            return self.value * self.unit
-        else:
+        if self.unit is None:
             return None
+        return self.value * self.unit
 
     @quantity.setter
     def quantity(self, quantity):
@@ -414,13 +412,12 @@ class Parameter(OrderedDescriptor):
         """The shape of this parameter's value array."""
         if self._setter is None:
             return self._value.shape
-        else:
-            return self._internal_value.shape
+        return self._internal_value.shape
 
     @shape.setter
     def shape(self, value):
         if isinstance(self.value, np.generic):
-            if value != () and value != (1,):
+            if value not in ((), (1,)):
                 raise ValueError("Cannot assign this shape to a scalar quantity")
         else:
             self.value.shape = value
@@ -432,49 +429,42 @@ class Parameter(OrderedDescriptor):
         return np.size(self.value)
 
     @property
+    def std(self):
+        """Standard deviation, if available from fit."""
+
+        return self._std
+
+    @std.setter
+    def std(self, value):
+
+        self._std = value
+
+    @property
     def prior(self):
-        if self._model is not None:
-            prior = self._model._constraints['prior']
-            return prior.get(self._name, self._prior)
-        else:
-            return self._prior
+        return self._prior
 
     @prior.setter
     def prior(self, val):
-        if self._model is not None:
-            self._model._constraints['prior'][self._name] = val
-        else:
-            raise AttributeError("can't set attribute 'prior' on Parameter "
-                                 "definition")
+        self._prior = val
 
     @property
     def posterior(self):
-        if self._model is not None:
-            posterior = self._model._constraints['posterior']
-            return posterior.get(self._name, self._posterior)
-        else:
-            return self._posterior
+        return self._posterior
 
     @posterior.setter
     def posterior(self, val):
-        if self._model is not None:
-            self._model._constraints['posterior'][self._name] = val
-        else:
-            raise AttributeError("can't set attribute 'posterior' on Parameter "
-                                 "definition")
+        self._posterior = val
 
     @property
     def fixed(self):
         """
         Boolean indicating if the parameter is kept fixed during fitting.
         """
-
         return self._fixed
 
     @fixed.setter
     def fixed(self, value):
-        """Fix a parameter"""
-
+        """ Fix a parameter. """
         if not isinstance(value, bool):
             raise ValueError("Value must be boolean")
         self._fixed = value
@@ -575,6 +565,7 @@ class Parameter(OrderedDescriptor):
         return validator
 
     def validate(self, value):
+        """ Run the validator on this parameter"""
         if self._validator is not None and self._model is not None:
             self._validator(self._model, value)
 
@@ -615,6 +606,7 @@ class Parameter(OrderedDescriptor):
 
     @property
     def model(self):
+        """ Return the model this  parameter is associated with."""
         return self._model
 
     @model.setter
@@ -642,8 +634,7 @@ class Parameter(OrderedDescriptor):
         """
         if self._setter:
             return self._internal_value
-        else:
-            return self.value
+        return self.value
 
     def _create_value_wrapper(self, wrapper, model):
         """Wraps a getter/setter function to support optionally passing in
@@ -662,7 +653,7 @@ class Parameter(OrderedDescriptor):
             # Just allow non-wrappers to fall through silently, for convenience
             return None
         else:
-            inputs, params = get_inputs_and_params(wrapper)
+            inputs, _ = get_inputs_and_params(wrapper)
             nargs = len(inputs)
 
             if nargs == 1:

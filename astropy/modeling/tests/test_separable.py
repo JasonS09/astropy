@@ -3,11 +3,12 @@
 Test separability of models.
 
 """
+# pylint: disable=invalid-name
 import pytest
 import numpy as np
 from numpy.testing import assert_allclose
 
-from astropy.modeling import models
+from astropy.modeling import custom_model, models
 from astropy.modeling.models import Mapping
 from astropy.modeling.separable import (_coord_matrix, is_separable, _cdot,
                                         _cstack, _arith_oper, separability_matrix)
@@ -37,19 +38,19 @@ compound_models = {
             ),
     'cm3': (map2 | rot & scl1,
             (np.array([False, False, True]),
-            np.array([[True, False], [True, False], [False, True]]))
+             np.array([[True, False], [True, False], [False, True]]))
             ),
     'cm4': (sh1 & sh2 | map2 | rot & scl1,
             (np.array([False, False, True]),
-            np.array([[True, False], [True, False], [False, True]]))
+             np.array([[True, False], [True, False], [False, True]]))
             ),
     'cm5': (map3 | sh1 & sh2 | scl1 & scl2,
             (np.array([False, False]),
-            np.array([[True], [True]]))
+             np.array([[True], [True]]))
             ),
     'cm7': (map2 | p2 & sh1,
             (np.array([False, True]),
-            np.array([[True, False], [False, True]]))
+             np.array([[True, False], [False, True]]))
             )
 }
 
@@ -118,3 +119,18 @@ def test_arith_oper():
 def test_separable(compound_model, result):
     assert_allclose(is_separable(compound_model), result[0])
     assert_allclose(separability_matrix(compound_model), result[1])
+
+
+def test_custom_model_separable():
+    @custom_model
+    def model_a(x):
+        return x
+
+    assert model_a().separable
+
+    @custom_model
+    def model_c(x, y):
+        return x + y
+
+    assert not model_c().separable
+    assert np.all(separability_matrix(model_c()) == [True, True])

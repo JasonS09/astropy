@@ -11,22 +11,22 @@ __all__ = ['Supergalactic']
 
 
 doc_components = """
-    sgl : `~astropy.coordinates.Angle`, optional, must be keyword
+    sgl : `~astropy.coordinates.Angle`, optional, keyword-only
         The supergalactic longitude for this object (``sgb`` must also be given and
         ``representation`` must be None).
-    sgb : `~astropy.coordinates.Angle`, optional, must be keyword
+    sgb : `~astropy.coordinates.Angle`, optional, keyword-only
         The supergalactic latitude for this object (``sgl`` must also be given and
         ``representation`` must be None).
-    distance : `~astropy.units.Quantity`, optional, must be keyword
+    distance : `~astropy.units.Quantity` ['speed'], optional, keyword-only
         The Distance for this object along the line-of-sight.
 
-    pm_sgl_cossgb : :class:`~astropy.units.Quantity`, optional, must be keyword
+    pm_sgl_cossgb : `~astropy.units.Quantity` ['angular speed'], optional, keyword-only
         The proper motion in Right Ascension for this object (``pm_sgb`` must
         also be given).
-    pm_sgb : :class:`~astropy.units.Quantity`, optional, must be keyword
+    pm_sgb : `~astropy.units.Quantity` ['angular speed'], optional, keyword-only
         The proper motion in Declination for this object (``pm_sgl_cossgb`` must
         also be given).
-    radial_velocity : :class:`~astropy.units.Quantity`, optional, must be keyword
+    radial_velocity : `~astropy.units.Quantity` ['speed'], optional, keyword-only
         The radial velocity of this object.
 """
 
@@ -35,7 +35,7 @@ doc_components = """
 class Supergalactic(BaseCoordinateFrame):
     """
     Supergalactic Coordinates
-    (see Lahav et al. 2000, <http://adsabs.harvard.edu/abs/2000MNRAS.312..166L>,
+    (see Lahav et al. 2000, <https://ui.adsabs.harvard.edu/abs/2000MNRAS.312..166L>,
     and references therein).
     """
 

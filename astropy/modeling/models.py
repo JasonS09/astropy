@@ -4,6 +4,7 @@
 Creates a common namespace for all pre-defined models.
 """
 
+# pylint: disable=unused-wildcard-import, unused-import, wildcard-import
 
 from .core import custom_model, hide_inverse, fix_inputs # pylint: disable=W0611
 from .mappings import *
@@ -14,7 +15,6 @@ from .functional_models import *
 from .physical_models import *
 from .powerlaws import *
 from .tabular import *
-from .blackbody import BlackBody1D
 from . import math_functions as math
 
 # Deprecated models that are not defined in __all__
@@ -62,7 +62,8 @@ MODELS_WITH_CONSTRAINTS = [
     Linear1D, Lorentz1D, RickerWavelet1D, RickerWavelet2D,
     PowerLaw1D, Sersic1D, Sersic2D, Sine1D, Trapezoid1D, TrapezoidDisk2D,
     Chebyshev1D, Chebyshev2D, Hermite1D, Hermite2D, Legendre2D, Legendre1D,
-    Polynomial1D, Polynomial2D, Voigt1D, KingProjectedAnalytic1D
+    Polynomial1D, Polynomial2D, Voigt1D, KingProjectedAnalytic1D,
+    NFW
 ]
 
 

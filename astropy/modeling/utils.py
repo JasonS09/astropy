@@ -1,14 +1,15 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 
 """
-This module provides utility functions for the models package
+This module provides utility functions for the models package.
 """
-
-from collections import deque
+# pylint: disable=invalid-name
+from collections import deque, UserDict
 from collections.abc import MutableMapping
 from inspect import signature
 
 import numpy as np
+import warnings
 from astropy.utils.decorators import deprecated
 from astropy.utils import isiterable, check_broadcast
 
@@ -48,8 +49,7 @@ class ExpressionTree:
     def _recursive_lookup(branch, adict, key):
         if isinstance(branch, ExpressionTree):
             return adict[key]
-        else:
-            return branch, key
+        return branch, key
 
     @property
     def inputs_map(self):
@@ -187,7 +187,6 @@ class ExpressionTree:
         The ``start`` and ``stop`` arguments allow evaluating a sub-expression
         within the expression tree.
 
-        TODO: Document this better.
         """
 
         stack = deque()
@@ -236,7 +235,6 @@ class ExpressionTree:
                     stack.append((operator(left[0], right[0]), -1))
                 elif len(operands) == 0:
                     # Just push the left one back on the stack
-                    # TODO: Explain and/or refactor this better
                     # This is here because even if both operands were "skipped"
                     # due to being outside the (start, stop) range, we've only
                     # skipped one operator.  But there should be at least 2
@@ -328,14 +326,14 @@ class AliasDict(MutableMapping):
     3
 
     Keys in the original parent dict are not visible if they were not
-    aliased::
+    aliased:
 
     >>> alias_dict['b']
     Traceback (most recent call last):
     ...
     KeyError: 'b'
 
-    Likewise, updates to aliased keys are reflected back in the parent dict::
+    Likewise, updates to aliased keys are reflected back in the parent dict:
 
     >>> alias_dict['foo'] = 42
     >>> alias_dict['foo']
@@ -344,7 +342,7 @@ class AliasDict(MutableMapping):
     42
 
     However, updates/insertions to keys that are *not* aliased are not
-    reflected in the parent dict::
+    reflected in the parent dict:
 
     >>> alias_dict['qux'] = 99
     >>> alias_dict['qux']
@@ -356,7 +354,7 @@ class AliasDict(MutableMapping):
     one of the aliased keys in the parent dict does *not* update the parent
     dict.  For example, ``alias_dict`` aliases ``'foo'`` to ``'a'``.  But
     assigning to a key ``'a'`` on the `AliasDict` does not impact the
-    parent::
+    parent:
 
     >>> alias_dict['a'] = 'nope'
     >>> alias_dict['a']
@@ -415,9 +413,6 @@ class AliasDict(MutableMapping):
             yield key
 
     def __len__(self):
-        # TODO:
-        # This could be done more efficiently, but at present the use case for
-        # it is narrow if non-existent.
         return len(list(iter(self)))
 
     def __repr__(self):
@@ -479,9 +474,9 @@ class _BoundingBox(tuple):
         nd = model.n_inputs
 
         if nd == 1:
-            MESSAGE = "Bounding box for {0} model must be a sequence of length "
-            "2 consisting of a lower and upper bound, or a 1-tuple "
-            f"containing such a sequence as its sole element."
+            MESSAGE = f"""Bounding box for {model.__class__.__name__} model must be a sequence
+            of length 2 consisting of a lower and upper bound, or a 1-tuple
+            containing such a sequence as its sole element."""
 
             try:
                 valid_shape = np.shape(bounding_box) in ((2,), (1, 2))
@@ -496,13 +491,11 @@ class _BoundingBox(tuple):
 
             if len(bounding_box) == 1:
                 return cls((tuple(bounding_box[0]),))
-            else:
-                return cls(tuple(bounding_box))
+            return cls(tuple(bounding_box))
         else:
-            MESSAGE = "Bounding box for {0} model must be a sequence of length "
-            "{1} (the number of model inputs) consisting of pairs of "
-            "lower and upper bounds for those inputs on which to "
-            f"evaluate the model."
+            MESSAGE = f"""Bounding box for {model.__class__.__name__} model must be a sequence
+            of length {model.n_inputs} (the number of model inputs) consisting of pairs of
+            lower and upper bounds for those inputs on which to evaluate the model."""
 
             try:
                 valid_shape = all([len(i) == 2 for i in bounding_box])
@@ -515,6 +508,30 @@ class _BoundingBox(tuple):
                 raise ValueError(MESSAGE)
 
             return cls(tuple(bounds) for bounds in bounding_box)
+
+    @property
+    def dimension(self):
+        if isinstance(self[0], tuple):
+            return len(self)
+        else:
+            return 1
+
+    def domain(self, resolution):
+        """
+        Given a resolution find the meshgrid approximation of the bounding box.
+
+        Parameters
+        ----------
+        resolution: float
+            The resolution of the grid.
+        """
+
+        if self.dimension == 1:
+            return [np.arange(self[0], self[1] + resolution, resolution)]
+        elif self.dimension > 1:
+            return [np.arange(self[i][0], self[i][1] + resolution, resolution) for i in range(self.dimension)]
+        else:
+            raise ValueError('Bounding box must have positive dimension')
 
 
 def make_binary_operator_eval(oper, f, g):
@@ -559,9 +576,19 @@ def poly_map_domain(oldx, domain, window):
     """
     domain = np.array(domain, dtype=np.float64)
     window = np.array(window, dtype=np.float64)
+    if domain.shape != (2,) or window.shape != (2,):
+        raise ValueError('Expected "domain" and window to be a tuple of size 2.' )
     scl = (window[1] - window[0]) / (domain[1] - domain[0])
     off = (window[0] * domain[1] - window[1] * domain[0]) / (domain[1] - domain[0])
     return off + scl * oldx
+
+
+def _validate_domain_window(value):
+    if value is not None:
+        if np.asanyarray(value).shape != (2, ):
+            raise ValueError('domain and window should be tuples of size 2.')
+        return tuple(value)
+    return value
 
 
 def comb(N, k):
@@ -619,7 +646,7 @@ def ellipse_extent(a, b, theta):
         Major axis.
     b : float or `~astropy.units.Quantity`
         Minor axis.
-    theta : float or `~astropy.units.Quantity`
+    theta : float or `~astropy.units.Quantity` ['angle']
         Rotation angle. If given as a floating-point value, it is assumed to be
         in radians.
 
@@ -669,8 +696,7 @@ def ellipse_extent(a, b, theta):
 
     if isinstance(dx, u.Quantity) or isinstance(dy, u.Quantity):
         return np.abs(u.Quantity([dx, dy]))
-    else:
-        return np.abs([dx, dy])
+    return np.abs([dx, dy])
 
 
 def get_inputs_and_params(func):
@@ -705,15 +731,13 @@ def get_inputs_and_params(func):
 def _parameter_with_unit(parameter, unit):
     if parameter.unit is None:
         return parameter.value * unit
-    else:
-        return parameter.quantity.to(unit)
+    return parameter.quantity.to(unit)
 
 
 def _parameter_without_unit(value, old_unit, new_unit):
     if old_unit is None:
         return value
-    else:
-        return value * old_unit.to(new_unit)
+    return value * old_unit.to(new_unit)
 
 
 def _combine_equivalency_dict(keys, eq1=None, eq2=None):
@@ -734,13 +758,101 @@ def _to_radian(value):
     """ Convert ``value`` to radian. """
     if isinstance(value, u.Quantity):
         return value.to(u.rad)
-    else:
-        return np.deg2rad(value)
+    return np.deg2rad(value)
 
 
 def _to_orig_unit(value, raw_unit=None, orig_unit=None):
     """ Convert value with ``raw_unit`` to ``orig_unit``. """
     if raw_unit is not None:
         return (value * raw_unit).to(orig_unit)
-    else:
-        return np.rad2deg(value)
+    return np.rad2deg(value)
+
+
+class _ConstraintsDict(UserDict):
+    """
+    Wrapper around UserDict to allow updating the constraints
+    on a Parameter when the dictionary is updated.
+    """
+    def __init__(self, model, constraint_type):
+        self._model = model
+        self.constraint_type = constraint_type
+        c = {}
+        for name in model.param_names:
+            param = getattr(model, name)
+            c[name] = getattr(param, constraint_type)
+        super().__init__(c)
+
+    def __setitem__(self, key, val):
+        super().__setitem__(key, val)
+        param = getattr(self._model, key)
+        setattr(param, self.constraint_type, val)
+
+
+class _SpecialOperatorsDict(UserDict):
+    """
+    Wrapper around UserDict to allow for better tracking of the Special
+    Operators for CompoundModels. This dictionary is structured so that
+    one cannot inadvertently overwrite an existing special operator.
+
+    Parameters
+    ----------
+    unique_id: int
+        the last used unique_id for a SPECIAL OPERATOR
+    special_operators: dict
+        a dictionary containing the special_operators
+
+    Notes
+    -----
+    Direct setting of operators (`dict[key] = value`) into the
+    dictionary has been deprecated in favor of the `.add(name, value)`
+    method, so that unique dictionary keys can be generated and tracked
+    consistently.
+    """
+
+    def __init__(self, unique_id=0, special_operators={}):
+        super().__init__(special_operators)
+        self._unique_id = unique_id
+
+    def _set_value(self, key, val):
+        if key in self:
+            raise ValueError(f'Special operator "{key}" already exists')
+        else:
+            super().__setitem__(key, val)
+
+    def __setitem__(self, key, val):
+        self._set_value(key, val)
+        warnings.warn(DeprecationWarning(
+            """
+            Special operator dictionary assignment has been deprecated.
+            Please use `.add` instead, so that you can capture a unique
+            key for your operator.
+            """
+        ))
+
+    def _get_unique_id(self):
+        self._unique_id += 1
+
+        return self._unique_id
+
+    def add(self, operator_name, operator):
+        """
+        Adds a special operator to the dictionary, and then returns the
+        unique key that the operator is stored under for later reference.
+
+        Parameters
+        ----------
+        operator_name: str
+            the name for the operator
+        operator: function
+            the actual operator function which will be used
+
+        Returns
+        -------
+        the unique operator key for the dictionary
+            `(operator_name, unique_id)`
+        """
+        key = (operator_name, self._get_unique_id())
+
+        self._set_value(key, operator)
+
+        return key

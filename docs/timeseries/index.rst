@@ -1,32 +1,18 @@
 .. _astropy-timeseries:
 
-****************************************************
-Time series (`astropy.timeseries`)
-****************************************************
-
-.. |Time| replace:: :class:`~astropy.time.Time`
-.. |Table| replace:: :class:`~astropy.table.Table`
-.. |QTable| replace:: :class:`~astropy.table.QTable`
-.. |Quantity| replace:: :class:`~astropy.units.Quantity`
-.. |TimeSeries| replace:: :class:`~astropy.timeseries.TimeSeries`
-.. |BinnedTimeSeries| replace:: :class:`~astropy.timeseries.BinnedTimeSeries`
-
-.. warning::
-
-    `astropy.timeseries` is currently a work-in-progress (new in v3.2), and thus it is quite
-    possible there will be API changes in later versions of Astropy. If you have
-    specific ideas for how it might be improved, please  let us know on the
-    `astropy-dev mailing list`_ or at http://feedback.astropy.org .
+**********************************
+Time Series (`astropy.timeseries`)
+**********************************
 
 Introduction
 ============
 
-Many different areas of astrophysics have to deal with 1D time series data,
-either sampling a continuous variable at fixed times or counting some events
-binned into time windows. To address this need, the `astropy.timeseries`
+From sampling a continuous variable at fixed times to counting events binned
+into time windows, many different areas of astrophysics require the manipulation
+of 1D time series data. To address this need, the `astropy.timeseries`
 subpackage provides classes to represent and manipulate time series.
 
-The time series classes presented below are |QTable| sub-classes that have
+The time series classes presented below are |QTable| subclasses that have
 special columns to represent times using the |Time| class. Therefore, much of
 the functionality described in :ref:`astropy-table` applies here. But the main
 purpose of the new classes are to provide time series-specific functionality
@@ -39,25 +25,26 @@ In this section, we take a quick look at how to read in a time series, access
 the data, and carry out some basic analysis. For more details about creating and
 using time series, see the full documentation in :ref:`using-timeseries`.
 
-The simplest time series class is |TimeSeries| - it represents a time series as
-a collection of values at specific points in time. If you are interested in
+The most basic time series class is |TimeSeries| — it represents a time series
+as a collection of values at specific points in time. If you are interested in
 representing time series as measurements in discrete time bins, you will likely
-be interested in the |BinnedTimeSeries| sub-class which we show in
+be interested in the |BinnedTimeSeries| subclass which we show in
 :ref:`using-timeseries`).
 
-To start off, we retrieve a FITS file containing a Kepler light curve for a source::
+.. EXAMPLE START: Using the TimeSeries Class
+
+To start off, we retrieve a FITS file containing a Kepler light curve for a
+source::
 
     >>> from astropy.utils.data import get_pkg_data_filename
     >>> filename = get_pkg_data_filename('timeseries/kplr010666592-2009131110544_slc.fits')  # doctest: +REMOTE_DATA
 
 .. note::
-    The light curve provided here is hand-picked for example purposes. For
-    more information about the Kepler FITS format, see the `Kepler Data
-    Validation Document
-    <https://exoplanetarchive.ipac.caltech.edu/docs/KeplerDV.html>`_ and the
-    Kepler Science Center `Light Curve Files
-    <https://keplerscience.arc.nasa.gov/PyKEprimerLCs.shtml>`_ documentation. To
-    get other Kepler light curves for science purposes using Python, see the
+    The light curve provided here is handpicked for example purposes. For
+    more information about the Kepler FITS format, see
+    `Section 2.3.1 of the Kepler Archive Manual
+    <https://archive.stsci.edu/kepler/manuals/archive_manual.pdf#page=16>`_.
+    To get other light curves for science purposes using Python, see the
     `astroquery <https://astroquery.readthedocs.io>`_ affiliated package.
 
 We can then use the |TimeSeries| class to read in this file::
@@ -71,7 +58,7 @@ Time series are specialized kinds of |Table| objects::
     <TimeSeries length=14280>
               time             timecorr   ...   pos_corr1      pos_corr2
                                   d       ...      pix            pix
-             object            float32    ...    float32        float32
+              Time             float32    ...    float32        float32
     ----------------------- ------------- ... -------------- --------------
     2009-05-02T00:41:40.338  6.630610e-04 ...  1.5822421e-03 -1.4463664e-03
     2009-05-02T00:42:39.188  6.630857e-04 ...  1.5743829e-03 -1.4540013e-03
@@ -94,8 +81,12 @@ Time series are specialized kinds of |Table| objects::
     2009-05-11T18:06:13.328  1.014689e-03 ...  3.5967610e-03  3.1329831e-03
     2009-05-11T18:07:12.186  1.014713e-03 ...  3.5948332e-03  3.1252259e-03
 
-In the same way as for |Table|, the various columns and rows can be accessed and
-sliced using index notation::
+.. EXAMPLE END
+
+.. EXAMPLE START: Slicing TimeSeries Objects Using Index Notation
+
+In the same way as for |Table| objects, the various columns and rows of
+|TimeSeries| objects can be accessed and sliced using index notation::
 
     >>> ts['sap_flux']  # doctest: +REMOTE_DATA
     <Quantity [1027045.06, 1027184.44, 1027076.25, ..., 1025451.56, 1025468.5 ,
@@ -105,7 +96,7 @@ sliced using index notation::
     <TimeSeries length=14280>
               time             sap_flux
                              electron / s
-             object            float32
+              Time             float32
     ----------------------- --------------
     2009-05-02T00:41:40.338  1.0270451e+06
     2009-05-02T00:42:39.188  1.0271844e+06
@@ -132,15 +123,18 @@ sliced using index notation::
     <TimeSeries length=4>
               time             timecorr   ...   pos_corr1      pos_corr2
                                   d       ...      pix            pix
-             object            float32    ...    float32        float32
+              Time             float32    ...    float32        float32
     ----------------------- ------------- ... -------------- --------------
     2009-05-02T00:41:40.338  6.630610e-04 ...  1.5822421e-03 -1.4463664e-03
     2009-05-02T00:42:39.188  6.630857e-04 ...  1.5743829e-03 -1.4540013e-03
     2009-05-02T00:43:38.045  6.631103e-04 ...  1.5665225e-03 -1.4616371e-03
     2009-05-02T00:44:36.894  6.631350e-04 ...  1.5586632e-03 -1.4692718e-03
 
+.. EXAMPLE END
 
-As seen in the example above, |TimeSeries| objects have a ``time``
+.. EXAMPLE START: Accessing the Time Column in TimeSeries Objects
+
+As seen in the previous examples, |TimeSeries| objects have a ``time``
 column, which is always the first column. This column can also be accessed using
 the ``.time`` attribute::
 
@@ -149,8 +143,9 @@ the ``.time`` attribute::
       '2009-05-02T00:43:38.045' ... '2009-05-11T18:05:14.479'
       '2009-05-11T18:06:13.328' '2009-05-11T18:07:12.186']>
 
-and is always a |Time| object (see :ref:`Times and Dates <astropy-time>`), which
-therefore supports the ability to convert to different time scales and formats::
+The first column is always a |Time| object (see :ref:`Times and Dates
+<astropy-time>`), which therefore supports the ability to convert to different
+time scales and formats::
 
     >>> ts.time.mjd  # doctest: +REMOTE_DATA
     array([54953.0289391 , 54953.02962023, 54953.03030145, ...,
@@ -166,7 +161,7 @@ We can also check what time scale the time is defined on::
     'tdb'
 
 This is the Barycentric Dynamical Time scale (see :ref:`astropy-time` for more
-details). Let's use what we've seen so far to make a plot
+details). We can use what we have seen so far to make a plot:
 
 .. plot::
    :context: reset
@@ -186,9 +181,9 @@ details). Let's use what we've seen so far to make a plot
    plt.xlabel('Julian Date')
    plt.ylabel('SAP Flux (e-/s)')
 
-It looks like there are a few transits! Let's use the
+It looks like there are a few transits! We can use the
 :class:`~astropy.timeseries.BoxLeastSquares` class to estimate the
-period, using the 'box least squares' (BLS) algorithm::
+period, using the "box least squares" (BLS) algorithm::
 
     >>> import numpy as np
     >>> from astropy import units as u
@@ -206,8 +201,10 @@ To run the periodogram analysis, we use a box with a duration of 0.2 days::
     >>> transit_time  # doctest: +REMOTE_DATA
     <Time object: scale='tdb' format='isot' value=2009-05-02T20:51:16.338>
 
+.. EXAMPLE END
+
 For more information on available periodogram algorithms, see
-:ref:`periodogram-algorithms`
+:ref:`periodogram-algorithms`.
 
 .. plot::
    :context:
@@ -222,7 +219,7 @@ For more information on available periodogram algorithms, see
    period = results.period[best]
    transit_time = results.transit_time[best]
 
-We can now fold the time series using the period we've found above using the
+We can now fold the time series using the period we found above using the
 :meth:`~astropy.timeseries.TimeSeries.fold` method::
 
     >>> ts_folded = ts.fold(period=period, epoch_time=transit_time)  # doctest: +REMOTE_DATA
@@ -233,7 +230,7 @@ We can now fold the time series using the period we've found above using the
 
    ts_folded = ts.fold(period=period, epoch_time=transit_time)
 
-Let's take a look at the folded time series:
+Now we can take a look at the folded time series:
 
 .. plot::
    :context:
@@ -267,8 +264,8 @@ the data to determine the baseline flux::
    mean, median, stddev = sigma_clipped_stats(ts_folded['sap_flux'])
    ts_folded['sap_flux_norm'] = ts_folded['sap_flux'] / median
 
-and we can downsample the time series by binning the points into bins of equal
-time - this returns a |BinnedTimeSeries|::
+And we can downsample the time series by binning the points into bins of equal
+time — this returns a |BinnedTimeSeries|::
 
     >>> from astropy.timeseries import aggregate_downsample
     >>> ts_binned = aggregate_downsample(ts_folded, time_bin_size=0.03 * u.day)  # doctest: +REMOTE_DATA +IGNORE_WARNINGS
@@ -276,7 +273,7 @@ time - this returns a |BinnedTimeSeries|::
     <BinnedTimeSeries length=74>
        time_bin_start     time_bin_size    ...   sap_flux_norm
                                 s          ...
-           object            float64       ...       float64
+         TimeDelta            float64       ...       float64
     ------------------- ------------------ ... ------------------
     -1.1022116370482966             2592.0 ... 0.9998741745948792
     -1.0722116370482966             2592.0 ... 0.9999074339866638
@@ -310,7 +307,7 @@ time - this returns a |BinnedTimeSeries|::
    from astropy.timeseries import aggregate_downsample
    ts_binned = aggregate_downsample(ts_folded, time_bin_size=0.03 * u.day)
 
-Let's take a look at the final result:
+Now we can take a look at the final result:
 
 .. plot::
    :context:
@@ -335,9 +332,10 @@ find links to the full documentation in the next section.
 Using ``timeseries``
 ====================
 
-The details of using `astropy.timeseries` are provided in the following sections:
+The details of using `astropy.timeseries` are provided in the following
+sections:
 
-Initializing and reading in time series
+Initializing and Reading in Time Series
 ---------------------------------------
 
 .. toctree::
@@ -346,7 +344,7 @@ Initializing and reading in time series
    initializing
    io
 
-Accessing data and manipulating time series
+Accessing Data and Manipulating Time Series
 -------------------------------------------
 
 .. toctree::
@@ -360,7 +358,7 @@ Accessing data and manipulating time series
 
 .. _periodogram-algorithms:
 
-Periodogram algorithms
+Periodogram Algorithms
 ----------------------
 
 .. toctree::

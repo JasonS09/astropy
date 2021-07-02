@@ -88,13 +88,6 @@ class _IPython:
                 cls._ipyio = io
         return cls._ipyio
 
-    @classproperty
-    def IOStream(cls):
-        if cls.ipyio is None:
-            return None
-        else:
-            return cls.ipyio.IOStream
-
     @classmethod
     def get_stream(cls, stream):
         return getattr(cls.ipyio, stream)
@@ -116,19 +109,7 @@ def _get_stdout(stderr=False):
         stream = 'stdout'
 
     sys_stream = getattr(sys, stream)
-    if not isatty(sys_stream) or _IPython.OutStream is None:
-        return sys_stream
-
-    # Our system stream is an atty and we're in ipython.
-    ipyio_stream = _IPython.get_stream(stream)
-
-    if ipyio_stream is not None and isatty(ipyio_stream):
-        # Use the IPython console output stream
-        return ipyio_stream
-    else:
-        # sys.stdout was set to some other non-TTY stream (a file perhaps)
-        # so just use it directly
-        return sys_stream
+    return sys_stream
 
 
 def isatty(file):
@@ -140,25 +121,24 @@ def isatty(file):
     ttys.
     """
     if (multiprocessing.current_process().name != 'MainProcess' or
-        threading.current_thread().getName() != 'MainThread'):
+            threading.current_thread().getName() != 'MainThread'):
         return False
 
     if hasattr(file, 'isatty'):
         return file.isatty()
 
-    # Use two isinstance calls to only evaluate IOStream when necessary.
-    if (_IPython.OutStream is None or
-        (not isinstance(file, _IPython.OutStream) and
-         not isinstance(file, _IPython.IOStream))):
+    if _IPython.OutStream is None or (not isinstance(file, _IPython.OutStream)):
         return False
 
-    # File is an IPython OutStream or IOStream.  Check whether:
+    # File is an IPython OutStream. Check whether:
     # - File name is 'stdout'; or
     # - File wraps a Console
     if getattr(file, 'name', None) == 'stdout':
         return True
 
     if hasattr(file, 'stream'):
+        # FIXME: pyreadline has no had new release since 2015, drop it when
+        #        IPython minversion is 5.x.
         # On Windows, in IPython 2 the standard I/O streams will wrap
         # pyreadline.Console objects if pyreadline is available; this should
         # be considered a TTY.
@@ -284,15 +264,6 @@ def _write_with_fallback(s, write, fileobj):
     of a UnicodeEncodeError.  Failing that attempt to write with 'utf-8' or
     'latin-1'.
     """
-    if (_IPython.IOStream is not None and
-        isinstance(fileobj, _IPython.IOStream)):
-        # If the output stream is an IPython.utils.io.IOStream object that's
-        # not going to be very helpful to us since it doesn't raise any
-        # exceptions when an error occurs writing to its underlying stream.
-        # There's no advantage to us using IOStream.write directly though;
-        # instead just write directly to its underlying stream:
-        write = fileobj.stream.write
-
     try:
         write(s)
         return write
@@ -343,7 +314,7 @@ def color_print(*args, end='\n', **kwargs):
         default, darkgrey, lightred, lightgreen, yellow, lightblue,
         lightmagenta, lightcyan, white, or '' (the empty string).
 
-    file : writeable file-like object, optional
+    file : writable file-like, optional
         Where to write to.  Defaults to `sys.stdout`.  If file is not
         a tty (as determined by calling its `isatty` member, if one
         exists), no coloring will be included.
@@ -527,7 +498,7 @@ class ProgressBar:
             If `True`, the progress bar will display as an IPython
             notebook widget.
 
-        file : writable file-like object, optional
+        file : writable file-like, optional
             The file to write the progress bar to.  Defaults to
             `sys.stdout`.  If ``file`` is not a tty (as determined by
             calling its `isatty` member, if any, or special case hacks
@@ -649,9 +620,7 @@ class ProgressBar:
         else:
             t = ((time.time() - self._start_time) * (1.0 - frac)) / frac
             prefix = ' ETA '
-        write(' {:>4s}/{:>4s}'.format(
-            human_file_size(value),
-            self._human_total))
+        write(f' {human_file_size(value):>4s}/{self._human_total:>4s}')
         write(f' ({frac:>6.2%})')
         write(prefix)
         if t is not None:
@@ -724,7 +693,7 @@ class ProgressBar:
             If `True`, the progress bar will display as an IPython
             notebook widget.
 
-        file : writeable file-like object, optional
+        file : writable file-like, optional
             The file to write the progress bar to.  Defaults to
             `sys.stdout`.  If ``file`` is not a tty (as determined by
             calling its `isatty` member, if any), the scrollbar will
@@ -796,7 +765,7 @@ class ProgressBar:
             If `True`, the progress bar will display as an IPython
             notebook widget.
 
-        file : writeable file-like object, optional
+        file : writable file-like, optional
             The file to write the progress bar to.  Defaults to
             `sys.stdout`.  If ``file`` is not a tty (as determined by
             calling its `isatty` member, if any), the scrollbar will
@@ -862,7 +831,7 @@ class Spinner:
 
         with Spinner("Reticulating splines", "green") as s:
             for item in enumerate(items):
-                s.next()
+                s.update()
     """
     _default_unicode_chars = "◓◑◒◐"
     _default_ascii_chars = "-/|\\"
@@ -881,7 +850,7 @@ class Spinner:
             darkgrey, lightred, lightgreen, yellow, lightblue,
             lightmagenta, lightcyan, white.
 
-        file : writeable file-like object, optional
+        file : writable file-like, optional
             The file to write the spinner to.  Defaults to
             `sys.stdout`.  If ``file`` is not a tty (as determined by
             calling its `isatty` member, if any, or special case hacks
@@ -910,6 +879,11 @@ class Spinner:
         self._chars = chars
 
         self._silent = not isatty(file)
+
+        if self._silent:
+            self._iter = self._silent_iterator()
+        else:
+            self._iter = self._iterator()
 
     def _iterator(self):
         chars = self._chars
@@ -943,10 +917,7 @@ class Spinner:
             index = (index + 1) % len(chars)
 
     def __enter__(self):
-        if self._silent:
-            return self._silent_iterator()
-        else:
-            return self._iterator()
+        return self
 
     def __exit__(self, exc_type, exc_value, traceback):
         file = self._file
@@ -961,6 +932,24 @@ class Spinner:
         else:
             color_print(' [Failed]', 'red', file=file)
         flush()
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        next(self._iter)
+
+    def update(self, value=None):
+        """Update the spin wheel in the terminal.
+
+        Parameters
+        ----------
+        value : int, optional
+            Ignored (present just for compatibility with `ProgressBar.update`).
+
+        """
+
+        next(self)
 
     def _silent_iterator(self):
         color_print(self._msg, self._color, file=self._file, end='')
@@ -1009,7 +998,7 @@ class ProgressBarOrSpinner:
             lightred, lightgreen, yellow, lightblue, lightmagenta,
             lightcyan, white.
 
-        file : writable file-like object, optional
+        file : writable file-like, optional
             The file to write the to.  Defaults to `sys.stdout`.  If
             ``file`` is not a tty (as determined by calling its `isatty`
             member, if any), only ``msg`` will be displayed: the
@@ -1028,7 +1017,6 @@ class ProgressBarOrSpinner:
             self._obj = ProgressBar(total, file=file)
 
     def __enter__(self):
-        self._iter = self._obj.__enter__()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -1039,10 +1027,7 @@ class ProgressBarOrSpinner:
         Update the progress bar to the given value (out of the total
         given to the constructor.
         """
-        if self._is_spinner:
-            next(self._iter)
-        else:
-            self._obj.update(value)
+        self._obj.update(value)
 
 
 def print_code_line(line, col=None, file=None, tabwidth=8, width=70):
@@ -1069,7 +1054,7 @@ def print_code_line(line, col=None, file=None, tabwidth=8, width=70):
         The character in the line to highlight.  ``col`` must be less
         than ``len(line)``.
 
-    file : writeable file-like object, optional
+    file : writable file-like, optional
         Where to write to.  Defaults to `sys.stdout`.
 
     tabwidth : int, optional

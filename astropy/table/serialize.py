@@ -1,25 +1,60 @@
+# Licensed under a 3-clause BSD style license - see LICENSE.rst
 from importlib import import_module
 import re
 from copy import deepcopy
 from collections import OrderedDict
 
+import numpy as np
+
 from astropy.utils.data_info import MixinInfo
-from .column import Column
+from .column import Column, MaskedColumn
 from .table import Table, QTable, has_info_class
 from astropy.units.quantity import QuantityInfo
 
 
-__construct_mixin_classes = ('astropy.time.core.Time',
-                             'astropy.time.core.TimeDelta',
-                             'astropy.units.quantity.Quantity',
-                             'astropy.coordinates.angles.Latitude',
-                             'astropy.coordinates.angles.Longitude',
-                             'astropy.coordinates.angles.Angle',
-                             'astropy.coordinates.distances.Distance',
-                             'astropy.coordinates.earth.EarthLocation',
-                             'astropy.coordinates.sky_coordinate.SkyCoord',
-                             'astropy.table.table.NdarrayMixin',
-                             'astropy.table.column.MaskedColumn')
+# TODO: some of this might be better done programmatically, through
+# code like
+# __construct_mixin_classes += tuple(
+#        f'astropy.coordinates.representation.{cls.__name__}'
+#        for cls in (list(coorep.REPRESENTATION_CLASSES.values())
+#                    + list(coorep.DIFFERENTIAL_CLASSES.values()))
+#        if cls.__name__ in coorep.__all__)
+# However, to avoid very hard to track import issues, the definition
+# should then be done at the point where it is actually needed,
+# using local imports.  See also
+# https://github.com/astropy/astropy/pull/10210#discussion_r419087286
+__construct_mixin_classes = (
+    'astropy.time.core.Time',
+    'astropy.time.core.TimeDelta',
+    'astropy.units.quantity.Quantity',
+    'astropy.units.function.logarithmic.Magnitude',
+    'astropy.units.function.logarithmic.Decibel',
+    'astropy.units.function.logarithmic.Dex',
+    'astropy.coordinates.angles.Latitude',
+    'astropy.coordinates.angles.Longitude',
+    'astropy.coordinates.angles.Angle',
+    'astropy.coordinates.distances.Distance',
+    'astropy.coordinates.earth.EarthLocation',
+    'astropy.coordinates.sky_coordinate.SkyCoord',
+    'astropy.table.ndarray_mixin.NdarrayMixin',
+    'astropy.table.table_helpers.ArrayWrapper',
+    'astropy.table.column.MaskedColumn',
+    'astropy.coordinates.representation.CartesianRepresentation',
+    'astropy.coordinates.representation.UnitSphericalRepresentation',
+    'astropy.coordinates.representation.RadialRepresentation',
+    'astropy.coordinates.representation.SphericalRepresentation',
+    'astropy.coordinates.representation.PhysicsSphericalRepresentation',
+    'astropy.coordinates.representation.CylindricalRepresentation',
+    'astropy.coordinates.representation.CartesianDifferential',
+    'astropy.coordinates.representation.UnitSphericalDifferential',
+    'astropy.coordinates.representation.SphericalDifferential',
+    'astropy.coordinates.representation.UnitSphericalCosLatDifferential',
+    'astropy.coordinates.representation.SphericalCosLatDifferential',
+    'astropy.coordinates.representation.RadialDifferential',
+    'astropy.coordinates.representation.PhysicsSphericalDifferential',
+    'astropy.coordinates.representation.CylindricalDifferential',
+    'astropy.utils.masked.core.MaskedNDArray',
+)
 
 
 class SerializedColumn(dict):
@@ -82,6 +117,11 @@ def _represent_mixin_as_column(col, name, new_cols, mixin_cols,
         if nontrivial(col_attr):
             info[attr] = col_attr
 
+    # Find column attributes that have the same length as the column itself.
+    # These will be stored in the table as new columns (aka "data attributes").
+    # Examples include SkyCoord.ra (what is typically considered the data and is
+    # always an array) and Skycoord.obs_time (which can be a scalar or an
+    # array).
     data_attrs = [key for key, value in obj_attrs.items() if
                   getattr(value, 'shape', ())[:1] == col.shape[:1]]
 
@@ -90,31 +130,38 @@ def _represent_mixin_as_column(col, name, new_cols, mixin_cols,
 
         # New column name combines the old name and attribute
         # (e.g. skycoord.ra, skycoord.dec).unless it is the primary data
-        # attribute for the column (e.g. value for Quantity or data
-        # for MaskedColumn)
+        # attribute for the column (e.g. value for Quantity or data for
+        # MaskedColumn).  For primary data, we attempt to store any info on
+        # the format, etc., on the column, but not for ancilliary data (e.g.,
+        # no sense to use a float format for a mask).
         if data_attr == col.info._represent_as_dict_primary_data:
             new_name = name
+            new_info = info
         else:
             new_name = name + '.' + data_attr
+            new_info = {}
 
         if not has_info_class(data, MixinInfo):
-            new_cols.append(Column(data, name=new_name, **info))
+            col_cls = MaskedColumn if (hasattr(data, 'mask')
+                                       and np.any(data.mask)) else Column
+            new_cols.append(col_cls(data, name=new_name, **new_info))
             obj_attrs[data_attr] = SerializedColumn({'name': new_name})
         else:
             # recurse. This will define obj_attrs[new_name].
             _represent_mixin_as_column(data, new_name, new_cols, obj_attrs)
             obj_attrs[data_attr] = SerializedColumn(obj_attrs.pop(new_name))
 
-        # Strip out from info any attributes defined by the parent
-        for attr in col.info.attrs_from_parent:
-            if attr in info:
-                del info[attr]
-
-        if info:
-            obj_attrs['__info__'] = info
+    # Strip out from info any attributes defined by the parent,
+    # and store whatever remains.
+    for attr in col.info.attrs_from_parent:
+        if attr in info:
+            del info[attr]
+    if info:
+        obj_attrs['__info__'] = info
 
     # Store the fully qualified class name
-    obj_attrs['__class__'] = col.__module__ + '.' + col.__class__.__name__
+    obj_attrs.setdefault('__class__',
+                         col.__module__ + '.' + col.__class__.__name__)
 
     mixin_cols[name] = obj_attrs
 
@@ -146,7 +193,7 @@ def represent_mixins_as_columns(tbl, exclude_classes=()):
     ----------
     tbl : `~astropy.table.Table` or subclass
         Table to represent mixins as Columns
-    exclude_classes : tuple of classes
+    exclude_classes : tuple of class
         Exclude any mixin columns which are instannces of any classes in the tuple
 
     Returns
@@ -189,12 +236,24 @@ def represent_mixins_as_columns(tbl, exclude_classes=()):
                                    exclude_classes=exclude_classes)
 
     # If no metadata was created then just return the original table.
-    if not mixin_cols:
-        return tbl
+    if mixin_cols:
+        meta = deepcopy(tbl.meta)
+        meta['__serialized_columns__'] = mixin_cols
+        out = Table(new_cols, meta=meta, copy=False)
+    else:
+        out = tbl
 
-    meta = deepcopy(tbl.meta)
-    meta['__serialized_columns__'] = mixin_cols
-    out = Table(new_cols, meta=meta, copy=False)
+    for col in out.itercols():
+        if not isinstance(col, Column) and col.__class__ not in exclude_classes:
+            # This catches columns for which info has not been set up right and
+            # therefore were not converted. See the corresponding test in
+            # test_mixin.py for an example.
+            raise TypeError(
+                'failed to represent column '
+                f'{col.info.name!r} ({col.__class__.__name__}) as one '
+                'or more Column subclasses. This looks like a mixin class '
+                'that does not have the correct _represent_as_dict() method '
+                'in the class `info` attribute.')
 
     return out
 
@@ -232,6 +291,7 @@ class _TableLite(OrderedDict):
     When this happens in a real table then all other columns are immediately
     Masked and a warning is issued. This is not desirable.
     """
+
     def add_column(self, col, index=0):
         colnames = self.colnames
         self[col.info.name] = col
@@ -254,8 +314,9 @@ def _construct_mixin_from_columns(new_name, obj_attrs, out):
             if 'name' in val:
                 data_attrs_map[val['name']] = name
             else:
-                _construct_mixin_from_columns(name, val, out)
-                data_attrs_map[name] = name
+                out_name = f'{new_name}.{name}'
+                _construct_mixin_from_columns(out_name, val, out)
+                data_attrs_map[out_name] = name
 
     for name in data_attrs_map.values():
         del obj_attrs[name]

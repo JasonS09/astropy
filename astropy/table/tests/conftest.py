@@ -1,9 +1,8 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
-
 """
-All of the py.test fixtures used by astropy.table are defined here.
+All of the pytest fixtures used by astropy.table are defined here.
 
-`conftest.py` is a "special" module name for py.test that is always
+`conftest.py` is a "special" module name for pytest that is always
 imported, but is not looked in for tests, and it is the recommended
 place to put fixtures that are shared between modules.  These fixtures
 can not be defined in a module by a different name and still be shared
@@ -18,7 +17,8 @@ import pytest
 import numpy as np
 
 from astropy import table
-from astropy.table import table_helpers, Table, QTable
+from astropy.table import Table, QTable
+from astropy.table.table_helpers import ArrayWrapper
 from astropy import time
 from astropy import units as u
 from astropy import coordinates
@@ -131,19 +131,32 @@ def table_type(request):
 # Stuff for testing mixin columns
 
 MIXIN_COLS = {'quantity': [0, 1, 2, 3] * u.m,
-              'longitude': coordinates.Longitude([0., 1., 5., 6.]*u.deg,
-                                                  wrap_angle=180.*u.deg),
-              'latitude': coordinates.Latitude([5., 6., 10., 11.]*u.deg),
+              'longitude': coordinates.Longitude([0., 1., 5., 6.] * u.deg,
+                                                 wrap_angle=180. * u.deg),
+              'latitude': coordinates.Latitude([5., 6., 10., 11.] * u.deg),
               'time': time.Time([2000, 2001, 2002, 2003], format='jyear'),
+              'timedelta': time.TimeDelta([1, 2, 3, 4], format='jd'),
               'skycoord': coordinates.SkyCoord(ra=[0, 1, 2, 3] * u.deg,
                                                dec=[0, 1, 2, 3] * u.deg),
-              'arraywrap': table_helpers.ArrayWrapper([0, 1, 2, 3]),
-              'ndarray': np.array([(7, 'a'), (8, 'b'), (9, 'c'), (9, 'c')],
-                           dtype='<i4,|S1').view(table.NdarrayMixin),
+              'sphericalrep': coordinates.SphericalRepresentation(
+                  [0, 1, 2, 3]*u.deg, [0, 1, 2, 3]*u.deg, 1*u.kpc),
+              'cartesianrep': coordinates.CartesianRepresentation(
+                  [0, 1, 2, 3]*u.pc, [4, 5, 6, 7]*u.pc, [9, 8, 8, 6]*u.pc),
+              'sphericaldiff': coordinates.SphericalCosLatDifferential(
+                  [0, 1, 2, 3]*u.mas/u.yr, [0, 1, 2, 3]*u.mas/u.yr,
+                  10*u.km/u.s),
+              'arraywrap': ArrayWrapper([0, 1, 2, 3]),
+              'arrayswap': ArrayWrapper(np.arange(4, dtype='i').byteswap().newbyteorder()),
+              'ndarraylil': np.array([(7, 'a'), (8, 'b'), (9, 'c'), (9, 'c')],
+                                  dtype='<i4,|S1').view(table.NdarrayMixin),
+              'ndarraybig': np.array([(7, 'a'), (8, 'b'), (9, 'c'), (9, 'c')],
+                                  dtype='>i4,|S1').view(table.NdarrayMixin),
               }
 MIXIN_COLS['earthlocation'] = coordinates.EarthLocation(
     lon=MIXIN_COLS['longitude'], lat=MIXIN_COLS['latitude'],
     height=MIXIN_COLS['quantity'])
+MIXIN_COLS['sphericalrepdiff'] = coordinates.SphericalRepresentation(
+    MIXIN_COLS['sphericalrep'], differentials=MIXIN_COLS['sphericaldiff'])
 
 
 @pytest.fixture(params=sorted(MIXIN_COLS))
@@ -166,15 +179,15 @@ def mixin_cols(request):
 @pytest.fixture(params=[False, True])
 def T1(request):
     T = Table.read([' a b c d',
-                 ' 2 c 7.0 0',
-                 ' 2 b 5.0 1',
-                 ' 2 b 6.0 2',
-                 ' 2 a 4.0 3',
-                 ' 0 a 0.0 4',
-                 ' 1 b 3.0 5',
-                 ' 1 a 2.0 6',
-                 ' 1 a 1.0 7',
-                 ], format='ascii')
+                    ' 2 c 7.0 0',
+                    ' 2 b 5.0 1',
+                    ' 2 b 6.0 2',
+                    ' 2 a 4.0 3',
+                    ' 0 a 0.0 4',
+                    ' 1 b 3.0 5',
+                    ' 1 a 2.0 6',
+                    ' 1 a 1.0 7',
+                    ], format='ascii')
     T.meta.update({'ta': 1})
     T['c'].meta.update({'a': 1})
     T['c'].description = 'column c'

@@ -19,7 +19,7 @@ from astropy.utils.exceptions import AstropyUserWarning
 
 # The following is based on the FITS WCS Paper IV, "Representations of time
 # coordinates in FITS".
-# http://adsabs.harvard.edu/abs/2015A%26A...574A..36R
+# https://ui.adsabs.harvard.edu/abs/2015A%26A...574A..36R
 
 
 # FITS WCS standard specified "4-3" form for non-linear coordinate types
@@ -45,8 +45,7 @@ COLUMN_TIME_KEYWORDS = ('TCTYP', 'TCUNI', 'TRPOS')
 
 
 # Column-specific keywords regex
-COLUMN_TIME_KEYWORD_REGEXP = '({})[0-9]+'.format(
-    '|'.join(COLUMN_TIME_KEYWORDS))
+COLUMN_TIME_KEYWORD_REGEXP = f"({'|'.join(COLUMN_TIME_KEYWORDS)})[0-9]+"
 
 
 def is_time_column_keyword(keyword):
@@ -319,30 +318,48 @@ def _convert_global_time(table, global_info):
     global_info : dict
         Global time reference frame information.
     """
-
     # Read in Global Informational keywords as Time
     for key, value in global_info.items():
         # FITS uses a subset of ISO-8601 for DATE-xxx
-        if key.startswith('DATE'):
-            if key not in table.meta:
-                scale = 'utc' if key == 'DATE' else global_info['scale']
-                try:
-                    precision = len(value.split('.')[-1]) if '.' in value else 0
-                    value = Time(value, format='fits', scale=scale,
-                                 precision=precision)
-                except ValueError:
-                    pass
-                table.meta[key] = value
+        if key not in table.meta:
+            try:
+                table.meta[key] = _convert_time_key(global_info, key)
+            except ValueError:
+                pass
 
-        # MJD-xxx in MJD according to TIMESYS
-        elif key.startswith('MJD-'):
-            if key not in table.meta:
-                try:
-                    value = Time(value, format='mjd',
-                                 scale=global_info['scale'])
-                except ValueError:
-                    pass
-                table.meta[key] = value
+
+def _convert_time_key(global_info, key):
+    """
+    Convert a time metadata key to a Time object.
+
+    Parameters
+    ----------
+    global_info : dict
+        Global time reference frame information.
+    key : str
+        Time key.
+
+    Returns
+    -------
+    astropy.time.Time
+
+    Raises
+    ------
+    ValueError
+        If key is not a valid global time keyword.
+    """
+    value = global_info[key]
+    if key.startswith('DATE'):
+        scale = 'utc' if key == 'DATE' else global_info['scale']
+        precision = len(value.split('.')[-1]) if '.' in value else 0
+        return Time(value, format='fits', scale=scale,
+                    precision=precision)
+    # MJD-xxx in MJD according to TIMESYS
+    elif key.startswith('MJD-'):
+        return Time(value, format='mjd',
+                    scale=global_info['scale'])
+    else:
+        raise ValueError('Key is not a valid global time keyword')
 
 
 def _convert_time_column(col, column_info):
@@ -576,9 +593,9 @@ def time_to_fits(table):
                 if location.size > 1:
                     for dim in ('x', 'y', 'z'):
                         newtable.add_column(Column(getattr(location, dim).to_value(u.m)),
-                                            name='OBSGEO-{}'.format(dim.upper()))
+                                            name=f'OBSGEO-{dim.upper()}')
                 else:
-                    hdr.extend([Card(keyword='OBSGEO-{}'.format(dim.upper()),
+                    hdr.extend([Card(keyword=f'OBSGEO-{dim.upper()}',
                                      value=getattr(location, dim).to_value(u.m))
                             for dim in ('x', 'y', 'z')])
             elif location != col.location:

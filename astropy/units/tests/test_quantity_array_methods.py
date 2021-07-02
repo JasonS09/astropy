@@ -1,10 +1,13 @@
 # The purpose of these tests are to ensure that calling quantities using
 # array methods returns quantities with the right units, or raises exceptions.
+import sys
 
 import pytest
 import numpy as np
+from numpy.testing import assert_array_equal
 
 from astropy import units as u
+from astropy.utils.compat import NUMPY_LT_1_22
 
 
 class TestQuantityArrayCopy:
@@ -121,6 +124,30 @@ class TestQuantityReshapeFuncs:
         assert q_swapaxes.unit == q.unit
         assert np.all(q_swapaxes.value == q.value.swapaxes(0, 2))
 
+    @pytest.mark.xfail(sys.byteorder == 'big' and NUMPY_LT_1_22,
+                       reason="Numpy GitHub Issue 19153")
+    def test_flat_attributes(self):
+        """While ``flat`` doesn't make a copy, it changes the shape."""
+        q = np.arange(6.).reshape(3, 1, 2) * u.m
+        qf = q.flat
+        # see TestQuantityArrayCopy.test_flat for tests of iteration
+        # and slicing and setting. Here we test the properties and methods to
+        # match `numpy.ndarray.flatiter`
+        assert qf.base is q
+        # testing the indices -- flat and full -- into the array
+        assert qf.coords == (0, 0, 0)  # to start
+        assert qf.index == 0
+        # now consume the iterator
+        endindices = [(qf.index, qf.coords) for x in qf][-2]  # next() oversteps
+        assert endindices[0] == 5
+        assert endindices[1] == (2, 0, 1)  # shape of q - 1
+
+        # also check q_flat copies properly
+        q_flat_copy = qf.copy()
+        assert all(q_flat_copy == q.flatten())
+        assert isinstance(q_flat_copy, u.Quantity)
+        assert not np.may_share_memory(q_flat_copy, q)
+
 
 class TestQuantityStatsFuncs:
     """
@@ -129,7 +156,8 @@ class TestQuantityStatsFuncs:
 
     def test_mean(self):
         q1 = np.array([1., 2., 4., 5., 6.]) * u.m
-        assert np.mean(q1) == 3.6 * u.m
+        assert_array_equal(np.mean(q1), 3.6 * u.m)
+        assert_array_equal(np.mean(q1, keepdims=True), [3.6] * u.m)
 
     def test_mean_inplace(self):
         q1 = np.array([1., 2., 4., 5., 6.]) * u.m
@@ -140,7 +168,8 @@ class TestQuantityStatsFuncs:
 
     def test_std(self):
         q1 = np.array([1., 2.]) * u.m
-        assert np.std(q1) == 0.5 * u.m
+        assert_array_equal(np.std(q1), 0.5 * u.m)
+        assert_array_equal(q1.std(axis=-1, keepdims=True), [0.5] * u.m)
 
     def test_std_inplace(self):
         q1 = np.array([1., 2.]) * u.m
@@ -150,7 +179,8 @@ class TestQuantityStatsFuncs:
 
     def test_var(self):
         q1 = np.array([1., 2.]) * u.m
-        assert np.var(q1) == 0.25 * u.m ** 2
+        assert_array_equal(np.var(q1), 0.25 * u.m ** 2)
+        assert_array_equal(q1.var(axis=0, keepdims=True), [0.25] * u.m ** 2)
 
     def test_var_inplace(self):
         q1 = np.array([1., 2.]) * u.m
@@ -512,6 +542,8 @@ class TestArrayConversion:
             q1.tolist()
         with pytest.raises(NotImplementedError):
             q1.tostring()
+        with pytest.raises(NotImplementedError):
+            q1.tobytes()
         with pytest.raises(NotImplementedError):
             q1.tofile(0)
         with pytest.raises(NotImplementedError):

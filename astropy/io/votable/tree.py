@@ -8,6 +8,7 @@ import gzip
 import base64
 import codecs
 import urllib.request
+import warnings
 
 # THIRD-PARTY
 import numpy as np
@@ -18,6 +19,7 @@ from astropy.io import fits
 from astropy import __version__ as astropy_version
 from astropy.utils.collections import HomogeneousList
 from astropy.utils.xml.writer import XMLWriter
+from astropy.utils.exceptions import AstropyDeprecationWarning
 
 from . import converters
 from .exceptions import (warn_or_raise, vo_warn, vo_raise, vo_reraise,
@@ -25,7 +27,8 @@ from .exceptions import (warn_or_raise, vo_warn, vo_raise, vo_reraise,
                          W13, W15, W17, W18, W19, W20, W21, W22, W26, W27, W28,
                          W29, W32, W33, W35, W36, W37, W38, W40, W41, W42, W43,
                          W44, W45, W50, W52, W53, W54, E06, E08, E09, E10, E11,
-                         E12, E13, E15, E16, E17, E18, E19, E20, E21, E22, E23)
+                         E12, E13, E15, E16, E17, E18, E19, E20, E21, E22, E23,
+                         E25)
 from . import ucd as ucd_mod
 from . import util
 from . import xmlutil
@@ -40,7 +43,7 @@ except ImportError:
 __all__ = [
     'Link', 'Info', 'Values', 'Field', 'Param', 'CooSys', 'TimeSys',
     'FieldRef', 'ParamRef', 'Group', 'Table', 'Resource',
-    'VOTableFile'
+    'VOTableFile', 'Element'
     ]
 
 
@@ -165,9 +168,12 @@ def _get_default_unit_format(config):
     """
     Get the default unit format as specified in the VOTable spec.
     """
-    # In the future, this should take into account the VOTable
-    # version.
-    return 'cds'
+    # The unit format changed between VOTable versions 1.3 and 1.4,
+    # see issue #10791.
+    if config['version_1_4_or_later']:
+        return 'vounit'
+    else:
+        return 'cds'
 
 
 def _get_unit_format(config):
@@ -427,7 +433,7 @@ class Element:
 
         Parameters
         ----------
-        iterator : xml iterator
+        iterator : xml iterable
             An iterator over XML elements as returned by
             `~astropy.utils.xml.iterparser.get_xml_iterator`.
 
@@ -437,7 +443,7 @@ class Element:
 
         Returns
         -------
-        self : Element
+        self : `~astropy.io.votable.tree.Element`
             Returns self as a convenience.
         """
         raise NotImplementedError()
@@ -1148,7 +1154,10 @@ class Field(SimpleElement, _IDProperty, _NameProperty, _XtypeProperty,
                  xtype=None,
                  config=None, pos=None, **extra):
         if config is None:
-            config = {}
+            if hasattr(votable, '_get_version_checks'):
+                config = votable._get_version_checks()
+            else:
+                config = {}
         self._config = config
         self._pos = pos
 
@@ -1531,6 +1540,10 @@ class Field(SimpleElement, _IDProperty, _NameProperty, _XtypeProperty,
         if (isinstance(self.converter, converters.FloatingPoint) and
                 self.converter.output_format != '{!r:>}'):
             column.format = self.converter.output_format
+        elif isinstance(self.converter, converters.Char):
+            column.info.meta['_votable_string_dtype'] = 'char'
+        elif isinstance(self.converter, converters.UnicodeChar):
+            column.info.meta['_votable_string_dtype'] = 'unicodeChar'
 
     @classmethod
     def from_table_column(cls, votable, column):
@@ -2011,7 +2024,7 @@ class Group(Element, _IDProperty, _NameProperty, _UtypeProperty,
         warn_unknown_attrs('GROUP', extra.keys(), config, pos)
 
     def __repr__(self):
-        return '<GROUP>... {} entries ...</GROUP>'.format(len(self._entries))
+        return f'<GROUP>... {len(self._entries)} entries ...</GROUP>'
 
     @property
     def ref(self):
@@ -2236,7 +2249,7 @@ class Table(Element, _IDProperty, _NameProperty, _UcdProperty,
         file, can not be written out.  Any file read in with 'fits'
         format will be read out, by default, in 'tabledata' format.
 
-        See :ref:`votable-serialization`.
+        See :ref:`astropy:votable-serialization`.
         """
         return self._format
 
@@ -2447,6 +2460,8 @@ class Table(Element, _IDProperty, _NameProperty, _UcdProperty,
             for start, tag, data, pos in iterator:
                 if start:
                     if tag == 'DATA':
+                        if len(self.fields) == 0:
+                            warn_or_raise(E25, E25, None, config, pos)
                         warn_unknown_attrs(
                             'DATA', data.keys(), config, pos)
                         break
@@ -2490,7 +2505,7 @@ class Table(Element, _IDProperty, _NameProperty, _UcdProperty,
             else:
                 raise TypeError("Invalid columns list")
 
-        if not skip_table:
+        if (not skip_table) and (len(fields) > 0):
             for start, tag, data, pos in iterator:
                 if start:
                     if tag == 'TABLEDATA':
@@ -2940,8 +2955,7 @@ class Table(Element, _IDProperty, _NameProperty, _UcdProperty,
                             assert type(chunk) == bytes
                         except Exception as e:
                             vo_reraise(
-                                e, additional="(in row {:d}, col '{}')".format(
-                                    row, fields[i].ID))
+                                e, additional=f"(in row {row:d}, col '{fields[i].ID}')")
                         data.write(chunk)
 
                 w._flush()
@@ -3392,9 +3406,12 @@ class VOTableFile(Element, _IDProperty, _DescriptionProperty):
         self._groups = HomogeneousList(Group)
 
         version = str(version)
-        if version not in ("1.0", "1.1", "1.2", "1.3", "1.4"):
-            raise ValueError("'version' should be one of '1.0', '1.1', "
-                             "'1.2', '1.3', or '1.4'")
+        if version == '1.0':
+            warnings.warn('VOTable 1.0 support is deprecated in astropy 4.3 and will be '
+                          'removed in a future release', AstropyDeprecationWarning)
+        elif (version != '1.0') and (version not in self._version_namespace_map):
+            allowed_from_map = "', '".join(self._version_namespace_map)
+            raise ValueError(f"'version' should be in ('1.0', '{allowed_from_map}').")
 
         self._version = version
 
@@ -3412,10 +3429,10 @@ class VOTableFile(Element, _IDProperty, _DescriptionProperty):
     @version.setter
     def version(self, version):
         version = str(version)
-        if version not in ('1.1', '1.2', '1.3', '1.4'):
+        if version not in self._version_namespace_map:
+            allowed_from_map = "', '".join(self._version_namespace_map)
             raise ValueError(
-                "astropy.io.votable only supports VOTable versions "
-                "1.1, 1.2, 1.3, and 1.4")
+                f"astropy.io.votable only supports VOTable versions '{allowed_from_map}'")
         self._version = version
 
     @property
@@ -3499,6 +3516,57 @@ class VOTableFile(Element, _IDProperty, _DescriptionProperty):
         self.groups.append(group)
         group.parse(iterator, config)
 
+    def _get_version_checks(self):
+        config = {}
+        config['version_1_1_or_later'] = \
+            util.version_compare(self.version, '1.1') >= 0
+        config['version_1_2_or_later'] = \
+            util.version_compare(self.version, '1.2') >= 0
+        config['version_1_3_or_later'] = \
+            util.version_compare(self.version, '1.3') >= 0
+        config['version_1_4_or_later'] = \
+            util.version_compare(self.version, '1.4') >= 0
+        return config
+
+    # Map VOTable version numbers to namespace URIs and schema information.
+    _version_namespace_map = {
+        # Version 1.0 isn't well-supported, but is allowed on parse (with a warning).
+        # It used DTD rather than schema, so this information would not be useful.
+        # By omitting 1.0 from this dict we can use the keys as the list of versions
+        # that are allowed in various other checks.
+        "1.1": {
+            "namespace_uri": "http://www.ivoa.net/xml/VOTable/v1.1",
+            "schema_location_attr": "xsi:noNamespaceSchemaLocation",
+            "schema_location_value": "http://www.ivoa.net/xml/VOTable/v1.1"
+        },
+        "1.2": {
+            "namespace_uri": "http://www.ivoa.net/xml/VOTable/v1.2",
+            "schema_location_attr": "xsi:noNamespaceSchemaLocation",
+            "schema_location_value": "http://www.ivoa.net/xml/VOTable/v1.2"
+        },
+        # With 1.3 we'll be more explicit with the schema location.
+        # - xsi:schemaLocation uses the namespace name along with the URL
+        #   to reference it.
+        # - For convenience, but somewhat confusingly, the namespace URIs
+        #   are also usable URLs for accessing an applicable schema.
+        #   However to avoid confusion, we'll use the explicit schema URL.
+        "1.3": {
+            "namespace_uri": "http://www.ivoa.net/xml/VOTable/v1.3",
+            "schema_location_attr": "xsi:schemaLocation",
+            "schema_location_value":
+            "http://www.ivoa.net/xml/VOTable/v1.3 http://www.ivoa.net/xml/VOTable/VOTable-1.3.xsd"
+        },
+        # With 1.4 namespace URIs stopped incrementing with minor version changes
+        # so we use the same URI as with 1.3.  See this IVOA note for more info:
+        # http://www.ivoa.net/documents/Notes/XMLVers/20180529/
+        "1.4": {
+            "namespace_uri": "http://www.ivoa.net/xml/VOTable/v1.3",
+            "schema_location_attr": "xsi:schemaLocation",
+            "schema_location_value":
+            "http://www.ivoa.net/xml/VOTable/v1.3 http://www.ivoa.net/xml/VOTable/VOTable-1.4.xsd"
+        }
+    }
+
     def parse(self, iterator, config):
         config['_current_table_number'] = 0
 
@@ -3517,40 +3585,21 @@ class VOTableFile(Element, _IDProperty, _DescriptionProperty):
                                 W29, W29, config['version'], config, pos)
                             self._version = config['version'] = \
                                             config['version'][1:]
-                        if config['version'] not in ('1.1', '1.2', '1.3', '1.4'):
+                        if config['version'] not in self._version_namespace_map:
                             vo_warn(W21, config['version'], config, pos)
 
                     if 'xmlns' in data:
-                        # Starting with VOTable 1.3, namespace URIs stop
-                        # incrementing with minor version changes.  See
-                        # this IVOA note for more info:
-                        # http://www.ivoa.net/documents/Notes/XMLVers/20180529/
-                        #
-                        # If this policy is in place for major version 2,
-                        # then this logic will need tweaking.
-                        if config['version'] in ('1.3', '1.4'):
-                            ns_version = '1.3'
-                        else:
-                            ns_version = config['version']
-                        correct_ns = ('http://www.ivoa.net/xml/VOTable/v{}'.format(
-                                ns_version))
+                        ns_info = self._version_namespace_map.get(config['version'], {})
+                        correct_ns = ns_info.get('namespace_uri')
                         if data['xmlns'] != correct_ns:
-                            vo_warn(
-                                W41, (correct_ns, data['xmlns']), config, pos)
+                            vo_warn(W41, (correct_ns, data['xmlns']), config, pos)
                     else:
                         vo_warn(W42, (), config, pos)
 
                     break
                 else:
                     vo_raise(E19, (), config, pos)
-        config['version_1_1_or_later'] = \
-            util.version_compare(config['version'], '1.1') >= 0
-        config['version_1_2_or_later'] = \
-            util.version_compare(config['version'], '1.2') >= 0
-        config['version_1_3_or_later'] = \
-            util.version_compare(config['version'], '1.3') >= 0
-        config['version_1_4_or_later'] = \
-            util.version_compare(config['version'], '1.4') >= 0
+        config.update(self._get_version_checks())
 
         tag_mapping = {
             'PARAM': self._add_param,
@@ -3583,8 +3632,8 @@ class VOTableFile(Element, _IDProperty, _DescriptionProperty):
 
         Parameters
         ----------
-        fd : str path or writable file-like object
-            Where to write the file.
+        fd : str or file-like
+            Where to write the file. If a file-like object, must be writable.
 
         compressed : bool, optional
             When `True`, write to a gzip-compressed file.  (Default:
@@ -3595,7 +3644,7 @@ class VOTableFile(Element, _IDProperty, _DescriptionProperty):
             be one of ``tabledata`` (text representation), ``binary`` or
             ``binary2``.  By default, use the format that was specified
             in each `Table` object as it was created or read in.  See
-            :ref:`votable-serialization`.
+            :ref:`astropy:votable-serialization`.
         """
         if tabledata_format is not None:
             if tabledata_format.lower() not in (
@@ -3604,18 +3653,11 @@ class VOTableFile(Element, _IDProperty, _DescriptionProperty):
 
         kwargs = {
             'version': self.version,
-            'version_1_1_or_later':
-                util.version_compare(self.version, '1.1') >= 0,
-            'version_1_2_or_later':
-                util.version_compare(self.version, '1.2') >= 0,
-            'version_1_3_or_later':
-                util.version_compare(self.version, '1.3') >= 0,
-            'version_1_4_or_later':
-                util.version_compare(self.version, '1.4') >= 0,
             'tabledata_format':
                 tabledata_format,
             '_debug_python_based_parser': _debug_python_based_parser,
             '_group_number': 1}
+        kwargs.update(self._get_version_checks())
 
         with util.convert_to_writable_filelike(
             fd, compressed=compressed) as fd:
@@ -3632,14 +3674,21 @@ class VOTableFile(Element, _IDProperty, _DescriptionProperty):
      http://www.astropy.org/ -->\n"""
             w.write(xml_header.lstrip().format(**locals()))
 
-            with w.tag('VOTABLE',
-                       {'version': version,
-                        'xmlns:xsi':
-                            "http://www.w3.org/2001/XMLSchema-instance",
-                        'xsi:noNamespaceSchemaLocation':
-                            f"http://www.ivoa.net/xml/VOTable/v{version}",
-                        'xmlns':
-                            f"http://www.ivoa.net/xml/VOTable/v{version}"}):
+            # Build the VOTABLE tag attributes.
+            votable_attr = {
+                'version': version,
+                'xmlns:xsi': "http://www.w3.org/2001/XMLSchema-instance"
+            }
+            ns_info = self._version_namespace_map.get(version, {})
+            namespace_uri = ns_info.get('namespace_uri')
+            if namespace_uri:
+                votable_attr['xmlns'] = namespace_uri
+            schema_location_attr = ns_info.get('schema_location_attr')
+            schema_location_value = ns_info.get('schema_location_value')
+            if schema_location_attr and schema_location_value:
+                votable_attr[schema_location_attr] = schema_location_value
+
+            with w.tag('VOTABLE', votable_attr):
                 if self.description is not None:
                     w.element("DESCRIPTION", self.description, wrap=True)
                 element_sets = [self.coordinate_systems, self.time_systems,

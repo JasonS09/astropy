@@ -9,29 +9,43 @@ import urllib.error
 import urllib.parse
 
 import numpy as np
+import erfa
+
 from astropy import units as u
 from astropy import constants as consts
 from astropy.units.quantity import QuantityInfoBase
-from astropy.utils.exceptions import AstropyUserWarning
-from .angles import Longitude, Latitude
-from .representation import CartesianRepresentation, CartesianDifferential
-from .errors import UnknownSiteException
 from astropy.utils import data
-from astropy import _erfa as erfa
+from astropy.utils.decorators import format_doc
+from astropy.utils.exceptions import AstropyUserWarning
 
-__all__ = ['EarthLocation']
+from .angles import Angle, Longitude, Latitude
+from .representation import (BaseRepresentation, CartesianRepresentation,
+                             CartesianDifferential)
+from .matrix_utilities import matrix_transpose
+from .errors import UnknownSiteException
+
+
+__all__ = ['EarthLocation', 'BaseGeodeticRepresentation',
+           'WGS84GeodeticRepresentation', 'WGS72GeodeticRepresentation',
+           'GRS80GeodeticRepresentation']
 
 GeodeticLocation = collections.namedtuple('GeodeticLocation', ['lon', 'lat', 'height'])
 
-# Available ellipsoids (defined in erfam.h, with numbers exposed in erfa).
-ELLIPSOIDS = ('WGS84', 'GRS80', 'WGS72')
+ELLIPSOIDS = {}
+"""Available ellipsoids (defined in erfam.h, with numbers exposed in erfa)."""
+# Note: they get filled by the creation of the geodetic classes.
 
-OMEGA_EARTH = u.Quantity(7.292115855306589e-5, 1./u.s)
+OMEGA_EARTH = ((1.002_737_811_911_354_48 * u.cycle/u.day)
+               .to(1/u.s, u.dimensionless_angles()))
 """
-Rotational velocity of Earth. In UT1 seconds, this would be 2 pi / (24 * 3600),
-but we need the value in SI seconds.
-See Explanatory Supplement to the Astronomical Almanac, ed. P. Kenneth Seidelmann (1992),
-University Science Books.
+Rotational velocity of Earth, following SOFA's pvtob.
+
+In UT1 seconds, this would be 2 pi / (24 * 3600), but we need the value
+in SI seconds, so multiply by the ratio of stellar to solar day.
+See Explanatory Supplement to the Astronomical Almanac, ed. P. Kenneth
+Seidelmann (1992), University Science Books. The constant is the
+convential, exact one (IERS conventions 2003); see
+http://hpiers.obspm.fr/eop-pc/index.php?index=constants.
 """
 
 
@@ -39,8 +53,7 @@ def _check_ellipsoid(ellipsoid=None, default='WGS84'):
     if ellipsoid is None:
         ellipsoid = default
     if ellipsoid not in ELLIPSOIDS:
-        raise ValueError('Ellipsoid {} not among known ones ({})'
-                         .format(ellipsoid, ELLIPSOIDS))
+        raise ValueError(f'Ellipsoid {ellipsoid} not among known ones ({ELLIPSOIDS})')
     return ellipsoid
 
 
@@ -206,7 +219,7 @@ class EarthLocation(u.Quantity):
         ----------
         x, y, z : `~astropy.units.Quantity` or array-like
             Cartesian coordinates.  If not quantities, ``unit`` should be given.
-        unit : `~astropy.units.UnitBase` object or None
+        unit : unit-like or None
             Physical unit of the coordinate values.  If ``x``, ``y``, and/or
             ``z`` are quantities, they will be converted to this unit.
 
@@ -259,7 +272,7 @@ class EarthLocation(u.Quantity):
         lat : `~astropy.coordinates.Latitude` or float
             Earth latitude.  Can be anything that initialises an
             `~astropy.coordinates.Latitude` object (if float, in degrees).
-        height : `~astropy.units.Quantity` or float, optional
+        height : `~astropy.units.Quantity` ['length'] or float, optional
             Height above reference ellipsoid (if float, in meters; default: 0).
         ellipsoid : str, optional
             Name of the reference ellipsoid to use (default: 'WGS84').
@@ -280,21 +293,18 @@ class EarthLocation(u.Quantity):
         ``gd2gc`` is used.  See https://github.com/liberfa/erfa
         """
         ellipsoid = _check_ellipsoid(ellipsoid, default=cls._ellipsoid)
-        lon = Longitude(lon, u.degree, wrap_angle=180*u.degree, copy=False)
+        # As wrapping fails on readonly input, we do so manually
+        lon = Angle(lon, u.degree, copy=False).wrap_at(180 * u.degree)
         lat = Latitude(lat, u.degree, copy=False)
         # don't convert to m by default, so we can use the height unit below.
         if not isinstance(height, u.Quantity):
             height = u.Quantity(height, u.m, copy=False)
-        # get geocentric coordinates. Have to give one-dimensional array.
-        xyz = erfa.gd2gc(getattr(erfa, ellipsoid),
-                         lon.to_value(u.radian),
-                         lat.to_value(u.radian),
-                         height.to_value(u.m))
-        self = xyz.ravel().view(cls._location_dtype,
-                                cls).reshape(xyz.shape[:-1])
-        self._unit = u.meter
+        # get geocentric coordinates.
+        geodetic = ELLIPSOIDS[ellipsoid](lon, lat, height, copy=False)
+        xyz = geodetic.to_cartesian().get_xyz(xyz_axis=-1) << height.unit
+        self = xyz.view(cls._location_dtype, cls).reshape(geodetic.shape)
         self._ellipsoid = ellipsoid
-        return self.to(height.unit)
+        return self
 
     @classmethod
     def of_site(cls, site_name):
@@ -328,8 +338,9 @@ class EarthLocation(u.Quantity):
 
         Returns
         -------
-        site : This class (a `~astropy.coordinates.EarthLocation` or subclass)
-            The location of the observatory.
+        site : `~astropy.coordinates.EarthLocation` (or subclass) instance
+            The location of the observatory. The returned class will be the same
+            as this class.
 
         Examples
         --------
@@ -338,18 +349,25 @@ class EarthLocation(u.Quantity):
         >>> keck = EarthLocation.of_site('Keck Observatory')  # doctest: +REMOTE_DATA
         >>> keck.geodetic  # doctest: +REMOTE_DATA +FLOAT_CMP
         GeodeticLocation(lon=<Longitude -155.47833333 deg>, lat=<Latitude 19.82833333 deg>, height=<Quantity 4160. m>)
+        >>> keck.info  # doctest: +REMOTE_DATA
+        name = W. M. Keck Observatory
+        dtype = void192
+        unit = m
+        class = EarthLocation
+        n_bad = 0
         >>> keck.info.meta  # doctest: +REMOTE_DATA
         {'source': 'IRAF Observatory Database', 'timezone': 'US/Aleutian'}
 
         See Also
         --------
         get_site_names : the list of sites that this function can access
-        """
+        """  # noqa
         registry = cls._get_site_registry()
         try:
             el = registry[site_name]
         except UnknownSiteException as e:
-            raise UnknownSiteException(e.site, 'EarthLocation.get_site_names', close_names=e.close_names)
+            raise UnknownSiteException(e.site, 'EarthLocation.get_site_names',
+                                       close_names=e.close_names)
 
         if cls is el.__class__:
             return el
@@ -385,20 +403,21 @@ class EarthLocation(u.Quantity):
             The address to get the location for. As per the Google maps API,
             this can be a fully specified street address (e.g., 123 Main St.,
             New York, NY) or a city name (e.g., Danbury, CT), or etc.
-        get_height : bool (optional)
+        get_height : bool, optional
             This only works when using the Google API! See the ``google_api_key``
             block below. Use the retrieved location to perform a second query to
             the Google maps elevation API to retrieve the height of the input
             address [3]_.
-        google_api_key : str (optional)
+        google_api_key : str, optional
             A Google API key with the Geocoding API and (optionally) the
             elevation API enabled. See [4]_ for more information.
 
 
         Returns
         -------
-        location : This class (a `~astropy.coordinates.EarthLocation` or subclass)
+        location : `~astropy.coordinates.EarthLocation` (or subclass) instance
             The location of the input address.
+            Will be type(this class)
 
         References
         ----------
@@ -413,27 +432,25 @@ class EarthLocation(u.Quantity):
 
         # Fail fast if invalid options are passed:
         if not use_google and get_height:
-            raise ValueError('Currently, `get_height` only works when using '
-                             'the Google geocoding API, which requires passing '
-                             'a Google API key with `google_api_key`. See: '
-                             'https://developers.google.com/maps/documentation/geocoding/get-api-key '
-                             'for information on obtaining an API key.')
+            raise ValueError(
+                'Currently, `get_height` only works when using '
+                'the Google geocoding API, which requires passing '
+                'a Google API key with `google_api_key`. See: '
+                'https://developers.google.com/maps/documentation/geocoding/get-api-key '
+                'for information on obtaining an API key.')
 
         if use_google:  # Google
             pars = urllib.parse.urlencode({'address': address,
                                            'key': google_api_key})
-            geo_url = ("https://maps.googleapis.com/maps/api/geocode/json?{}"
-                       .format(pars))
+            geo_url = f"https://maps.googleapis.com/maps/api/geocode/json?{pars}"
 
         else:  # OpenStreetMap
             pars = urllib.parse.urlencode({'q': address,
                                            'format': 'json'})
-            geo_url = ("https://nominatim.openstreetmap.org/search?{}"
-                       .format(pars))
+            geo_url = f"https://nominatim.openstreetmap.org/search?{pars}"
 
         # get longitude and latitude location
-        err_str = ("Unable to retrieve coordinates for address '{address}'; "
-                   "{{msg}}".format(address=address))
+        err_str = f"Unable to retrieve coordinates for address '{address}'; {{msg}}"
         geo_result = _get_json_result(geo_url, err_str=err_str,
                                       use_google=use_google)
 
@@ -451,11 +468,9 @@ class EarthLocation(u.Quantity):
             pars = {'locations': f'{lat:.8f},{lon:.8f}',
                     'key': google_api_key}
             pars = urllib.parse.urlencode(pars)
-            ele_url = ("https://maps.googleapis.com/maps/api/elevation/json?{}"
-                       .format(pars))
+            ele_url = f"https://maps.googleapis.com/maps/api/elevation/json?{pars}"
 
-            err_str = ("Unable to retrieve elevation for address '{address}'; "
-                       "{{msg}}".format(address=address))
+            err_str = f"Unable to retrieve elevation for address '{address}'; {{msg}}"
             ele_result = _get_json_result(ele_url, err_str=err_str,
                                           use_google=use_google)
             height = ele_result[0]['elevation']*u.meter
@@ -510,10 +525,13 @@ class EarthLocation(u.Quantity):
             If True, load from the data file bundled with astropy and set the
             cache to that.
 
-        returns
+        Returns
         -------
         reg : astropy.coordinates.sites.SiteRegistry
         """
+        # need to do this here at the bottom to avoid circular dependencies
+        from .sites import get_builtin_sites, get_downloaded_sites
+
         if force_builtin and force_download:
             raise ValueError('Cannot have both force_builtin and force_download True')
 
@@ -565,9 +583,10 @@ class EarthLocation(u.Quantity):
 
         Returns
         -------
-        (lon, lat, height) : tuple
-            The tuple contains instances of `~astropy.coordinates.Longitude`,
-            `~astropy.coordinates.Latitude`, and `~astropy.units.Quantity`
+        lon, lat, height : `~astropy.units.Quantity`
+            The tuple is a ``GeodeticLocation`` namedtuple and is comprised of
+            instances of `~astropy.coordinates.Longitude`,
+            `~astropy.coordinates.Latitude`, and `~astropy.units.Quantity`.
 
         Raises
         ------
@@ -580,13 +599,12 @@ class EarthLocation(u.Quantity):
         ``gc2gd`` is used.  See https://github.com/liberfa/erfa
         """
         ellipsoid = _check_ellipsoid(ellipsoid, default=self.ellipsoid)
-        self_array = self.to(u.meter).view(self._array_dtype, np.ndarray)
-        lon, lat, height = erfa.gc2gd(getattr(erfa, ellipsoid), self_array)
+        xyz = self.view(self._array_dtype, u.Quantity)
+        llh = CartesianRepresentation(xyz, xyz_axis=-1, copy=False).represent_as(
+                ELLIPSOIDS[ellipsoid])
         return GeodeticLocation(
-            Longitude(lon * u.radian, u.degree,
-                      wrap_angle=180.*u.degree, copy=False),
-            Latitude(lat * u.radian, u.degree, copy=False),
-            u.Quantity(height * u.meter, self.unit, copy=False))
+            Longitude(llh.lon, u.deg, wrap_angle=180*u.deg, copy=False),
+            llh.lat << u.deg, llh.height << self.unit)
 
     @property
     def lon(self):
@@ -595,7 +613,7 @@ class EarthLocation(u.Quantity):
 
     @property
     def lat(self):
-        """Longitude of the location, for the default ellipsoid."""
+        """Latitude of the location, for the default ellipsoid."""
         return self.geodetic[1]
 
     @property
@@ -631,7 +649,7 @@ class EarthLocation(u.Quantity):
         """
         # Broadcast for a single position at multiple times, but don't attempt
         # to be more general here.
-        if obstime and self.size == 1 and obstime.size > 1:
+        if obstime and self.size == 1 and obstime.shape:
             self = np.broadcast_to(self, obstime.shape, subok=True)
 
         # do this here to prevent a series of complicated circular imports
@@ -651,20 +669,49 @@ class EarthLocation(u.Quantity):
             The ``obstime`` to calculate the GCRS position/velocity at.
 
         Returns
-        --------
+        -------
         gcrs : `~astropy.coordinates.GCRS` instance
             With velocity included.
         """
         # do this here to prevent a series of complicated circular imports
         from .builtin_frames import GCRS
+        loc, vel = self.get_gcrs_posvel(obstime)
+        loc.differentials['s'] = CartesianDifferential.from_cartesian(vel)
+        return GCRS(loc, obstime=obstime)
 
-        itrs = self.get_itrs(obstime)
-        # Assume the observatory itself is fixed on the ground.
-        # We do a direct assignment rather than an update to avoid validation
-        # and creation of a new object.
-        zeros = np.broadcast_to(0. * u.km / u.s, (3,) + itrs.shape, subok=True)
-        itrs.data.differentials['s'] = CartesianDifferential(zeros)
-        return itrs.transform_to(GCRS(obstime=obstime))
+    def _get_gcrs_posvel(self, obstime, ref_to_itrs, gcrs_to_ref):
+        """Calculate GCRS position and velocity given transformation matrices.
+
+        The reference frame z axis must point to the Celestial Intermediate Pole
+        (as is the case for CIRS and TETE).
+
+        This private method is used in intermediate_rotation_transforms,
+        where some of the matrices are already available for the coordinate
+        transformation.
+
+        The method is faster by an order of magnitude than just adding a zero
+        velocity to ITRS and transforming to GCRS, because it avoids calculating
+        the velocity via finite differencing of the results of the transformation
+        at three separate times.
+        """
+        # The simplest route is to transform to the reference frame where the
+        # z axis is properly aligned with the Earth's rotation axis (CIRS or
+        # TETE), then calculate the velocity, and then transform this
+        # reference position and velocity to GCRS.  For speed, though, we
+        # transform the coordinates to GCRS in one step, and calculate the
+        # velocities by rotating around the earth's axis transformed to GCRS.
+        ref_to_gcrs = matrix_transpose(gcrs_to_ref)
+        itrs_to_gcrs = ref_to_gcrs @ matrix_transpose(ref_to_itrs)
+        # Earth's rotation vector in the ref frame is rot_vec_ref = (0,0,OMEGA_EARTH),
+        # so in GCRS it is rot_vec_gcrs[..., 2] @ OMEGA_EARTH.
+        rot_vec_gcrs = CartesianRepresentation(ref_to_gcrs[..., 2] * OMEGA_EARTH,
+                                               xyz_axis=-1, copy=False)
+        # Get the position in the GCRS frame.
+        # Since we just need the cartesian representation of ITRS, avoid get_itrs().
+        itrs_cart = CartesianRepresentation(self.x, self.y, self.z, copy=False)
+        pos = itrs_cart.transform(itrs_to_gcrs)
+        vel = rot_vec_gcrs.cross(pos)
+        return pos, vel
 
     def get_gcrs_posvel(self, obstime):
         """
@@ -677,17 +724,20 @@ class EarthLocation(u.Quantity):
             The ``obstime`` to calculate the GCRS position/velocity at.
 
         Returns
-        --------
+        -------
         obsgeoloc : `~astropy.coordinates.CartesianRepresentation`
             The GCRS position of the object
         obsgeovel : `~astropy.coordinates.CartesianRepresentation`
             The GCRS velocity of the object
         """
-        # GCRS position
-        gcrs_data = self.get_gcrs(obstime).data
-        obsgeopos = gcrs_data.without_differentials()
-        obsgeovel = gcrs_data.differentials['s'].to_cartesian()
-        return obsgeopos, obsgeovel
+        # Local import to prevent circular imports.
+        from .builtin_frames.intermediate_rotation_transforms import (
+            cirs_to_itrs_mat, gcrs_to_cirs_mat)
+
+        # Get gcrs_posvel by transforming via CIRS (slightly faster than TETE).
+        return self._get_gcrs_posvel(obstime,
+                                     cirs_to_itrs_mat(obstime),
+                                     gcrs_to_cirs_mat(obstime))
 
     def gravitational_redshift(self, obstime,
                                bodies=['sun', 'jupiter', 'moon'],
@@ -709,15 +759,15 @@ class EarthLocation(u.Quantity):
             the Moon.  Earth is always included (because the class represents
             an *Earth* location).
 
-        masses : dict of str to Quantity, optional
+        masses : dict[str, `~astropy.units.Quantity`], optional
             The mass or gravitational parameters (G * mass) to assume for the
             bodies requested in ``bodies``. Can be used to override the
             defaults for the Sun, Jupiter, the Moon, and the Earth, or to
             pass in masses for other bodies.
 
         Returns
-        --------
-        redshift :  `~astropy.units.Quantity`
+        -------
+        redshift : `~astropy.units.Quantity`
             Gravitational redshift in velocity units at given obstime.
         """
         # needs to be here to avoid circular imports
@@ -802,5 +852,84 @@ class EarthLocation(u.Quantity):
         return new_array.view(self.dtype).reshape(self.shape)
 
 
-# need to do this here at the bottom to avoid circular dependencies
-from .sites import get_builtin_sites, get_downloaded_sites
+geodetic_base_doc = """{__doc__}
+
+    Parameters
+    ----------
+    lon, lat : angle-like
+        The longitude and latitude of the point(s), in angular units. The
+        latitude should be between -90 and 90 degrees, and the longitude will
+        be wrapped to an angle between 0 and 360 degrees. These can also be
+        instances of `~astropy.coordinates.Angle` and either
+        `~astropy.coordinates.Longitude` not `~astropy.coordinates.Latitude`,
+        depending on the parameter.
+    height : `~astropy.units.Quantity` ['length']
+        The height to the point(s).
+    copy : bool, optional
+        If `True` (default), arrays will be copied. If `False`, arrays will
+        be references, though possibly broadcast to ensure matching shapes.
+
+"""
+
+
+@format_doc(geodetic_base_doc)
+class BaseGeodeticRepresentation(BaseRepresentation):
+    """Base geodetic representation."""
+
+    attr_classes = {'lon': Longitude,
+                    'lat': Latitude,
+                    'height': u.Quantity}
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if '_ellipsoid' in cls.__dict__:
+            ELLIPSOIDS[cls._ellipsoid] = cls
+
+    def __init__(self, lon, lat=None, height=None, copy=True):
+        if height is None and not isinstance(lon, self.__class__):
+            height = 0 << u.m
+
+        super().__init__(lon, lat, height, copy=copy)
+        if not self.height.unit.is_equivalent(u.m):
+            raise u.UnitTypeError(f"{self.__class__.__name__} requires "
+                                  f"height with units of length.")
+
+    def to_cartesian(self):
+        """
+        Converts WGS84 geodetic coordinates to 3D rectangular (geocentric)
+        cartesian coordiantes.
+        """
+        xyz = erfa.gd2gc(getattr(erfa, self._ellipsoid),
+                         self.lon, self.lat, self.height)
+        return CartesianRepresentation(xyz, xyz_axis=-1, copy=False)
+
+    @classmethod
+    def from_cartesian(cls, cart):
+        """
+        Converts 3D rectangular cartesian coordinates (assumed geocentric) to
+        WGS84 geodetic coordinates.
+        """
+        lon, lat, height = erfa.gc2gd(getattr(erfa, cls._ellipsoid),
+                                      cart.get_xyz(xyz_axis=-1))
+        return cls(lon, lat, height, copy=False)
+
+
+@format_doc(geodetic_base_doc)
+class WGS84GeodeticRepresentation(BaseGeodeticRepresentation):
+    """Representation of points in WGS84 3D geodetic coordinates."""
+
+    _ellipsoid = 'WGS84'
+
+
+@format_doc(geodetic_base_doc)
+class WGS72GeodeticRepresentation(BaseGeodeticRepresentation):
+    """Representation of points in WGS72 3D geodetic coordinates."""
+
+    _ellipsoid = 'WGS72'
+
+
+@format_doc(geodetic_base_doc)
+class GRS80GeodeticRepresentation(BaseGeodeticRepresentation):
+    """Representation of points in GRS80 3D geodetic coordinates."""
+
+    _ellipsoid = 'GRS80'

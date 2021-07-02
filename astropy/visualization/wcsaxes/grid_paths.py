@@ -7,8 +7,8 @@ from matplotlib.lines import Path
 
 from astropy.coordinates.angle_utilities import angular_separation
 
-# Tolerance for WCS round-tripping
-ROUND_TRIP_TOL = 1e-1
+# Tolerance for WCS round-tripping, relative to the scale size
+ROUND_TRIP_RTOL = 1.
 
 # Tolerance for discontinuities relative to the median
 DISCONT_FACTOR = 10.
@@ -20,12 +20,12 @@ def get_lon_lat_path(lon_lat, pixel, lon_lat_check):
 
     Parameters
     ----------
-    lon_lat : `~numpy.ndarray`
+    lon_lat : ndarray
         The longitude and latitude values along the curve, given as a (n,2)
         array.
-    pixel : `~numpy.ndarray`
+    pixel : ndarray
         The pixel coordinates corresponding to ``lon_lat``
-    lon_lat_check : `~numpy.ndarray`
+    lon_lat_check : ndarray
         The world coordinates derived from converting from ``pixel``, which is
         used to ensure round-tripping.
     """
@@ -39,11 +39,14 @@ def get_lon_lat_path(lon_lat, pixel, lon_lat_check):
                              np.radians(lon_lat_check[:, 0]),
                              np.radians(lon_lat_check[:, 1]))
 
+    # Define the relevant scale size using the separation between the first two points
+    scale_size = angular_separation(*np.radians(lon_lat[0, :]), *np.radians(lon_lat[1, :]))
+
     with np.errstate(invalid='ignore'):
 
         sep[sep > np.pi] -= 2. * np.pi
 
-        mask = np.abs(sep > ROUND_TRIP_TOL)
+        mask = np.abs(sep > ROUND_TRIP_RTOL * scale_size)
 
     # Mask values with invalid pixel positions
     mask = mask | np.isnan(pixel[:, 0]) | np.isnan(pixel[:, 1])
@@ -91,10 +94,10 @@ def get_gridline_path(world, pixel):
 
     Parameters
     ----------
-    world : `~numpy.ndarray`
+    world : ndarray
         The longitude and latitude values along the curve, given as a (n,2)
         array.
-    pixel : `~numpy.ndarray`
+    pixel : ndarray
         The pixel coordinates corresponding to ``lon_lat``
     """
 

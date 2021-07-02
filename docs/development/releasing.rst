@@ -15,7 +15,6 @@ There are several different procedures below, depending on the situation:
     - :ref:`release-procedure-bug-fix-backport`
     - :ref:`release-procedure-bug-fix-direct`
     - :ref:`release-procedure-bug-fix-release`
-* :ref:`helpers-release-info`
 
 For a signed release, see :ref:`key-signing-info` for relevant setup
 instructions.
@@ -29,7 +28,7 @@ Standard Release Procedure
 This is the standard release procedure for releasing Astropy (or affiliated
 packages that use the full bugfix/maintenance branch approach.)
 
-#. Create a github milestone for the next bugfix version, move any remaining
+#. Create a GitHub milestone for the next bugfix version, move any remaining
    issues from the version you are about to release, and close the milestone.
    When releasing a major release, close the last milestone on the previous
    maintenance branch, too.
@@ -40,7 +39,7 @@ packages that use the full bugfix/maintenance branch approach.)
       maintainers about their relevant pull requests, so that the maintainers
       have the option to re-milestone their work.
 
-#. If there are any issues in the Github issue tracker that are labeled
+#. If there are any issues in the GitHub issue tracker that are labeled
    ``affects-dev`` but are issues that apply to this release, update them to
    ``affects-release``.  Similarly, if any issues remain open for this release,
    re-assign them to the next relevant milestone.
@@ -59,32 +58,16 @@ packages that use the full bugfix/maintenance branch approach.)
    ``git shortlog -s`` to get the final contributor count.
 
 #. Also be sure to update the ``docs/credits.rst`` file to include any new
-   contributors.  This can come from the above step, or the ``author_lists.py``
-   script in the `astropy-procedures repository`_ mostly automates this.  (This
+   contributors from the above step. (This
    step is only required on major releases, but can be done for bugfix releases
    as time allows.)
 
-#. (Optional) You may want to set up a clean environment to build the release.
-   For more on setting up virtual environments, see :ref:`virtual_envs`, but
-   for the sake of example we will assume you're using `Anaconda`_. This is not
-   necessary if you know your normal python environment has what you need, but
-   you might want to do something like this for safety's sake::
-
-      $ conda create -n astropy_release_build_v<version> astropy
-      $ source activate astropy_release_build_v<version>
-      $ conda uninstall astropy  # still keeps the dependencies
-      $ pip install -e .[docs,test]  # any that might be left over
-      $ pip uninstall astropy
-
-#. Make sure you have the latest Cython version installed for use with
-   releasing. To pick up the latest Cython release from PyPI::
-
-      $ pip install Cython --upgrade
-
-#. Before doing a release of Astropy, you may need to do a release of
-   astropy-helpers.  This is not always necessary, as there are not always any
-   significant changes in the helpers.  See :ref:`helpers-release-info` for more
-   on this.
+#. (astropy specific) Ensure the built-in IERS earth rotation parameter and
+   leap second tables are up to date by changing directory to
+   ``astropy/utils/iers/data`` and executing ``update_builtin_iers.sh``.
+   Check the result with ``git diff`` (do not be surprised to find many lines
+   in the ``eopc04_IAU2000.62-now`` file change; those data are reanalyzed
+   periodically) and committing.
 
 #. Ensure you have a GPG key pair available for when git needs to sign the
    tag you create for the release.  See :ref:`key-signing-info` for more on
@@ -92,101 +75,54 @@ packages that use the full bugfix/maintenance branch approach.)
 
 #. Obtain a *clean* version of the `astropy core repository`_.  That is, one
    where you don't have any intermediate build files.  Either use a fresh
-   ``git clone`` or do ``git clean -dfx``. If you choose to clean the working tree,
-   don't forget to clean the ``astropy_helpers`` submodule, too.
+   ``git clone`` or do ``git clean -dfx``.
 
 #. Be sure you're on the branch appropriate for the version you're about to
    release.  For example, if releasing version 1.2.2 make sure to::
 
       $ git checkout v1.2.x
 
-#. Make sure that the continuous integration services (e.g., Travis or CircleCI) are passing
-   for the `astropy core repository`_ branch you are going to release. You may
-   also want to locally run the tests (with remote data on to ensure all of the
-   tests actually run), and make sure the description in ``setup.cfg`` is
-   reStructuredText-compliant::
+#. Make sure that the continuous integration services (e.g., GitHub Actions or CircleCI) are passing
+   for the `astropy core repository`_ branch you are going to release. Also check that
+   the `Azure core package pipeline`_ which builds wheels on the ``v*`` branches is passing.
+   You may also want to locally run the tests (with remote data on to ensure all
+   of the tests actually run), using tox to do a thorough test in an isolated
+   environment::
 
-      $ python setup.py test --remote-data=any
-      $ TEST_READ_HUGE_FILE=1 pytest -sv astropy/io/ascii/tests/test_c_reader.py -k big_table
-      $ python setup.py check --restructuredtext
+      $ pip install tox --upgrade
+      $ TEST_READ_HUGE_FILE=1 tox -e test-alldeps -- --remote-data=any
 
-#. Edit the ``CHANGES.rst`` file by changing the date for the version you are
-   about to release from "unreleased" to today's date.  Also be sure to remove
-   any sections of the changelog for that version that have no entries.
-   For releases that come after release candidates (:ref:`release-procedure-beta-rc`),
-   the title of the changelog section should be replaced too, thus getting rid
-   of any mention of the release candidate.
-   Then add and commit those changes with::
+#. Render the changelog with towncrier, and confirm that the fragments can be
+   deleted. (Note: update this when doing the next release!)
+   ::
 
-      <use your favorite editor on CHANGES.rst>
+       towncrier [--draft] --version 4.3
+
+#. Then add and commit those changes with::
+
       $ git add CHANGES.rst
       $ git commit -m "Finalizing changelog for v<version>"
 
-#. Edit the ``setup.cfg`` file by removing the ``".dev"`` at the end of the
-   ``version`` string, then add and commit that change as the final step prior
-   to release::
+#. Push the branch back to GitHub, e.g.::
 
-      <use your favorite editor on setup.cfg>
-      $ git add setup.cfg
-      $ git commit -m "Preparing release v<version>"
+      $ git push upstream v1.2.x
+
+   and make sure that the CI services mentioned above (includnig the Azure pipeline)
+   are still passing.
+
+   .. note::
+
+      You may need to replace ``upstream`` here with ``astropy`` or
+      whatever remote name you use for the `astropy core repository`_.
 
 #. Tag the commit with ``v<version>``, being certain to sign the tag with the
    ``-s`` option::
 
       $ git tag -s v<version> -m "Tagging v<version>"
 
-#. Now go back and check out the tag of the released version with
-   ``git checkout v<version>``.  For example::
+#. Push up the tag to the `astropy core repository`_::
 
-      $ git checkout v1.2.2
-
-   Don't forget to remove any non-committed files both from the main working tree
-   and ``astropy_helpers`` submodules with::
-
-      $ git clean -dfx
-      $ cd astropy_helpers; git clean -dfx; cd ..
-
-#. Make sure the source distribution doesn't inherit limited permissions
-   following your default umask::
-
-     $ umask 0022
-     $ chmod -R a+Xr .
-
-#. (Optional) Create the source distribution by doing::
-
-         $ python setup.py build sdist
-
-   .. note::
-
-       In the future, the ``build`` command may run automatically as a
-       prerequisite for ``sdist``.  But for now, make sure to run it
-       whenever running ``sdist`` to ensure that all Cython sources and
-       other generated files are built.
-
-   .. note::
-
-      `Git worktree <https://git-scm.com/docs/git-worktree>`_ does not work
-      well with submodule. Remember to go back to the main source checkout
-      (not in a worktree) before creating ``sdist``.
-
-#. (Optional) Run the tests in an environment that mocks up a "typical user" scenario.
-   This is not strictly necessary because you ran the tests above, but
-   it can sometimes be useful to catch subtle bugs that might come from you
-   using a customized developer environment.  For more on setting up virtual
-   environments, see :ref:`virtual_envs`, but for the sake of example we will
-   assume you're using `Anaconda`_. Do::
-
-      $ conda create -n astropy_release_test_v<version> numpy
-      $ source activate astropy_release_test_v<version>
-      $ pip install dist/astropy-<version>.tar.gz[all]
-      $ python -c 'import astropy; astropy.test(remote_data=True)'
-      $ source deactivate
-
-#. Push up these changes and the tag to the `astropy core repository`_
-   (the tag needs to be available for wheels in the next step)::
-
-      $ git push upstream v<version branch>.x
-      $ git push upstream v<version branch>
+      $ git push upstream v<tag version>
 
    .. note::
 
@@ -195,19 +131,14 @@ packages that use the full bugfix/maintenance branch approach.)
       Also, it might be tempting to use the ``--tags`` argument to ``git push``,
       but this should *not* be done, as it might push up some unintended tags.
 
-#. Build and test the Astropy wheels.  See the `wheel builder README
-   <https://github.com/MacPython/astropy-wheels>`_ for instructions.  In
-   summary, clone the wheel-building repo, edit the ``.travis.yml``
-   text file with the branch or commit for the release,
-   commit and then push back up to github.  This will trigger a wheel build
-   and test on OSX, Linux, and Windows. Check the build has passed on on the
-   Travis-CI interface at https://travis-ci.org/MacPython/astropy-wheels.
-   You'll need commit privileges to the ``astropy-wheels`` repo; ask Tom Kooij
-   or on the mailing list if you do not have them.
+   At this point if all goes well, the wheels and sdist will be build
+   in the `Azure core package pipeline`_ and uploaded to PyPI!
 
-#. If the tests do *not* pass, you'll have to fix whatever the problem is.
-   First you will need to back out the release procedure by dropping the commits
-   you made for release and removing the tag you created::
+#. In the event there are any issues with the wheel building for the tag
+   (which shouldn't really happen if it was passing for the release branch),
+   you'll have to fix whatever the problem is. First you will need to back out
+   the release procedure by dropping the commits you made for release and
+   removing the tag you created::
 
       $ git reset --hard HEAD^^^^ # you could also use the SHA hash of the commit before your first changelog edit
       $ git tag -d v<version>
@@ -217,37 +148,7 @@ packages that use the full bugfix/maintenance branch approach.)
       Any re-pushing the same tag back out to GitHub hereafter would be
       a force-push.
 
-#. Once the tests are all passing, it's time to actually proceed with the
-   release! This has two steps:
-
-   * build and upload the Astropy wheels;
-   * make and upload the Astropy source release.
-
-#. For the wheel build / upload, follow the `wheel builder README`_
-   instructions again.  Edit the ``.travis.yml`` file
-   to give the release tag to build.  Check the build has passed on on the
-   Travis-CI interface at https://travis-ci.org/MacPython/astropy-wheels.  Now
-   follow the instructions in the page above to download the built wheels to a
-   local machine and upload to PyPI. If you use the ``wheel_download.py`` script,
-   make sure you loop through all the available OS to get all the wheels.
-
-#. Now the wheels are built and uploaded, you can upload the source release.
-   For safety's sake, you may want to clean the repo yet again to make sure
-   you didn't leave anything from the previous step::
-
-      $ git clean -dfx
-      $ cd astropy_helpers; git clean -dfx; cd ..
-
-#. Upload the source distribution to PyPI; this is preceded by re-running
-   the sdist command, which makes sure the source code is packaged up and ready
-   to be uploaded. You also need to GPG sign the release, before using twine to
-   upload it to PyPI. (You may need to install `twine`_ if you haven't used it yet)::
-
-      $ python setup.py build sdist
-      $ gpg --detach-sign -a dist/astropy-<version>.tar.gz
-      $ twine check dist/*
-      $ twine upload dist/astropy-<version>*
-
+  Once the sdist and wheels are uploaded, the release is done!
 
 Congratulations!  You have completed the release! Now there are just a few
 clean-up tasks to finalize the process.
@@ -256,22 +157,6 @@ clean-up tasks to finalize the process.
 
 Post-Release procedures
 -----------------------
-
-#. Go back to release branch (e.g., ``1.2.x``) and edit the ``version`` in
-   ``setup.cfg`` to be the next version number, but with
-   a ``.dev`` suffix at the end (e.g., ``1.2.3.dev``).  Then add and commit::
-
-      $ git checkout v1.2.x
-      <use your favorite editor on setup.cfg>
-      $ git add setup.cfg
-      $ git commit -m "Back to development: v<next_version>.dev"
-
-#. Also update the ``CHANGES.rst`` file with a new section for the next version.
-   Then add and commit::
-
-      <use your favorite editor on CHANGES.rst>
-      $ git add CHANGES.rst
-      $ git commit -m "Add v<next_version> to the changelog"
 
 #. Push up these changes to the `astropy core repository`_::
 
@@ -303,16 +188,12 @@ Post-Release procedures
    bugfix or a new major version.  You may also need to update the contributor
    list on the web site if you updated the ``docs/credits.rst`` at the outset.
 
-#. Open a PR to the astropy *master* branch to
-   update the ``CHANGES.rst`` to reflect the date of the release you just
-   performed and to include the new section of the changelog.  Often the easiest
-   way to do this is to use ``git cherry-pick`` the changelog commit just before
-   the release commit from above. If you are not sure how to do this, you might
-   be better off copying-and-pasting the relevant parts of the maintenance
-   branch's ``CHANGES.rst`` into master. In the same PR, you also have to
-   update ``docs/whatsnew/index.rst`` and ``docs/whatsnew/X.Y.rst`` to link to
-   "what's new" documentation in the released RTD branch, using the existing
-   text as example.
+#. Cherry-pick the commit rendering the changelog and deleting the fragments and
+   open a PR to the astropy *main* branch. Note: updating this when doing the
+   next release with towncrier.
+   In the same PR, you also have to update ``docs/whatsnew/index.rst`` and
+   ``docs/whatsnew/X.Y.rst`` to link to "what's new" documentation in the
+   released RTD branch, using the existing text as example.
 
 #. ``conda-forge`` has a bot that automatically opens
    a PR from a new PyPI (stable) release, which you need to follow up on and
@@ -329,22 +210,15 @@ Post-Release procedures
    in the ``ci-helpers`` repository once the ``conda`` packages became
    available.
 
-#. Upload the release to Zenodo. This has to be done manually since the
-   Zenodo/GitHub integration relies on making releases on GitHub, which we
-   don't do. So for the Astropy core package, log in to
-   Zenodo using the Astropy team credentials, then go to the `existing
-   record <https://zenodo.org/record/1461593>`_. Click on **New version** - note
-   that it's important to do this rather than upload the release as a completely
-   new record. You should now see a pre-filled deposit form with the details from
-   the previous release. Start off by removing the existing file under the
-   **Files** section, then click on **Choose Files** and select the ``tar.gz``
-   release file for the core package release you are uploading, and click
-   **Start upload**. Before you publish this, there are a few fields to update
-   in the form: the **Publication date** should be set to the date the tar
-   file was uploaded to PyPI, the **Title** should be updated to include the
-   new version number, and the **Version** should be updated to include the
-   version number (with no ``v`` prefix). Once you are happy with the changes,
-   click **Save**, then **Publish**.
+#. Upload the release to Zenodo by creating a GitHub Release off the GitHub tag.
+   Click on the tag in https://github.com/astropy/astropy/tags and then click on
+   the "Edit tag" button on the upper right. The release title is the same as the
+   tag. In the description, you can copy and paste a description from the previous
+   release, as it should be a one-liner that points to ``CHANGES.rst``. When you
+   are ready, click "Publish release" (the green button on bottom left).
+   A webhook to Zenodo will be activated and the release will appear under
+   https://doi.org/10.5281/zenodo.4670728 . If you encounter problems during this
+   step, please contact the Astropy Coordination Committee.
 
 #. Once the release(s) are available on the default ``conda`` channels,
    prepare the public announcement. Use the previous announcement as a
@@ -365,15 +239,11 @@ modified.
 
 The primary modifications to the release procedure are:
 
-* When entering the new version number, instead of just removing the
-  ``.dev``, enter "1.2b1" or "1.2rc1".  It is critical that you follow this
-  numbering scheme (``x.yb#`` or ``x.y.zrc#``), as it will ensure the release
+* When entering tagging the release, include a ``b?`` or ``rc??`` suffix after
+  the version number, e.g. "1.2b1" or "1.2rc1".  It is critical that you follow this
+  numbering scheme (``X.Yb#`` or ``X.Y.Zrc#``), as it will ensure the release
   is ordered "before" the main release by various automated tools, and also
   tells PyPI that this is a "pre-release."
-* Do *not* do the step of adding ``.dev`` in the "back to development" stage.
-  If an RC goes well, there is no need for a "dev" stage, as the same version
-  will be released with only minor doc updates, and strings like "x.yrcz.dev"
-  confuse some version number parsing tools.
 * Do not do steps in :ref:`post-release-procedure`.
 
 Once a release candidate is available, create a new Wiki page under
@@ -388,39 +258,32 @@ Performing a Feature Freeze/Branching new Major Versions
 ========================================================
 
 As outlined in
-`APE2 <https://github.com/astropy/astropy-APEs/blob/master/APE2.rst>`_, astropy
+`APE2 <https://github.com/astropy/astropy-APEs/blob/main/APE2.rst>`_, astropy
 releases occur at regular intervals, but feature freezes occur well before the
-actual release.  Feature freezes are also the time when the master branch's
+actual release.  Feature freezes are also the time when the main branch's
 development separates from the new major version's maintenance branch.  This
 allows new development for the next major version to continue while the
 soon-to-be-released version can focus on bug fixes and documentation updates.
 
 The procedure for this is straightforward:
 
-#. Update your local master branch to use to the latest version from github::
+#. Update your local main branch to use to the latest version from github::
 
-      $ git fetch upstream
-      $ git checkout -B master upstream/master
+      $ git fetch upstream --tags
+      $ git checkout -B main upstream/main
 
-#. Create a new branch from master at the point you want the feature freeze to
+#. Create a new branch from main at the point you want the feature freeze to
    occur::
 
       $ git branch v<version>.x
 
-#. Update the ``version`` in ``setup.cfg`` to reflect the new major version. For
-   example, if you are about to issue a feature freeze for version ``1.2``, you
-   will want to set the new version to ``'1.3.dev'``. Then add and commit that::
+#. Render the changelog with towncrier, as above.
 
-      <use your favorite editor on setup.cfg>
-      $ git add setup.cfg
-      $ git commit -m "Next major version: <next_version>"
+#. Tag this commit using the next major version followed by ``.dev``. For example,
+   if you have just branched ``4.0``, create the ``v4.1.dev`` tag on the commit
+   adding the ``4.1`` section to the changelog::
 
-#. Update the ``CHANGES.rst`` file with a new section at the very top for the
-   next major version. Then add and commit those changes::
-
-      <use your favorite editor on CHANGES.rst>
-      $ git add CHANGES.rst
-      $ git commit -m "Add <next_version> to changelog"
+      $ git tag -s "v<next_version>.dev" -m "Back to development: v<next_version>"
 
 #. Also update the "what's new" section of the docs to include a section for the
    next major version.  E.g.::
@@ -442,7 +305,7 @@ The procedure for this is straightforward:
 #. Push all of these changes up to github::
 
       $ git push upstream v<version>.x:v<version>.x
-      $ git push upstream master:master
+      $ git push upstream main:main
 
    .. note::
 
@@ -450,8 +313,6 @@ The procedure for this is straightforward:
       whatever remote name you use for the `astropy core repository`_.
 
 #. On the github issue tracker, add a new milestone for the next major version.
-
-#. Repeat the above steps for the astropy-helpers, using the same version series.
 
 .. _release-procedure-bug-fix:
 
@@ -475,9 +336,9 @@ that enhance clarity but do not describe new features (e.g., more examples,
 typo fixes, etc).
 
 Bug fix releases are typically managed by maintaining one or more bug fix
-branches separate from the master branch (the release procedure below discusses
+branches separate from the main branch (the release procedure below discusses
 creating these branches).  Typically, whenever an issue is fixed on the Astropy
-master branch a decision must be made whether this is a fix that should be
+main branch a decision must be made whether this is a fix that should be
 included in the Astropy bug fix release.  Usually the answer to this question
 is "yes", though there are some issues that may not apply to the bug fix
 branch.  For example, it is not necessary to backport a fix to a new feature
@@ -485,7 +346,7 @@ that did not exist when the bug fix branch was first created.  New features
 are never merged into the bug fix branch--only bug fixes; hence the name.
 
 In rare cases a bug fix may be made directly into the bug fix branch without
-going into the master branch first.  This may occur if a fix is made to a
+going into the main branch first.  This may occur if a fix is made to a
 feature that has been removed or rewritten in the development version and no
 longer has the issue being fixed.  However, depending on how critical the bug
 is it may be worth including in a bug fix release, as some users can be slow to
@@ -498,23 +359,23 @@ For example, at the time of writing there are two release milestones open:
 v1.2.2 and v0.3.0.  In this case, v1.2.2 is the next bug fix release and all
 issues that should include fixes in that release should be assigned that
 milestone.  Any issues that implement new features would go into the v0.3.0
-milestone--this is any work that goes in the master branch that should not
+milestone--this is any work that goes in the main branch that should not
 be backported.  For a more detailed set of guidelines on using milestones, see
 :ref:`milestones-and-labels`.
 
 
 .. _release-procedure-bug-fix-backport:
 
-Backporting fixes from master
------------------------------
+Backporting fixes from main
+---------------------------
 
 .. note::
 
     The changelog script in ``astropy-procedures`` (``pr_consistency`` scripts
     in particular) does not know about minor releases, thus please be careful.
-    For example, let's say we have two branches (``master`` and ``v1.2.x``).
+    For example, let's say we have two branches (``main`` and ``v1.2.x``).
     Both 1.2.0 and 1.2.1 releases will come out of the same v1.2.x branch.
-    If a PR for 1.2.1 is merged into ``master`` before 1.2.0 is released,
+    If a PR for 1.2.1 is merged into ``main`` before 1.2.0 is released,
     it should not be backported into v1.2.x branch until after 1.2.0 is
     released, despite complaining from the aforementioned script.
     This situation only arises in a very narrow time frame after 1.2.0
@@ -522,7 +383,7 @@ Backporting fixes from master
 
 Most fixes are backported using the ``git cherry-pick`` command, which applies
 the diff from a single commit like a patch.  For the sake of example, say the
-current bug fix branch is 'v1.2.x', and that a bug was fixed in master in a
+current bug fix branch is 'v1.2.x', and that a bug was fixed in main in a
 commit ``abcd1234``.  In order to backport the fix, checkout the v1.2.x
 branch (it's also good to make sure it's in sync with the
 `astropy core repository`_) and cherry-pick the appropriate commit::
@@ -540,8 +401,8 @@ sure to backport that as well.
 
 What if the issue required more than one commit to fix?  There are a few
 possibilities for this.  The easiest is if the fix came in the form of a
-pull request that was merged into the master branch.  Whenever GitHub merges
-a pull request it generates a merge commit in the master branch.  This merge
+pull request that was merged into the main branch.  Whenever GitHub merges
+a pull request it generates a merge commit in the main branch.  This merge
 commit represents the *full* difference of all the commits in the pull request
 combined.  What this means is that it is only necessary to cherry-pick the
 merge commit (this requires adding the ``-m 1`` option to the cherry-pick
@@ -589,11 +450,11 @@ there are two choices:
    check out the bug fix branch and commit and push your fix directly.
 
 2. **Preferable**: You may also make a pull request through GitHub against the
-   bug fix branch rather than against master.  Normally when making a pull
+   bug fix branch rather than against main.  Normally when making a pull
    request from a branch on your fork to the `astropy core repository`_, GitHub
-   compares your branch to Astropy's master.  If you look on the left-hand
+   compares your branch to Astropy's main.  If you look on the left-hand
    side of the pull request page, under "base repo: astropy/astropy" there is
-   a drop-down list labeled "base branch: master".  You can click on this
+   a drop-down list labeled "base branch: main".  You can click on this
    drop-down and instead select the bug fix branch ("v1.2.x" for example). Then
    GitHub will instead compare your fix against that branch, and merge into
    that branch when the PR is accepted.
@@ -615,7 +476,7 @@ right version number).
 
 2. The Astropy changelog must be updated to list all issues--especially
    user-visible issues--fixed for the current release.  The changelog should
-   be updated in the master branch, and then merged into the bug fix branch.
+   be updated in the main branch, and then merged into the bug fix branch.
    Most issues *should* already have changelog entries for them. But
    occasionally these are forgotten, so if doesn't exist yet please add one in
    the process of backporting.  See :ref:`changelog-format` for more details.
@@ -624,19 +485,19 @@ To aid this process, there are a series of related scripts in the
 `astropy-procedures repository`_, in the ``pr_consistency`` directory.  These scripts
 essentially check that the above two conditions are met. Detailed documentation
 for these scripts is given in their repository, but here we summarize the basic
-workflow.  Run the scripts in order (they are numbered 1.<something>.py,
-2.<something>.py, etc.), entering your github login credentials as needed (if
-you are going to run them multiple times, using a ``~/.netrc`` file is
+workflow.  Run the scripts in order (they are numbered ``1.<something>.py``,
+``2.<something>.py``, etc.), entering your github login credentials as needed
+(if you are going to run them multiple times, using a ``~/.netrc`` file is
 recommended - see `this Stack Overflow post
 <https://stackoverflow.com/questions/5343068/is-there-a-way-to-cache-github-credentials-for-pushing-commits/18362082#18362082>`_
 for more on how to do that, or
 `a similar github help page <https://help.github.com/en/articles/caching-your-github-password-in-git>`_).
-The script to actually check consistency should be run like:
+The script to actually check consistency should be run like::
 
     $ python 4.check_consistency.py > consistency.html
 
 Which will generate a simple web page that shows all of the areas where either
-a pull request was merged into master but is *not* in the relevant release that
+a pull request was merged into main but is *not* in the relevant release that
 it has been milestoned for, as well as any changelog irregularities (i.e., PRs
 that are in the wrong section for what the github milestone indicates).  You'll
 want to correct those irregularities *first* before starting the backport
@@ -646,6 +507,8 @@ The end of the ``consistency.html`` page will then show a series of
 ``git cherry-pick`` commands to update the maintenance branch with the PRs that
 are needed to make the milestones and branches consistent.  Make sure you're in
 the correct maintenance branch with e.g.,
+
+::
 
     $ git checkout v1.3.x
     $ git pull upstream v1.3.x  # Or possibly a rebase if conflicts exist
@@ -681,94 +544,6 @@ existing fixes out within some schedule, it's best to triage issues that won't
 be fixed soon to a new release milestone.  If the upcoming bug fix release is
 'v1.2.2', then go ahead and create a 'v1.2.3' milestone and reassign to it any
 issues that you don't expect to be fixed in time for 'v1.2.2'.
-
-
-.. _helpers-release-info:
-
-Coordinating Astropy and astropy-helpers Releases
-=================================================
-
-A bit more initial effort is required for an Astropy release that has a
-corresponding astropy-helpers release.  The main reason for this more complex
-procedure is to allow the Astropy core to be tested against the new helpers
-before anything is released.  Hence the following procedure should be added
-to the beginning of the above procedure when this is required. This procedure
-applies both for regular release *and* release candidates are the same
-(except that version numbers have ``rc#`` at the end).
-
-#. In the `astropy-helpers repository`_, create a new (temporary) branch
-   "tmp-release-v<version>"::
-
-      $ cd /wherever/you/put/astropy/astropy_helpers
-      $ git branch tmp-release-v<version> <maintenance branch name>
-
-#. In that branch, create release commits by updating the changelog and then the
-   version info and as described in the release instructions above.
-
-#. Push the branch you just created to the `astropy-helpers repository`_ on
-   github::
-
-      $ git push upstream tmp-release-v<version>
-
-#. In astropy master (or the relevant maintenance branch for the release you
-   are doing), issue a PR updating the helpers to the commit described in the
-   last step (i.e., the commit at the head of the "tmp-release-v<version>"
-   branch you just created).  The easiest way to do this is::
-
-      $ cd /wherever/you/put/astropy
-      $ cd astropy_helpers
-      $ git fetch upstream  # you probably did this already in the previous step
-      $ git checkout upstream/tmp-release-v<version>
-      $ cd ..
-      $ cp astropy_helpers/ah_bootstrap.py .
-      $ git add astropy_helpers ah_bootstrap.py
-      $ git commit -m "updated helpers to v<version>"
-
-#. Wait for the continuous integration services (e.g., Travis) to run on the PR
-   to ensure the release commit of the helpers works with the to-be-released
-   version of Astropy.
-
-#. If the PR's tests fail, fix whatever the problem is, and then re-do this
-   procedure. You'll need to either delete the previous "tmp-release-v<version>"
-   branch on the github `astropy-helpers repository`_ or use ``git push -f``
-   when you push up the replacement temporary release branch. You can re-use the
-   PR into the `astropy core repository`_ (created in the step just before this
-   one) by updating the ``astropy_helpers`` submodule to point to the new
-   "tmp-release-v<version>" from  *after* the fix - that way you don't need to
-   make another PR for the fixed version.
-
-#. Once the tests all succeed, finish the release of the helpers by doing this
-   in the helpers repo::
-
-      $ git checkout <maintenance branch name>
-      $ git merge --no-ff tmp-release-v<version>
-      $ git tag -s "v<version>" -m "Tagging v<version>"
-      $ git clean -dfx
-      $ umask 0022
-      $ chmod -R a+Xr .
-      $ python setup.py build sdist
-      $ gpg --detach-sign -a dist/astropy-helpers-<version>.tar.gz
-      $ twine check dist/*
-      $ twine upload dist/astropy-helpers-<version>.tar.gz*
-      $ git push upstream v<version>.x
-      $ git push upstream v<version>
-
-
-#. Update the changelog and version number in *master* of the
-   `astropy-helpers repository`_ to reflect the release you just did (detailed
-   instructions are above).
-
-#. Delete the temporary branch from github:
-
-      $ git push upstream :tmp-release-v<version>
-
-#. Merge the PR for the `astropy core repository`_ that updates the helpers, and
-   continue with the release process for the core as described above.
-
-This way the commit of the helpers that is tagged as the release is the same
-commit that the astropy_helpers submodule will be on when the PR to astropy
-testing the release gets merged.
-
 
 .. _key-signing-info:
 
@@ -899,5 +674,5 @@ that for you.  You can delete this tag by doing::
 .. _cython: http://www.cython.org/
 .. _astropy-procedures repository: https://github.com/astropy/astropy-procedures
 .. _Anaconda: https://conda.io/docs/
-.. _astropy-helpers repository: https://github.com/astropy/astropy-helpers
 .. _twine: https://packaging.python.org/key_projects/#twine
+.. _Azure core package pipeline: https://dev.azure.com/astropy-project/astropy/_build

@@ -82,19 +82,17 @@ class SAMPHubProxy:
                 raise SAMPHubError("Unauthorized access. Basic Authentication "
                                    "required or failed.")
             else:
-                raise SAMPHubError("Protocol Error {}: {}".format(p.errcode,
-                                                                  p.errmsg))
+                raise SAMPHubError(f"Protocol Error {p.errcode}: {p.errmsg}")
 
     def disconnect(self):
         """
         Disconnect from the current SAMP Hub.
         """
-        self.proxy = None
+        if self.proxy is not None:
+            self.proxy.shutdown()
+            self.proxy = None
         self._connected = False
         self.lockfile = {}
-
-    def server_close(self):
-        self.proxy.server_close()
 
     @property
     def _samp_hub(self):

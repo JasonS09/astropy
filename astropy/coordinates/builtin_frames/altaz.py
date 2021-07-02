@@ -17,22 +17,22 @@ __all__ = ['AltAz']
 _90DEG = 90*u.deg
 
 doc_components = """
-    az : `~astropy.coordinates.Angle`, optional, must be keyword
+    az : `~astropy.coordinates.Angle`, optional, keyword-only
         The Azimuth for this object (``alt`` must also be given and
         ``representation`` must be None).
-    alt : `~astropy.coordinates.Angle`, optional, must be keyword
+    alt : `~astropy.coordinates.Angle`, optional, keyword-only
         The Altitude for this object (``az`` must also be given and
         ``representation`` must be None).
-    distance : :class:`~astropy.units.Quantity`, optional, must be keyword
+    distance : `~astropy.units.Quantity` ['length'], optional, keyword-only
         The Distance for this object along the line-of-sight.
 
-    pm_az_cosalt : :class:`~astropy.units.Quantity`, optional, must be keyword
+    pm_az_cosalt : `~astropy.units.Quantity` ['angular speed'], optional, keyword-only
         The proper motion in azimuth (including the ``cos(alt)`` factor) for
         this object (``pm_alt`` must also be given).
-    pm_alt : :class:`~astropy.units.Quantity`, optional, must be keyword
+    pm_alt : `~astropy.units.Quantity` ['angular speed'], optional, keyword-only
         The proper motion in altitude for this object (``pm_az_cosalt`` must
         also be given).
-    radial_velocity : :class:`~astropy.units.Quantity`, optional, must be keyword
+    radial_velocity : `~astropy.units.Quantity` ['speed'], optional, keyword-only
         The radial velocity of this object."""
 
 doc_footer = """
@@ -45,18 +45,18 @@ doc_footer = """
         The location on the Earth.  This can be specified either as an
         `~astropy.coordinates.EarthLocation` object or as anything that can be
         transformed to an `~astropy.coordinates.ITRS` frame.
-    pressure : `~astropy.units.Quantity`
+    pressure : `~astropy.units.Quantity` ['pressure']
         The atmospheric pressure as an `~astropy.units.Quantity` with pressure
         units.  This is necessary for performing refraction corrections.
         Setting this to 0 (the default) will disable refraction calculations
         when transforming to/from this frame.
-    temperature : `~astropy.units.Quantity`
+    temperature : `~astropy.units.Quantity` ['temperature']
         The ground-level temperature as an `~astropy.units.Quantity` in
         deg C.  This is necessary for performing refraction corrections.
-    relative_humidity : `~astropy.units.Quantity` or number.
+    relative_humidity : `~astropy.units.Quantity` ['dimensionless'] or number
         The relative humidity as a dimensionless quantity between 0 to 1.
         This is necessary for performing refraction corrections.
-    obswl : `~astropy.units.Quantity`
+    obswl : `~astropy.units.Quantity` ['length']
         The average wavelength of observations as an `~astropy.units.Quantity`
          with length units.  This is necessary for performing refraction
          corrections.
@@ -67,9 +67,9 @@ doc_footer = """
     but becomes inaccurate for altitudes below about 5 degrees.  Near and below
     altitudes of 0, it can even give meaningless answers, and in this case
     transforming to AltAz and back to another frame can give highly discrepant
-    results.  For much better numerical stability, leaving the ``pressure`` at
-    ``0`` (the default), disabling the refraction correction (yielding
-    "topocentric" horizontal coordinates).
+    results.  For much better numerical stability, leave the ``pressure`` at
+    ``0`` (the default), thereby disabling the refraction correction and
+    yielding "topocentric" horizontal coordinates.
     """
 
 
@@ -77,7 +77,9 @@ doc_footer = """
 class AltAz(BaseCoordinateFrame):
     """
     A coordinate or frame in the Altitude-Azimuth system (Horizontal
-    coordinates).  Azimuth is oriented East of North (i.e., N=0, E=90 degrees).
+    coordinates) with respect to the WGS84 ellipsoid.  Azimuth is oriented
+    East of North (i.e., N=0, E=90 degrees).  Altitude is also known as
+    elevation angle, so this frame is also in the Azimuth-Elevation system.
 
     This frame is assumed to *include* refraction effects if the ``pressure``
     frame attribute is non-zero.
@@ -109,15 +111,15 @@ class AltAz(BaseCoordinateFrame):
     @property
     def secz(self):
         """
-        Secant if the zenith angle for this coordinate, a common estimate of the
-        airmass.
+        Secant of the zenith angle for this coordinate, a common estimate of
+        the airmass.
         """
         return 1/np.sin(self.alt)
 
     @property
     def zen(self):
         """
-        The zenith angle for this coordinate
+        The zenith angle (or zenith distance / co-altitude) for this coordinate.
         """
         return _90DEG.to(self.alt.unit) - self.alt
 

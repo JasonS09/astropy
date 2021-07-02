@@ -19,9 +19,17 @@ Getting Started
 ===============
 
 Cosmological quantities are calculated using methods of a
-:class:`~astropy.cosmology.Cosmology` object. For example, to calculate the
-Hubble constant at z=0 (i.e., ``H0``) and the number of transverse proper
-kiloparsecs (kpc) corresponding to an arcminute at z=3::
+:class:`~astropy.cosmology.Cosmology` object.
+
+Examples
+--------
+
+..
+  EXAMPLE START
+  Calculating Cosmological Quantities
+
+To calculate the Hubble constant at z=0 (i.e., ``H0``) and the number of
+transverse proper kiloparsecs (kpc) corresponding to an arcminute at z=3::
 
   >>> from astropy.cosmology import WMAP9 as cosmo
   >>> cosmo.H(0)  # doctest: +FLOAT_CMP
@@ -64,6 +72,9 @@ Note the presence of additional cosmological parameters (e.g., ``Neff``,
 the number of effective neutrino species) with default values; these
 can also be specified explicitly in the call to the constructor.
 
+..
+  EXAMPLE END
+
 The cosmology sub-package makes use of `~astropy.units`, so in many
 cases returns values with units attached. Consult the documentation
 for that sub-package for more details, but briefly here we will show how to
@@ -85,6 +96,13 @@ named after the people who solved Einstein's field equation for this
 special case). However, you cannot work with this class directly, as
 you must specify a dark energy model by using one of its subclasses
 instead, such as `~astropy.cosmology.FlatLambdaCDM`.
+
+Examples
+--------
+
+..
+  EXAMPLE START
+  Working with the FlatLambdaCDM Class
 
 You can create a new `~astropy.cosmology.FlatLambdaCDM` object with
 arguments giving the Hubble parameter and Omega matter (both at z=0)::
@@ -132,10 +150,18 @@ They also accept arrays of redshifts:
 
 See the `~astropy.cosmology.FLRW` and
 `~astropy.cosmology.FlatLambdaCDM` object docstring for all of the
-methods and attributes available. In addition to flat universes,
-non-flat varieties are supported, such as
-`~astropy.cosmology.LambdaCDM`. A variety of standard
-cosmologies with the parameters already defined are also available
+methods and attributes available.
+
+..
+  EXAMPLE END
+
+..
+  EXAMPLE START
+  Working with Non-flat Universes with the LambdaCDM Class
+
+In addition to flat universes, non-flat varieties are supported, such as
+`~astropy.cosmology.LambdaCDM`. A variety of standard cosmologies with the
+parameters already defined are also available
 (see `Built-in Cosmologies`_)::
 
   >>> from astropy.cosmology import WMAP7   # WMAP 7-year cosmology
@@ -187,6 +213,9 @@ used to describe the cosmology::
   FlatwCDM(name="SNLS3+WMAP7", H0=71.6 km / (Mpc s), Om0=0.262,
            w0=-1.02, Tcmb0=0 K, Neff=3.04, m_nu=None, Ob0=None)
 
+..
+  EXAMPLE END
+
 This is also an example with a different model for dark energy: a flat
 universe with a constant dark energy equation of state, but not
 necessarily a cosmological constant. A variety of additional dark
@@ -199,7 +228,13 @@ instance are immutable — that is, if you want to change, say,
 this more convenient, a ``clone`` operation is provided, which
 allows you to make a copy with specified values changed.
 Note that you cannot change the type of cosmology with this operation
-(e.g., flat to non-flat). For example:
+(e.g., flat to non-flat).
+
+..
+  EXAMPLE START
+  Making New Cosmology Instances with the .clone() Method
+
+To make a copy of a cosmological instance using the ``clone`` operation:
 
   >>> from astropy.cosmology import WMAP9
   >>> newcosmo = WMAP9.clone(name='WMAP9 modified', Om0=0.3141)
@@ -210,11 +245,23 @@ Note that you cannot change the type of cosmology with this operation
   >>> WMAP9.Ode0, newcosmo.Ode0  # Indirectly changed since this is flat  # doctest: +FLOAT_CMP
   (0.7134130719051658, 0.6858130719051657)
 
+..
+  EXAMPLE END
+
 Finding the Redshift at a Given Value of a Cosmological Quantity
 ----------------------------------------------------------------
 
 If you know a cosmological quantity and you want to know the
-redshift which it corresponds to, you can use ``z_at_value``:
+redshift which it corresponds to, you can use ``z_at_value``.
+
+Example
+^^^^^^^
+
+..
+  EXAMPLE START
+  Compute the Redshift at a Given Universe Age
+
+To find the redshift using ``z_at_value``:
 
 .. doctest-requires:: scipy
 
@@ -223,10 +270,14 @@ redshift which it corresponds to, you can use ``z_at_value``:
   >>> z_at_value(Planck13.age, 2 * u.Gyr)  # doctest: +FLOAT_CMP
   3.1981226843560968
 
+..
+  EXAMPLE END
+
 For some quantities, there can be more than one redshift that satisfies
 a value. In this case you can use the ``zmin`` and ``zmax`` keywords
-to restrict the search range. See the ``z_at_value`` docstring for more
-detailed usage examples.
+to restrict the search range or set ``bracket`` to initialise it in the
+desired domain. See the ``z_at_value`` docstring for more detailed
+usage examples.
 
 
 Built-in Cosmologies
@@ -252,7 +303,15 @@ WMAP7     Komatsu et al. 2011            70.4  0.272 Yes
 WMAP9     Hinshaw et al. 2013            69.3  0.287 Yes
 Planck13  Planck Collab 2013, Paper XVI  67.8  0.307 Yes
 Planck15  Planck Collab 2015, Paper XIII 67.7  0.307 Yes
+Planck18  Planck Collab 2018, Paper VI   67.7  0.310 Yes
 ========  ============================== ====  ===== =======
+
+.. note::
+
+  Unlike the Planck 2015 paper, the Planck 2018 paper includes massive
+  neutrinos in ``Om0`` but the Planck18 object includes them in ``m_nu`` instead
+  for consistency. Hence, the ``Om0`` value in Planck18 differs slightly
+  from the Planck 2018 paper but represents the same cosmological model.
 
 Currently, all are instances of `~astropy.cosmology.FlatLambdaCDM`.
 More details about exactly where each set of parameters comes from
@@ -262,7 +321,7 @@ are available in the docstring for each object::
   >>> print(WMAP7.__doc__)
   WMAP7 instance of FlatLambdaCDM cosmology
   (from Komatsu et al. 2011, ApJS, 192, 18, doi: 10.1088/0067-0049/192/2/18.
-  Table 1 (WMAP + BAO + H0 ML).)
+   Table 1 (WMAP + BAO + H0 ML).)
 
 
 Specifying a Dark Energy Model
@@ -287,14 +346,11 @@ redshift by `~astropy.cosmology.wpwaCDM`: :math:`w(z) = w_{p} + w_{a}
 
 Users can specify their own equation of state by subclassing
 `~astropy.cosmology.FLRW`. See the provided subclasses for
-examples. It is recommended, but not required, that all arguments to the
-constructor of a new subclass be available as properties, since the
-``clone`` method assumes this is the case. It is also advisable
-to stick to subclassing `~astropy.cosmology.FLRW` rather than one of
-its subclasses, since some of them use internal optimizations that
-also need to be propagated to any subclasses. Users wishing to
-use similar tricks (which can make distance calculations much faster)
-should consult the cosmology module source code for details.
+examples. It is advisable to stick to subclassing `~astropy.cosmology.FLRW`
+rather than one of its subclasses, since some of them use internal optimizations
+that also need to be propagated to any subclasses. Users wishing to use similar
+tricks (which can make distance calculations much faster) should consult the
+cosmology module source code for details.
 
 Photons and Neutrinos
 ---------------------
@@ -306,13 +362,13 @@ species, which are arguments to the initializers of all of the
 cosmological classes, are ``Tcmb0`` (the temperature of the cosmic microwave
 background at z=0), ``Neff`` (the effective number of neutrino species), and
 ``m_nu`` (the rest mass of the neutrino species). ``Tcmb0`` and ``m_nu`` should
-be expressed as unit Quantities.
-All three have standard default values — 0 K, 3.04, and 0 eV, respectively.
-(The reason that ``Neff`` is not 3 has to do primarily with a small bump in the
-neutrino energy spectrum due to electron-positron annihilation, but is also
-affected by weak interaction physics.) Setting the CMB temperature to 0
-removes the contribution of both neutrinos and photons. This is the default to
-ensure these components are excluded unless the user explicitly requests them.
+be expressed as unit Quantities. All three have standard default values — 0 K,
+3.04, and 0 eV, respectively. (The reason that ``Neff`` is not 3 has to do
+primarily with a small bump in the neutrino energy spectrum due to electron-
+positron annihilation, but is also affected by weak interaction physics.)
+Setting the CMB temperature to 0 removes the contribution of both neutrinos and
+photons. This is the default to ensure these components are excluded unless the
+user explicitly requests them.
 
 Massive neutrinos are treated using the approach described in the
 WMAP seven-year cosmology paper (Komatsu et al. 2011, ApJS, 192, 18, section
@@ -330,6 +386,13 @@ are factors of three to four times slower than in the massless neutrino case.
 Therefore, if you need to compute many distances in such a cosmology and
 performance is critical, it is particularly useful to calculate them on
 a grid and use interpolation.
+
+Examples
+^^^^^^^^
+
+..
+  EXAMPLE START
+  Calculating the Contribution of Photons and Neutrinos to the Energy Density
 
 The contribution of photons and neutrinos to the total mass-energy density
 can be found as a function of redshift::
@@ -393,6 +456,8 @@ value is provided, all of the species are assumed to have the same mass.
 While these examples used `~astropy.cosmology.FlatLambdaCDM`,
 the above examples also apply for all of the other cosmology classes.
 
+..
+  EXAMPLE END
 
 For Developers: Using `astropy.cosmology` Inside ``astropy``
 ============================================================

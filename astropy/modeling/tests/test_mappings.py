@@ -1,5 +1,5 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
-
+# pylint: disable=invalid-name
 import pytest
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
@@ -7,12 +7,7 @@ from numpy.testing import assert_allclose, assert_array_equal
 from astropy.modeling.fitting import LevMarLSQFitter
 from astropy.modeling.models import Shift, Rotation2D, Gaussian1D, Identity, Mapping
 from astropy.utils import NumpyRNGContext
-
-try:
-    from scipy import optimize  # pylint: disable=W0611
-    HAS_SCIPY = True
-except ImportError:
-    HAS_SCIPY = False
+from astropy.utils.compat.optional_deps import HAS_SCIPY  # noqa
 
 
 def test_swap_axes():
@@ -20,35 +15,35 @@ def test_swap_axes():
     y = np.ones((2, 3))
 
     mapping = Mapping((1, 0))
-    assert(mapping(1, 2) == (2.0, 1.0))
-    assert(mapping.inverse(2, 1) == (1, 2))
+    assert mapping(1, 2) == (2.0, 1.0)
+    assert mapping.inverse(2, 1) == (1, 2)
     assert_array_equal(mapping(x, y), (y, x))
     assert_array_equal(mapping.inverse(y, x), (x, y))
 
 
 def test_duplicate_axes():
     mapping = Mapping((0, 1, 0, 1))
-    assert(mapping(1, 2) == (1.0, 2., 1., 2))
-    assert(mapping.inverse(1, 2, 1, 2) == (1, 2))
-    assert(mapping.inverse.n_inputs == 4)
-    assert(mapping.inverse.n_outputs == 2)
+    assert mapping(1, 2) == (1.0, 2., 1., 2)
+    assert mapping.inverse(1, 2, 1, 2) == (1, 2)
+    assert mapping.inverse.n_inputs == 4
+    assert mapping.inverse.n_outputs == 2
 
 
 def test_drop_axes_1():
     mapping = Mapping((0,), n_inputs=2)
-    assert(mapping(1, 2) == (1.))
+    assert mapping(1, 2) == (1.)
 
 
 def test_drop_axes_2():
     mapping = Mapping((1, ))
-    assert(mapping(1, 2) == (2.))
+    assert mapping(1, 2) == (2.)
     with pytest.raises(NotImplementedError):
         mapping.inverse
 
 
 def test_drop_axes_3():
     mapping = Mapping((1,), n_inputs=2)
-    assert(mapping.n_inputs == 2)
+    assert mapping.n_inputs == 2
     rotation = Rotation2D(60)
     model = rotation | mapping
     assert_allclose(model(1, 2), 1.86602540378)

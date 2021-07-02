@@ -1,6 +1,6 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 
-
+# pylint: disable=invalid-name
 from math import cos, sin
 
 import pytest
@@ -16,7 +16,21 @@ from astropy.wcs import wcs
 
 
 @pytest.mark.parametrize(('inp'), [(0, 0), (4000, -20.56), (-2001.5, 45.9),
-                                   (0, 90), (0, -90), (np.mgrid[:4, :6])])
+                                   (0, 90), (0, -90), (np.mgrid[:4, :6]),
+                                   ([[1, 2, 3], [ 4,  5,  6]],
+                                    [[7, 8, 9], [10, 11, 12]]),
+                                   ([[[ 1,  2,  3,  4],
+                                      [ 5,  6,  7,  8],
+                                      [ 9, 10, 11, 12]],
+                                     [[13, 14, 15, 16],
+                                      [17, 18, 19, 20],
+                                      [21, 22, 23, 24]]],
+                                    [[[25, 26, 27, 28],
+                                      [29, 30, 31, 32],
+                                      [33, 34, 35, 36]],
+                                     [[37, 38, 39, 40],
+                                      [41, 42, 43, 44],
+                                      [45, 46, 47, 48]]])])
 def test_against_wcslib(inp):
     w = wcs.WCS()
     crval = [202.4823228, 47.17511893]
@@ -37,7 +51,21 @@ def test_against_wcslib(inp):
     assert_allclose(minv(*radec), xy, atol=1e-12)
 
 
-@pytest.mark.parametrize(('inp'), [(1e-5, 1e-4), (40, -20.56), (21.5, 45.9)])
+@pytest.mark.parametrize(('inp'), [(1e-5, 1e-4), (40, -20.56), (21.5, 45.9),
+                                   ([[1, 2, 3], [ 4,  5,  6]],
+                                    [[7, 8, 9], [10, 11, 12]]),
+                                   ([[[ 1,  2,  3,  4],
+                                      [ 5,  6,  7,  8],
+                                      [ 9, 10, 11, 12]],
+                                     [[13, 14, 15, 16],
+                                      [17, 18, 19, 20],
+                                      [21, 22, 23, 24]]],
+                                    [[[25, 26, 27, 28],
+                                      [29, 30, 31, 32],
+                                      [33, 34, 35, 36]],
+                                     [[37, 38, 39, 40],
+                                      [41, 42, 43, 44],
+                                      [45, 46, 47, 48]]])])
 def test_roundtrip_sky_rotation(inp):
     lon, lat, lon_pole = 42, 43, 44
     n2c = models.RotateNative2Celestial(lon, lat, lon_pole)
@@ -109,14 +137,14 @@ def test_euler_angles(axes_order):
     s3 = sin(psi)
 
     matrices = {'zxz': np.array([[(c1*c3 - c2*s1*s3), (-c1*s3 - c2*c3*s1), (s1*s2)],
-                        [(c3*s1 + c1*c2*s3), (c1*c2*c3 - s1*s3), (-c1*s2)],
-                        [(s2*s3), (c3*s2), (c2)]]),
+                                 [(c3*s1 + c1*c2*s3), (c1*c2*c3 - s1*s3), (-c1*s2)],
+                                 [(s2*s3), (c3*s2), (c2)]]),
                 'zyz': np.array([[(c1*c2*c3 - s1*s3), (-c3*s1 - c1*c2*s3), (c1*s2)],
-                        [(c1*s3 + c2*c3*s1), (c1*c3 - c2*s1*s3), (s1*s2)],
-                        [(-c3*s2), (s2*s3), (c2)]]),
+                                 [(c1*s3 + c2*c3*s1), (c1*c3 - c2*s1*s3), (s1*s2)],
+                                 [(-c3*s2), (s2*s3), (c2)]]),
                 'yzy': np.array([[(c1*c2*c3 - s1*s3), (-c1*s2), (c3*s1+c1*c2*s3)],
-                                  [(c3*s2), (c2), (s2*s3)],
-                                  [(-c1*s3 - c2*c3*s1), (s1*s2), (c1*c3-c2*s1*s3)]]),
+                                 [(c3*s2), (c2), (s2*s3)],
+                                 [(-c1*s3 - c2*c3*s1), (s1*s2), (c1*c3-c2*s1*s3)]]),
                 'yxy': np.array([[(c1*c3 - c2*s1*s3), (s1*s2), (c1*s3+c2*c3*s1)],
                                  [(s2*s3), (c2), (-c3*s2)],
                                  [(-c3*s1 - c1*c2*s3), (c1*s2), (c1*c2*c3 - s1*s3)]]),

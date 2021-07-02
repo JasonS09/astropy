@@ -14,10 +14,9 @@
 .. _GitHub Help: https://help.github.com/
 .. _msysgit: http://code.google.com/p/msysgit/downloads/list
 .. _git-osx-installer: http://code.google.com/p/git-osx-installer/downloads/list
-.. _subversion: http://subversion.tigris.org/
-.. _git cheat sheet: http://cheat.errtheblog.com/s/git
+.. _git cheat sheet: https://www.atlassian.com/git/tutorials/atlassian-git-cheatsheet
 .. _pro git book: https://git-scm.com/book
-.. _git svn crash course: https://git-scm.com/course/svn.html
+.. _git svn crash course: https://git.wiki.kernel.org/index.php/GitSvnCrashCourse
 .. _learn.github: https://services.github.com/
 .. _network graph visualizer: https://github.blog/2008-04-10-say-hello-to-the-network-graph-visualizer/
 .. _git user manual: http://schacon.github.io/git/user-manual.html
@@ -46,17 +45,14 @@
 .. _tangled working copy problem: http://tomayko.com/writings/the-thing-about-git
 .. _git management: https://web.archive.org/web/20120511084711/http://kerneltrap.org/Linux/Git_Management
 .. _linux git workflow: http://www.mail-archive.com/dri-devel@lists.sourceforge.net/msg39091.html
-.. _git parable: http://tom.preston-werner.com/2009/05/19/the-git-parable.html
+.. _git parable: https://tom.preston-werner.com/2009/05/19/the-git-parable.html
 .. _git foundation: http://matthew-brett.github.io/pydagogue/foundation.html
-.. _deleting master on github: http://matthew-brett.github.io/pydagogue/gh_delete_master.html
+.. _deleting main on github: http://matthew-brett.github.io/pydagogue/gh_delete_master.html
 .. _rebase without tears: http://matthew-brett.github.io/pydagogue/rebase_without_tears.html
 .. _resolving a merge: http://schacon.github.io/git/user-manual.html#resolving-a-merge
 .. _ipython git workflow: https://mail.python.org/pipermail/ipython-dev/2010-October/005632.html
 .. _ipython notebook on using git in science: https://nbviewer.jupyter.org/github/fperez/reprosw/blob/master/Version%20Control.ipynb
 
 .. other stuff
-.. _python: http://www.python.org
-
 .. |emdash| unicode:: U+02014
-
 .. vim: ft=rst

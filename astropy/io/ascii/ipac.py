@@ -391,7 +391,7 @@ class Ipac(basic.Basic):
     of missing or bad data. On writing, this value defaults to ``null``.
     To specify a different null value, use the ``fill_values`` option to
     replace masked values with a string or number of your choice as
-    described in :ref:`io_ascii_write_parameters`::
+    described in :ref:`astropy:io_ascii_write_parameters`::
 
         >>> from astropy.io.ascii import masked
         >>> fill = [(masked, 'N/A', 'ra'), (masked, -999, 'sptype')]
@@ -423,7 +423,8 @@ class Ipac(basic.Basic):
 
     DBMS : bool, optional
         If true, this verifies that written tables adhere (semantically)
-        to the `IPAC/DBMS <https://irsa.ipac.caltech.edu/applications/DDGEN/Doc/DBMSrestriction.html>`_
+        to the `IPAC/DBMS
+        <https://irsa.ipac.caltech.edu/applications/DDGEN/Doc/DBMSrestriction.html>`_
         definition of IPAC tables. If 'False' it only checks for the (less strict)
         `IPAC <https://irsa.ipac.caltech.edu/applications/DDGEN/Doc/ipac_tbl.html>`_
         definition.
@@ -472,6 +473,9 @@ class Ipac(basic.Basic):
 
         core._apply_include_exclude_names(table, self.names, self.include_names, self.exclude_names)
 
+        # Check that table has only 1-d columns.
+        self._check_multidim_table(table)
+
         # Now use altered columns
         new_cols = list(table.columns.values())
         # link information about the columns to the writer object (i.e. self)
@@ -493,7 +497,7 @@ class Ipac(basic.Basic):
             for keyword in keydict:
                 try:
                     val = keydict[keyword]['value']
-                    lines.append('\\{}={!r}'.format(keyword.strip(), val))
+                    lines.append(f'\\{keyword.strip()}={val!r}')
                     # meta is not standardized: Catch some common Errors.
                 except TypeError:
                     warn("Table metadata keyword {0} has been skipped.  "
@@ -506,7 +510,7 @@ class Ipac(basic.Basic):
                  "IPAC metadata must be in the form {{'keywords':"
                  "{{'keyword': {{'value': value}} }}".format(ignored_keys),
                  AstropyUserWarning
-                )
+                 )
 
         # Usually, this is done in data.write, but since the header is written
         # first, we need that here.

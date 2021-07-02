@@ -14,28 +14,15 @@
 Handles a "generic" string format for units
 """
 
-import os
 import re
 import warnings
-import sys
 from fractions import Fraction
 import unicodedata
 
 from . import core, utils
 from .base import Base
-from astropy.utils import classproperty
+from astropy.utils import classproperty, parsing
 from astropy.utils.misc import did_you_mean
-
-
-def _is_ascii(s):
-    if sys.version_info >= (3, 7, 0):
-        return s.isascii()
-    else:
-        try:
-            s.encode('ascii')
-            return True
-        except UnicodeEncodeError:
-            return False
 
 
 def _to_string(cls, unit):
@@ -118,8 +105,6 @@ class Generic(Base):
 
     @classmethod
     def _make_lexer(cls):
-        from astropy.extern.ply import lex
-
         tokens = cls._tokens
 
         t_STAR = r'\*'
@@ -172,17 +157,8 @@ class Generic(Base):
             raise ValueError(
                 f"Invalid character at col {t.lexpos}")
 
-        lexer_exists = os.path.exists(os.path.join(os.path.dirname(__file__),
-                                      'generic_lextab.py'))
-
-        lexer = lex.lex(optimize=True, lextab='generic_lextab',
-                        outputdir=os.path.dirname(__file__),
-                        reflags=int(re.UNICODE))
-
-        if not lexer_exists:
-            cls._add_tab_header('generic_lextab')
-
-        return lexer
+        return parsing.lex(lextab='generic_lextab', package='astropy/units',
+                           reflags=int(re.UNICODE))
 
     @classmethod
     def _make_parser(cls):
@@ -198,8 +174,6 @@ class Generic(Base):
         formats, the only difference being the set of available unit
         strings.
         """
-        from astropy.extern.ply import yacc
-
         tokens = cls._tokens
 
         def p_main(p):
@@ -437,54 +411,73 @@ class Generic(Base):
                     p[0] = function_unit(p[3])
                     return
 
-            raise ValueError("'{}' is not a recognized function".format(p[1]))
+            raise ValueError(f"'{p[1]}' is not a recognized function")
 
         def p_error(p):
             raise ValueError()
 
-        parser_exists = os.path.exists(os.path.join(os.path.dirname(__file__),
-                                       'generic_parsetab.py'))
-
-        parser = yacc.yacc(debug=False, tabmodule='generic_parsetab',
-                           outputdir=os.path.dirname(__file__))
-
-        if not parser_exists:
-            cls._add_tab_header('generic_parsetab')
-
-        return parser
+        return parsing.yacc(tabmodule='generic_parsetab', package='astropy/units')
 
     @classmethod
     def _get_unit(cls, t):
         try:
             return cls._parse_unit(t.value)
         except ValueError as e:
+            registry = core.get_current_unit_registry()
+            if t.value in registry.aliases:
+                return registry.aliases[t.value]
+
             raise ValueError(
-                "At col {}, {}".format(
-                    t.lexpos, str(e)))
+                f"At col {t.lexpos}, {str(e)}")
 
     @classmethod
     def _parse_unit(cls, s, detailed_exception=True):
         registry = core.get_current_unit_registry().registry
-        if s == '%':
-            return registry['percent']
+        if s in cls._unit_symbols:
+            s = cls._unit_symbols[s]
 
-        if not _is_ascii(s):
+        elif not s.isascii():
             if s[0] == '\N{MICRO SIGN}':
                 s = 'u' + s[1:]
-            if s[-1] == '\N{GREEK CAPITAL LETTER OMEGA}':
-                s = s[:-1] + 'Ohm'
-            elif s[-1] == '\N{LATIN CAPITAL LETTER A WITH RING ABOVE}':
-                s = s[:-1] + 'Angstrom'
+            if s[-1] in cls._prefixable_unit_symbols:
+                s = s[:-1] + cls._prefixable_unit_symbols[s[-1]]
+            elif len(s) > 1 and s[-1] in cls._unit_suffix_symbols:
+                s = s[:-1] + cls._unit_suffix_symbols[s[-1]]
+            elif s.endswith('R\N{INFINITY}'):
+                s = s[:-2] + 'Ry'
 
         if s in registry:
             return registry[s]
 
         if detailed_exception:
             raise ValueError(
-                '{} is not a valid unit. {}'.format(
-                    s, did_you_mean(s, registry)))
+                f'{s} is not a valid unit. {did_you_mean(s, registry)}')
         else:
             raise ValueError()
+
+    _unit_symbols = {
+        '%': 'percent',
+        '\N{PRIME}': 'arcmin',
+        '\N{DOUBLE PRIME}': 'arcsec',
+        '\N{MODIFIER LETTER SMALL H}': 'hourangle',
+        'e\N{SUPERSCRIPT MINUS}': 'electron',
+    }
+
+    _prefixable_unit_symbols = {
+        '\N{GREEK CAPITAL LETTER OMEGA}': 'Ohm',
+        '\N{LATIN CAPITAL LETTER A WITH RING ABOVE}': 'Angstrom',
+        '\N{SCRIPT SMALL L}': 'l',
+    }
+
+    _unit_suffix_symbols = {
+        '\N{CIRCLED DOT OPERATOR}': 'sun',
+        '\N{SUN}': 'sun',
+        '\N{CIRCLED PLUS}': 'earth',
+        '\N{EARTH}': 'earth',
+        '\N{JUPITER}': 'jupiter',
+        '\N{LATIN SUBSCRIPT SMALL LETTER E}': '_e',
+        '\N{LATIN SUBSCRIPT SMALL LETTER P}': '_p',
+    }
 
     _translations = str.maketrans({
         '\N{GREEK SMALL LETTER MU}': '\N{MICRO SIGN}',
@@ -512,14 +505,12 @@ class Generic(Base):
     )
 
     _superscript_translations = str.maketrans(_superscripts, '-+0123456789')
-    _regex_superscript = re.compile(f'[{_superscripts}]+')
+    _regex_superscript = re.compile(f'[{_superscripts}]?[{_superscripts[2:]}]+')
     _regex_deg = re.compile('°([CF])?')
 
     @classmethod
     def _convert_superscript(cls, m):
-        return '({})'.format(
-            m.group().translate(cls._superscript_translations)
-        )
+        return f'({m.group().translate(cls._superscript_translations)})'
 
     @classmethod
     def _convert_deg(cls, m):
@@ -531,7 +522,7 @@ class Generic(Base):
     def parse(cls, s, debug=False):
         if not isinstance(s, str):
             s = s.decode('ascii')
-        elif not _is_ascii(s):
+        elif not s.isascii():
             # common normalization of unicode strings to avoid
             # having to deal with multiple representations of
             # the same character. This normalizes to "composed" form
@@ -588,11 +579,9 @@ class Generic(Base):
             else:
                 power = utils.format_power(power)
                 if '/' in power or '.' in power:
-                    out.append('{}({})'.format(
-                        cls._get_unit_name(base), power))
+                    out.append(f'{cls._get_unit_name(base)}({power})')
                 else:
-                    out.append('{}{}'.format(
-                        cls._get_unit_name(base), power))
+                    out.append(f'{cls._get_unit_name(base)}{power}')
         return ' '.join(out)
 
     @classmethod

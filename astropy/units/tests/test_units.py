@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
-"""
-Regression tests for the units package
-"""
+"""Regression tests for the units package."""
 import pickle
 from fractions import Fraction
 
@@ -10,25 +8,9 @@ import pytest
 import numpy as np
 from numpy.testing import assert_allclose
 
-from astropy.tests.helper import raises, catch_warnings
-
 from astropy import units as u
 from astropy import constants as c
 from astropy.units import utils
-
-
-def test_getting_started():
-    """
-    Corresponds to "Getting Started" section in the docs.
-    """
-    from astropy.units import imperial
-    with imperial.enable():
-        speed_unit = u.cm / u.s
-        x = speed_unit.to(imperial.mile / u.hour, 1)
-        assert_allclose(x, 0.02236936292054402)
-        speed_converter = speed_unit._get_converter("mile hour^-1")
-        x = speed_converter([1., 1000., 5000.])
-        assert_allclose(x, [2.23693629e-02, 2.23693629e+01, 1.11846815e+02])
 
 
 def test_initialisation():
@@ -48,6 +30,8 @@ def test_initialisation():
     assert u.one == u.dimensionless_unscaled
     assert u.Unit('10 m') == ten_meter
     assert u.Unit(10.) == u.CompositeUnit(10., [], [])
+
+    assert u.Unit() == u.dimensionless_unscaled
 
 
 def test_invalid_power():
@@ -116,6 +100,7 @@ def test_units_conversion():
     assert_allclose(u.yr.to(u.Myr), 1.e-6)
     assert_allclose(u.AU.to(u.pc), 4.84813681e-6)
     assert_allclose(u.cycle.to(u.rad), 6.283185307179586)
+    assert_allclose(u.spat.to(u.sr), 12.56637061435917)
 
 
 def test_units_manipulation():
@@ -153,18 +138,14 @@ def test_dimensionless_to_cgs():
 
 
 def test_unknown_unit():
-    with catch_warnings(u.UnitsWarning) as warning_lines:
+    with pytest.warns(u.UnitsWarning, match='FOO'):
         u.Unit("FOO", parse_strict='warn')
-
-    assert 'FOO' in str(warning_lines[0].message)
 
 
 def test_multiple_solidus():
-    with catch_warnings(u.UnitsWarning) as warning_lines:
+    with pytest.warns(u.UnitsWarning, match="'m/s/kg' contains multiple "
+                      "slashes, which is discouraged"):
         assert u.Unit("m/s/kg").to_string() == 'm / (kg s)'
-
-    assert 'm/s/kg' in str(warning_lines[0].message)
-    assert 'discouraged' in str(warning_lines[0].message)
 
     with pytest.raises(ValueError):
         u.Unit("m/s/kg", format="vounit")
@@ -197,19 +178,19 @@ def test_unknown_unit3():
     with pytest.raises(ValueError):
         unit._get_converter(unit3)
 
-    x = unit.to_string('latex')
-    y = unit2.to_string('cgs')
+    _ = unit.to_string('latex')
+    _ = unit2.to_string('cgs')
 
     with pytest.raises(ValueError):
-        unit4 = u.Unit("BAR", parse_strict='strict')
+        u.Unit("BAR", parse_strict='strict')
 
     with pytest.raises(TypeError):
-        unit5 = u.Unit(None)
+        u.Unit(None)
 
 
-@raises(TypeError)
 def test_invalid_scale():
-    x = ['a', 'b', 'c'] * u.m
+    with pytest.raises(TypeError):
+        ['a', 'b', 'c'] * u.m
 
 
 def test_cds_power():
@@ -227,7 +208,7 @@ def test_register():
 
 def test_in_units():
     speed_unit = u.cm / u.s
-    x = speed_unit.in_units(u.pc / u.hour, 1)
+    _ = speed_unit.in_units(u.pc / u.hour, 1)
 
 
 def test_null_unit():
@@ -237,11 +218,6 @@ def test_null_unit():
 def test_unrecognized_equivalency():
     assert u.m.is_equivalent('foo') is False
     assert u.m.is_equivalent('pc') is True
-
-
-@raises(TypeError)
-def test_unit_noarg():
-    u.Unit()
 
 
 def test_convertible_exception():
@@ -254,12 +230,12 @@ def test_convertible_exception2():
         u.m.to(u.s)
 
 
-@raises(TypeError)
 def test_invalid_type():
     class A:
         pass
 
-    u.Unit(A())
+    with pytest.raises(TypeError):
+        u.Unit(A())
 
 
 def test_steradian():
@@ -303,7 +279,7 @@ def test_equiv_compose():
 
 def test_empty_compose():
     with pytest.raises(u.UnitsError):
-        composed = u.m.compose(units=[])
+        u.m.compose(units=[])
 
 
 def _unit_as_str(unit):
@@ -380,6 +356,20 @@ def test_compose_si_to_cgs(unit):
         assert cgs[0] == unit.cgs
 
 
+def test_to_si():
+    """Check units that are not official derived units.
+
+    Should not appear on its own or as part of a composite unit.
+    """
+    # TODO: extend to all units not listed in Tables 1--6 of
+    # https://physics.nist.gov/cuu/Units/units.html
+    # See gh-10585.
+    # This was always the case
+    assert u.bar.si is not u.bar
+    # But this used to fail.
+    assert u.bar not in (u.kg/(u.s**2*u.sr*u.nm)).si._bases
+
+
 def test_to_cgs():
     assert u.Pa.to_system(u.cgs)[1]._bases[0] is u.Ba
     assert u.Pa.to_system(u.cgs)[1]._scale == 10.0
@@ -401,7 +391,7 @@ def test_compose_issue_579():
 
 
 def test_compose_prefix_unit():
-    x =  u.m.compose(units=(u.m,))
+    x = u.m.compose(units=(u.m,))
     assert x[0].bases[0] is u.m
     assert x[0].scale == 1.0
     x = u.m.compose(units=[u.km], include_prefix_units=True)
@@ -415,7 +405,7 @@ def test_compose_prefix_unit():
     assert x[0].bases == [u.pc, u.Myr]
     assert_allclose(x[0].scale, 1.0227121650537077)
 
-    with raises(u.UnitsError):
+    with pytest.raises(u.UnitsError):
         (u.km/u.s).compose(units=(u.pc, u.Myr), include_prefix_units=False)
 
 
@@ -425,11 +415,10 @@ def test_self_compose():
     assert len(unit.compose(units=[u.g, u.s])) == 1
 
 
-@raises(u.UnitsError)
 def test_compose_failed():
     unit = u.kg
-
-    result = unit.compose(units=[u.N])
+    with pytest.raises(u.UnitsError):
+        unit.compose(units=[u.N])
 
 
 def test_compose_fractional_powers():
@@ -530,6 +519,7 @@ def test_pickling():
     # Test pickling of this unregistered unit.
     p = pickle.dumps(new_unit)
     new_unit_copy = pickle.loads(p)
+    assert new_unit_copy is not new_unit
     assert new_unit_copy.names == ['foo']
     assert new_unit_copy.get_format_name('baz') == 'bar'
     # It should still not be registered.
@@ -539,17 +529,70 @@ def test_pickling():
     with u.add_enabled_units([new_unit]):
         p = pickle.dumps(new_unit)
         assert 'foo' in u.get_current_unit_registry().registry
+        new_unit_copy = pickle.loads(p)
+        assert new_unit_copy is new_unit
 
     # Check that a registered unit can be loaded and that it gets re-enabled.
     with u.add_enabled_units([]):
         assert 'foo' not in u.get_current_unit_registry().registry
         new_unit_copy = pickle.loads(p)
+        assert new_unit_copy is not new_unit
         assert new_unit_copy.names == ['foo']
         assert new_unit_copy.get_format_name('baz') == 'bar'
         assert 'foo' in u.get_current_unit_registry().registry
 
     # And just to be sure, that it gets removed outside of the context.
     assert 'foo' not in u.get_current_unit_registry().registry
+
+
+def test_pickle_between_sessions():
+    """We cannot really test between sessions easily, so fake it.
+
+    This test can be changed if the pickle protocol or the code
+    changes enough that it no longer works.
+
+    """
+    hash_m = hash(u.m)
+    unit = pickle.loads(
+        b'\x80\x04\x95\xd6\x00\x00\x00\x00\x00\x00\x00\x8c\x12'
+        b'astropy.units.core\x94\x8c\x1a_recreate_irreducible_unit'
+        b'\x94\x93\x94h\x00\x8c\x0fIrreducibleUnit\x94\x93\x94]\x94'
+        b'(\x8c\x01m\x94\x8c\x05meter\x94e\x88\x87\x94R\x94}\x94(\x8c\x06'
+        b'_names\x94]\x94(h\x06h\x07e\x8c\x0c_short_names'
+        b'\x94]\x94h\x06a\x8c\x0b_long_names\x94]\x94h\x07a\x8c\x07'
+        b'_format\x94}\x94\x8c\x07__doc__\x94\x8c '
+        b'meter: base unit of length in SI\x94ub.')
+    assert unit is u.m
+    assert hash(u.m) == hash_m
+
+
+@pytest.mark.parametrize('unit', [
+    u.IrreducibleUnit(['foo'], format={'baz': 'bar'}),
+    u.Unit('m_per_s', u.m/u.s)])
+def test_pickle_does_not_keep_memoized_hash(unit):
+    """
+    Tests private attribute since the problem with _hash being pickled
+    and restored only appeared if the unpickling was done in another
+    session, for which the hash no longer was valid, and it is difficult
+    to mimic separate sessions in a simple test. See gh-11872.
+    """
+    unit_hash = hash(unit)
+    assert unit._hash is not None
+    unit_copy = pickle.loads(pickle.dumps(unit))
+    # unit is not registered so we get a copy.
+    assert unit_copy is not unit
+    assert unit_copy._hash is None
+    assert hash(unit_copy) == unit_hash
+    with u.add_enabled_units([unit]):
+        # unit is registered, so we get a reference.
+        unit_ref = pickle.loads(pickle.dumps(unit))
+        if isinstance(unit, u.IrreducibleUnit):
+            assert unit_ref is unit
+        else:
+            assert unit_ref is not unit
+        # pickle.load used to override the hash, although in this case
+        # it would be the same anyway, so not clear this tests much.
+        assert hash(unit) == unit_hash
 
 
 def test_pickle_unrecognized_unit():
@@ -560,9 +603,9 @@ def test_pickle_unrecognized_unit():
     pickle.loads(pickle.dumps(a))
 
 
-@raises(ValueError)
 def test_duplicate_define():
-    u.def_unit('m', namespace=u.__dict__)
+    with pytest.raises(ValueError):
+        u.def_unit('m', namespace=u.__dict__)
 
 
 def test_all_units():
@@ -650,7 +693,7 @@ def test_suggestions():
             ('metre', 'meter'),
             ('angstroms', 'Angstrom or angstrom'),
             ('milimeter', 'millimeter'),
-            ('ångström', 'Angstrom or angstrom'),
+            ('ångström', 'Angstrom, angstrom, mAngstrom or mangstrom'),
             ('kev', 'EV, eV, kV or keV')]:
         with pytest.raises(ValueError, match=f'Did you mean {matches}'):
             u.Unit(search)
@@ -658,11 +701,10 @@ def test_suggestions():
 
 def test_fits_hst_unit():
     """See #1911."""
-    with catch_warnings() as w:
+    with pytest.warns(u.UnitsWarning, match='multiple slashes') as w:
         x = u.Unit("erg /s /cm**2 /angstrom")
     assert x == u.erg * u.s ** -1 * u.cm ** -2 * u.angstrom ** -1
     assert len(w) == 1
-    assert 'multiple slashes' in str(w[0].message)
 
 
 def test_barn_prefixes():
@@ -732,8 +774,8 @@ def test_compare_with_none():
     # Ensure that equality comparisons with `None` work, and don't
     # raise exceptions.  We are deliberately not using `is None` here
     # because that doesn't trigger the bug.  See #3108.
-    assert not (u.m == None)  # nopep8
-    assert u.m != None  # nopep8
+    assert not (u.m == None)  # noqa
+    assert u.m != None  # noqa
 
 
 def test_validate_power_detect_fraction():
@@ -803,6 +845,8 @@ def test_unit_summary_prefixes():
             assert prefixes
         elif unit.name == 'cycle':
             assert prefixes == 'No'
+        elif unit.name == 'spat':
+            assert prefixes == 'No'
         elif unit.name == 'vox':
             assert prefixes == 'Yes'
 
@@ -812,7 +856,7 @@ def test_raise_to_negative_power():
 
     Regression test for https://github.com/astropy/astropy/issues/8260
     """
-    m2s2 = u.m ** 2 / u.s **2
+    m2s2 = u.m ** 2 / u.s ** 2
     spm = m2s2 ** (-1 / 2)
     assert spm.bases == [u.s, u.m]
     assert spm.powers == [1, -1]

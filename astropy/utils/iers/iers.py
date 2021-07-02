@@ -12,24 +12,18 @@ celestial-to-terrestrial coordinate transformations
 import re
 from datetime import datetime
 from warnings import warn
-
-try:
-    from urlparse import urlparse
-except ImportError:
-    from urllib.parse import urlparse
+from urllib.parse import urlparse
 
 import numpy as np
+import erfa
 
 from astropy.time import Time, TimeDelta
-from astropy import _erfa as erfa
 from astropy import config as _config
-from astropy.io.ascii import convert_numpy
 from astropy import units as u
 from astropy.table import QTable, MaskedColumn
 from astropy.utils.data import (get_pkg_data_filename, clear_download_cache,
                                 is_url_in_cache, get_readable_fileobj)
 from astropy.utils.state import ScienceState
-from astropy.utils.compat import NUMPY_LT_1_17
 from astropy import utils
 from astropy.utils.exceptions import AstropyWarning
 
@@ -45,7 +39,7 @@ __all__ = ['Conf', 'conf', 'earth_orientation_table',
 
 # IERS-A default file name, URL, and ReadMe with content description
 IERS_A_FILE = 'finals2000A.all'
-IERS_A_URL = 'ftp://cddis.gsfc.nasa.gov/pub/products/iers/finals2000A.all'
+IERS_A_URL = 'ftp://anonymous:mail%40astropy.org@gdc.cddis.eosdis.nasa.gov/pub/products/iers/finals2000A.all'  # noqa: E501
 IERS_A_URL_MIRROR = 'https://datacenter.iers.org/data/9/finals2000A.all'
 IERS_A_README = get_pkg_data_filename('data/ReadMe.finals2000A')
 
@@ -82,6 +76,9 @@ suppressed by setting the auto_max_age configuration variable to
   conf.auto_max_age = None
 """
 
+MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug',
+              'Sep', 'Oct', 'Nov', 'Dec']
+
 
 def download_file(*args, **kwargs):
     """
@@ -97,6 +94,14 @@ def download_file(*args, **kwargs):
         return utils.data.download_file(*args, **kwargs)
 
 
+def _none_to_float(value):
+    """
+    Convert None to a valid floating point value.  Especially
+    for auto_max_age = None.
+    """
+    return (value if value is not None else np.finfo(float).max)
+
+
 class IERSStaleWarning(AstropyWarning):
     pass
 
@@ -108,11 +113,15 @@ class Conf(_config.ConfigNamespace):
     auto_download = _config.ConfigItem(
         True,
         'Enable auto-downloading of the latest IERS data.  If set to False '
-        'then the local IERS-B and leap-second files will be used by default. '
-        'Default is True.')
+        'then the local IERS-B file will be used by default (even if the '
+        'full IERS file with predictions was already downloaded and cached). '
+        'This parameter also controls whether internet resources will be '
+        'queried to update the leap second table if the installed version is '
+        'out of date. Default is True.')
     auto_max_age = _config.ConfigItem(
         30.0,
         'Maximum age (days) of predictive data before auto-downloading. '
+        'See "Auto refresh behavior" in astropy.utils.iers documentation for details.'
         'Default is 30.')
     iers_auto_url = _config.ConfigItem(
         IERS_A_URL,
@@ -170,7 +179,8 @@ class IERS(QTable):
 
         Returns
         -------
-        An IERS table class instance
+        IERS
+            An IERS table class instance
 
         Notes
         -----
@@ -219,11 +229,12 @@ class IERS(QTable):
 
         Parameters
         ----------
-        jd1 : float, array, or Time
+        jd1 : float, array, or `~astropy.time.Time`
             first part of two-part JD, or Time object
         jd2 : float or array, optional
             second part of two-part JD.
             Default is 0., ignored if jd1 is `~astropy.time.Time`.
+
         Returns
         -------
         mjd : float or array
@@ -245,7 +256,7 @@ class IERS(QTable):
 
         Parameters
         ----------
-        jd1 : float, float array, or Time object
+        jd1 : float, array of float, or `~astropy.time.Time` object
             first part of two-part JD, or Time object
         jd2 : float or float array, optional
             second part of two-part JD.
@@ -275,7 +286,7 @@ class IERS(QTable):
 
         Parameters
         ----------
-        jd1 : float, float array, or Time object
+        jd1 : float, array of float, or `~astropy.time.Time` object
             first part of two-part JD, or Time object
         jd2 : float or float array, optional
             second part of two-part JD (default 0., ignored if jd1 is Time)
@@ -286,9 +297,9 @@ class IERS(QTable):
 
         Returns
         -------
-        D_x : Quantity with angle units
-            x component of CIP correction for the requested times
-        D_y : Quantity with angle units
+        D_x : `~astropy.units.Quantity` ['angle']
+            x component of CIP correction for the requested times.
+        D_y : `~astropy.units.Quantity` ['angle']
             y component of CIP correction for the requested times
         status : int or int array
             Status values (if ``return_status``=``True``)::
@@ -306,7 +317,7 @@ class IERS(QTable):
 
         Parameters
         ----------
-        jd1 : float, float array, or Time object
+        jd1 : float, array of float, or `~astropy.time.Time` object
             first part of two-part JD, or Time object
         jd2 : float or float array, optional
             second part of two-part JD.
@@ -318,10 +329,10 @@ class IERS(QTable):
 
         Returns
         -------
-        PM_x : Quantity with angle units
-            x component of polar motion for the requested times
-        PM_y : Quantity with angle units
-            y component of polar motion for the requested times
+        PM_x : `~astropy.units.Quantity` ['angle']
+            x component of polar motion for the requested times.
+        PM_y : `~astropy.units.Quantity` ['angle']
+            y component of polar motion for the requested times.
         status : int or int array
             Status values (if ``return_status``=``True``)::
             ``iers.FROM_IERS_B``
@@ -350,6 +361,9 @@ class IERS(QTable):
         if is_scalar:
             mjd = np.array([mjd])
             utc = np.array([utc])
+        elif mjd.size == 0:
+            # Short-cut empty input.
+            return np.array([])
 
         self._refresh_table_as_needed(mjd)
 
@@ -458,13 +472,6 @@ class IERS_A(IERS):
 
     iers_table = None
 
-    if NUMPY_LT_1_17:
-        @staticmethod
-        def _quantity_where(condition, x, y):
-            result = y.to(x.unit)  # Makes copy.
-            result[condition] = x[condition]
-            return result
-
     @classmethod
     def _combine_a_b_columns(cls, iers_a):
         """
@@ -480,21 +487,19 @@ class IERS_A(IERS):
         # IERS B values in the table are consistent with the true ones.
         table = cls._substitute_iers_b(table)
 
-        q_where = cls._quantity_where if NUMPY_LT_1_17 else np.where
-
         # Combine A and B columns, using B where possible.
         b_bad = np.isnan(table['UT1_UTC_B'])
-        table['UT1_UTC'] = q_where(b_bad, table['UT1_UTC_A'], table['UT1_UTC_B'])
+        table['UT1_UTC'] = np.where(b_bad, table['UT1_UTC_A'], table['UT1_UTC_B'])
         table['UT1Flag'] = np.where(b_bad, table['UT1Flag_A'], 'B')
         # Repeat for polar motions.
         b_bad = np.isnan(table['PM_X_B']) | np.isnan(table['PM_Y_B'])
-        table['PM_x'] = q_where(b_bad, table['PM_x_A'], table['PM_X_B'])
-        table['PM_y'] = q_where(b_bad, table['PM_y_A'], table['PM_Y_B'])
+        table['PM_x'] = np.where(b_bad, table['PM_x_A'], table['PM_X_B'])
+        table['PM_y'] = np.where(b_bad, table['PM_y_A'], table['PM_Y_B'])
         table['PolPMFlag'] = np.where(b_bad, table['PolPMFlag_A'], 'B')
 
         b_bad = np.isnan(table['dX_2000A_B']) | np.isnan(table['dY_2000A_B'])
-        table['dX_2000A'] = q_where(b_bad, table['dX_2000A_A'], table['dX_2000A_B'])
-        table['dY_2000A'] = q_where(b_bad, table['dY_2000A_A'], table['dY_2000A_B'])
+        table['dX_2000A'] = np.where(b_bad, table['dX_2000A_A'], table['dX_2000A_B'])
+        table['dY_2000A'] = np.where(b_bad, table['dY_2000A_A'], table['dY_2000A_B'])
         table['NutFlag'] = np.where(b_bad, table['NutFlag_A'], 'B')
 
         # Get the table index for the first row that has predictive values
@@ -610,8 +615,12 @@ class IERS_B(IERS):
         if readme is None:
             readme = IERS_B_README
 
-        return super().read(file, format='cds', readme=readme,
-                            data_start=data_start)
+        table = super().read(file, format='cds', readme=readme,
+                             data_start=data_start)
+
+        table.meta['data_path'] = file
+        table.meta['readme_path'] = readme
+        return table
 
     def ut1_utc_source(self, i):
         """Set UT1-UTC source flag for entries in IERS table"""
@@ -652,7 +661,8 @@ class IERS_Auto(IERS_A):
 
         Returns
         -------
-        `~astropy.table.QTable` instance with IERS (Earth rotation) data columns
+        `~astropy.table.QTable` instance
+            With IERS (Earth rotation) data columns
 
         """
         if not conf.auto_download:
@@ -696,8 +706,7 @@ class IERS_Auto(IERS_A):
         predictive_mjd = self.meta['predictive_mjd']
 
         # See explanation in _refresh_table_as_needed for these conditions
-        auto_max_age = (conf.auto_max_age if conf.auto_max_age is not None
-                        else np.finfo(float).max)
+        auto_max_age = _none_to_float(conf.auto_max_age)
         if (max_input_mjd > predictive_mjd and
                 self.time_now.mjd - predictive_mjd > auto_max_age):
             raise ValueError(INTERPOLATE_ERROR.format(auto_max_age))
@@ -725,8 +734,7 @@ class IERS_Auto(IERS_A):
         predictive_mjd = self.meta['predictive_mjd']
 
         # Update table in place if necessary
-        auto_max_age = (conf.auto_max_age if conf.auto_max_age is not None
-                        else np.finfo(float).max)
+        auto_max_age = _none_to_float(conf.auto_max_age)
 
         # If auto_max_age is smaller than IERS update time then repeated downloads may
         # occur without getting updated values (giving a IERSStaleWarning).
@@ -740,9 +748,8 @@ class IERS_Auto(IERS_A):
 
             # Get the latest version
             try:
-                clear_download_cache(all_urls[0])
                 filename = download_file(
-                    all_urls[0], sources=all_urls, cache=True)
+                    all_urls[0], sources=all_urls, cache="update")
             except Exception as err:
                 # Issue a warning here, perhaps user is offline.  An exception
                 # will be raised downstream when actually trying to interpolate
@@ -874,6 +881,11 @@ class LeapSeconds(QTable):
     ``iers.LEAP_SECONDS_LIST_URL``.  Many systems also store a version
     of ``leap-seconds.list`` for use with ``ntp`` (e.g., on Debian/Ubuntu
     systems, ``/usr/share/zoneinfo/leap-seconds.list``).
+
+    To prevent querying internet resources if the available local leap second
+    file(s) are out of date, set ``iers.conf.auto_download = False``. This
+    must be done prior to performing any ``Time`` scale transformations related
+    to UTC (e.g. converting from UTC to TAI).
     """
     # Note: Time instances in this class should use scale='tai' to avoid
     # needing leap seconds in their creation or interpretation.
@@ -893,7 +905,7 @@ class LeapSeconds(QTable):
 
         Parameters
         ----------
-        file : path, or None
+        file : path-like or None
             Full local or network path to the file holding leap-second data,
             for passing on to the various ``from_`` class methods.
             If 'erfa', return the data used by the ERFA library.
@@ -954,7 +966,7 @@ class LeapSeconds(QTable):
 
         Parameters
         ----------
-        files : list of path, optional
+        files : list of path-like, optional
             List of files/URLs to attempt to open.  By default, uses
             ``cls._auto_open_files``.
 
@@ -971,7 +983,7 @@ class LeapSeconds(QTable):
         that expires more than 180 - `~astropy.utils.iers.Conf.auto_max_age`
         after the present.
         """
-        good_enough = cls._today() + TimeDelta(180-conf.auto_max_age,
+        good_enough = cls._today() + TimeDelta(180-_none_to_float(conf.auto_max_age),
                                                format='jd')
 
         if files is None:
@@ -1036,9 +1048,10 @@ class LeapSeconds(QTable):
             for line in lines:
                 match = cls._re_expires.match(line)
                 if match:
-                    expires = Time.strptime(match.groups()[0], '%d %B %Y',
-                                            scale='tai', format='iso',
-                                            out_subfmt='date')
+                    day, month, year = match.groups()[0].split()
+                    month_nb = MONTH_ABBR.index(month[:3]) + 1
+                    expires = Time(f'{year}-{month_nb:02d}-{day}',
+                                   scale='tai', out_subfmt='date')
                     break
             else:
                 raise ValueError(f'did not find expiration date in {file}')
@@ -1053,7 +1066,7 @@ class LeapSeconds(QTable):
 
         Parameters
         ----------
-        file : path, optional
+        file : path-like, optional
             Full local or network path to the file holding leap-second data
             in a format consistent with that used by IERS.  By default, uses
             ``iers.IERS_LEAP_SECOND_FILE``.
@@ -1072,7 +1085,7 @@ class LeapSeconds(QTable):
 
         Parameters
         ----------
-        file : path, optional
+        file : path-like, optional
             Full local or network path to the file holding leap-second data
             in a format consistent with that used by IETF.  Up to date versions
             can be retrieved from ``iers.IETF_LEAP_SECOND_URL``.
@@ -1082,12 +1095,14 @@ class LeapSeconds(QTable):
         The file *must* contain the expiration date in a comment line, like
         '# File expires on:  28 June 2020'
         """
+        from astropy.io.ascii import convert_numpy  # Here to avoid circular import
+
         names = ['ntp_seconds', 'tai_utc', 'comment', 'day', 'month', 'year']
         # Note: ntp_seconds does not fit in 32 bit, so causes problems on
         # 32-bit systems without the np.int64 converter.
         self = cls._read_leap_seconds(
             file, names=names, include_names=names[:2],
-            converters={'col1': [convert_numpy(np.int64)]})
+            converters={'ntp_seconds': [convert_numpy(np.int64)]})
         self['mjd'] = (self['ntp_seconds']/86400 + 15020).round()
         # Note: cannot use Time.ymdhms, since that might require leap seconds.
         isot = Time(self['mjd'], format='mjd', scale='tai').isot

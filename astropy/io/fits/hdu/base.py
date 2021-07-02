@@ -24,6 +24,15 @@ from astropy.utils.exceptions import AstropyUserWarning
 from astropy.utils.decorators import deprecated_renamed_argument
 
 
+__all__ = [
+    "DELAYED",
+    # classes
+    "InvalidHDUException",
+    "ExtensionHDU",
+    "NonstandardExtHDU",
+]
+
+
 class _Delayed:
     pass
 
@@ -303,7 +312,7 @@ class _BaseHDU(metaclass=_BaseHDUMeta):
 
         Parameters
         ----------
-        fileobj : file object or file-like object
+        fileobj : file-like
             Input FITS file.  The file's seek pointer is assumed to be at the
             beginning of the HDU.
 
@@ -341,7 +350,7 @@ class _BaseHDU(metaclass=_BaseHDUMeta):
 
         Parameters
         ----------
-        name : file path, file object or file-like object
+        name : path-like or file-like
             Output FITS file.  If the file object is already opened, it must
             be opened in a writeable mode.
 
@@ -350,7 +359,7 @@ class _BaseHDU(metaclass=_BaseHDUMeta):
             ``"silentfix"``, ``"ignore"``, ``"warn"``, or
             ``"exception"``.  May also be any combination of ``"fix"`` or
             ``"silentfix"`` with ``"+ignore"``, ``+warn``, or ``+exception"
-            (e.g. ``"fix+warn"``).  See :ref:`verify` for more info.
+            (e.g. ``"fix+warn"``).  See :ref:`astropy:verify` for more info.
 
         overwrite : bool, optional
             If ``True``, overwrite the output file if it exists. Raises an
@@ -460,7 +469,20 @@ class _BaseHDU(metaclass=_BaseHDUMeta):
                 if key not in sig.parameters:
                     del new_kwargs[key]
 
-        hdu = cls(data=DELAYED, header=header, **new_kwargs)
+        try:
+            hdu = cls(data=DELAYED, header=header, **new_kwargs)
+        except TypeError:
+            # This may happen because some HDU class (e.g. GroupsHDU) wants
+            # to set a keyword on the header, which is not possible with the
+            # _BasicHeader. While HDU classes should not need to modify the
+            # header in general, sometimes this is needed to fix it. So in
+            # this case we build a full Header and try again to create the
+            # HDU object.
+            if isinstance(header, _BasicHeader):
+                header = Header.fromstring(header_str)
+                hdu = cls(data=DELAYED, header=header, **new_kwargs)
+            else:
+                raise
 
         # One of these may be None, depending on whether the data came from a
         # file or a string buffer--later this will be further abstracted
@@ -577,33 +599,25 @@ class _BaseHDU(metaclass=_BaseHDUMeta):
 
     def _writeheader(self, fileobj):
         offset = 0
-        if not fileobj.simulateonly:
-            with suppress(AttributeError, OSError):
-                offset = fileobj.tell()
+        with suppress(AttributeError, OSError):
+            offset = fileobj.tell()
 
-            self._header.tofile(fileobj)
+        self._header.tofile(fileobj)
 
-            try:
-                size = fileobj.tell() - offset
-            except (AttributeError, OSError):
-                size = len(str(self._header))
-        else:
+        try:
+            size = fileobj.tell() - offset
+        except (AttributeError, OSError):
             size = len(str(self._header))
 
         return offset, size
 
     def _writedata(self, fileobj):
-        # TODO: A lot of the simulateonly stuff should be moved back into the
-        # _File class--basically it should turn write and flush into a noop
-        offset = 0
         size = 0
-
-        if not fileobj.simulateonly:
-            fileobj.flush()
-            try:
-                offset = fileobj.tell()
-            except OSError:
-                offset = 0
+        fileobj.flush()
+        try:
+            offset = fileobj.tell()
+        except (AttributeError, OSError):
+            offset = 0
 
         if self._data_loaded or self._data_needs_rescale:
             if self.data is not None:
@@ -624,8 +638,7 @@ class _BaseHDU(metaclass=_BaseHDUMeta):
             size += self._writedata_direct_copy(fileobj)
 
         # flush, to make sure the content is written
-        if not fileobj.simulateonly:
-            fileobj.flush()
+        fileobj.flush()
 
         # return both the location and the size of the data area
         return offset, size
@@ -639,8 +652,7 @@ class _BaseHDU(metaclass=_BaseHDUMeta):
         Should return the size in bytes of the data written.
         """
 
-        if not fileobj.simulateonly:
-            fileobj.writearray(self.data)
+        fileobj.writearray(self.data)
         return self.data.size * self.data.itemsize
 
     def _writedata_direct_copy(self, fileobj):
@@ -854,19 +866,17 @@ class _NonstandardHDU(_BaseHDU, _Verify):
         offset = 0
         size = 0
 
-        if not fileobj.simulateonly:
-            fileobj.flush()
-            try:
-                offset = fileobj.tell()
-            except OSError:
-                offset = 0
+        fileobj.flush()
+        try:
+            offset = fileobj.tell()
+        except OSError:
+            offset = 0
 
         if self.data is not None:
-            if not fileobj.simulateonly:
-                fileobj.write(self.data)
-                # flush, to make sure the content is written
-                fileobj.flush()
-                size = len(self.data)
+            fileobj.write(self.data)
+            # flush, to make sure the content is written
+            fileobj.flush()
+            size = len(self.data)
 
         # return both the location and the size of the data area
         return offset, size
@@ -1112,7 +1122,7 @@ class _ValidHDU(_BaseHDU, _Verify):
             ``"silentfix"``, ``"ignore"``, ``"warn"``, or
             ``"exception"``.  May also be any combination of ``"fix"`` or
             ``"silentfix"`` with ``"+ignore"``, ``+warn``, or ``+exception"
-            (e.g. ``"fix+warn"``).  See :ref:`verify` for more info.
+            (e.g. ``"fix+warn"``).  See :ref:`astropy:verify` for more info.
 
         errlist : list
             A list of validation errors already found in the FITS file; this is
@@ -1163,10 +1173,8 @@ class _ValidHDU(_BaseHDU, _Verify):
             # if the supposed location is specified
             if pos is not None:
                 if not pos(index):
-                    err_text = ("'{}' card at the wrong place "
-                                "(card {}).".format(keyword, index))
-                    fix_text = ("Fixed by moving it to the right place "
-                                "(card {}).".format(insert_pos))
+                    err_text = f"'{keyword}' card at the wrong place (card {index})."
+                    fix_text = f"Fixed by moving it to the right place (card {insert_pos})."
 
                     def fix(self=self, index=index, insert_pos=insert_pos):
                         card = self._header.cards[index]
@@ -1180,10 +1188,8 @@ class _ValidHDU(_BaseHDU, _Verify):
             if test:
                 val = self._header[keyword]
                 if not test(val):
-                    err_text = ("'{}' card has invalid value '{}'.".format(
-                            keyword, val))
-                    fix_text = ("Fixed by setting a new value '{}'.".format(
-                            fix_value))
+                    err_text = f"'{keyword}' card has invalid value '{val}'."
+                    fix_text = f"Fixed by setting a new value '{fix_value}'."
 
                     if fixable:
                         def fix(self=self, keyword=keyword, val=fix_value):
@@ -1225,7 +1231,7 @@ class _ValidHDU(_BaseHDU, _Verify):
         cs = self._calculate_datasum()
 
         if when is None:
-            when = 'data unit checksum updated {}'.format(self._get_timestamp())
+            when = f'data unit checksum updated {self._get_timestamp()}'
 
         self._header[datasum_keyword] = (str(cs), when)
         return cs
@@ -1272,7 +1278,7 @@ class _ValidHDU(_BaseHDU, _Verify):
             data_cs = self._calculate_datasum()
 
         if when is None:
-            when = 'HDU checksum updated {}'.format(self._get_timestamp())
+            when = f'HDU checksum updated {self._get_timestamp()}'
 
         # Add the CHECKSUM card to the header with a value of all zeros.
         if datasum_keyword in self._header:
@@ -1539,7 +1545,7 @@ class _ValidHDU(_BaseHDU, _Verify):
         for i in range(16):
             ascii[i] = asc[(i + 15) % 16]
 
-        return decode_ascii(ascii.tostring())
+        return decode_ascii(ascii.tobytes())
 
 
 class ExtensionHDU(_ValidHDU):

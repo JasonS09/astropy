@@ -1,5 +1,5 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
-""" This module contains dictionaries with sets of parameters for a
+"""This module contains dictionaries with sets of parameters for a
 given cosmology.
 
 Each cosmology has the following parameters defined:
@@ -24,6 +24,9 @@ Each cosmology has the following parameters defined:
 
 The list of cosmologies available are given by the tuple
 `available`. Current cosmologies available:
+
+Planck 2018 (Planck18) parameters from Planck Collaboration 2020,
+ A&A, 641, A6 (Paper VI), Table 2 (TT, TE, EE + lowE + lensing + BAO)
 
 Planck 2018 (Planck18_arXiv_v2) parameters from Planck Collaboration 2018,
  arXiv:1807.06209v2 (Paper VI), Table 2 (TT, TE, EE + lowE + lensing + BAO)
@@ -50,10 +53,11 @@ doi: 10.1088/0067-0049/180/2/330. Table 1 (WMAP + BAO + SN ML).
 # in addition to the list above.  You also need to add them to the 'available'
 # list at the bottom of this file.
 
-# Planck 2018 paper VI v2
+# Planck 2018 paper VI
 # Unlike Planck 2015, the paper includes massive neutrinos in Om0, which here
 # are included in m_nu.  Hence, the Om0 value differs slightly from the paper.
-Planck18_arXiv_v2 = dict(
+Planck18 = dict(
+    cosmology="FlatLambdaCDM",
     Oc0=0.2607,
     Ob0=0.04897,
     Om0=0.30966,
@@ -67,12 +71,34 @@ Planck18_arXiv_v2 = dict(
     Neff=3.046,
     flat=True,
     m_nu=[0., 0., 0.06],
-    reference=("Planck Collaboration 2018, arXiv:1807.06209 v2 (Paper VI),"
+    reference=("Planck Collaboration 2018, 2020, A&A, 641, A6  (Paper VI),"
+               " Table 2 (TT, TE, EE + lowE + lensing + BAO)")
+)
+
+# Planck 2018 paper VI v2.  Identical to Planck18 above.
+# Warning: deprecated and will be removed in future versions.
+Planck18_arXiv_v2 = dict(
+    cosmology="FlatLambdaCDM",
+    Oc0=0.2607,
+    Ob0=0.04897,
+    Om0=0.30966,
+    H0=67.66,
+    n=0.9665,
+    sigma8=0.8102,
+    tau=0.0561,
+    z_reion=7.82,
+    t0=13.787,
+    Tcmb0=2.7255,
+    Neff=3.046,
+    flat=True,
+    m_nu=[0., 0., 0.06],
+    reference=("DEPRECATED: Planck Collaboration 2018, arXiv:1807.06209 v2 (Paper VI),"
                " Table 2 (TT, TE, EE + lowE + lensing + BAO)")
 )
 
 # Planck 2015 paper XII Table 4 final column (best fit)
 Planck15 = dict(
+    cosmology="FlatLambdaCDM",
     Oc0=0.2589,
     Ob0=0.04860,
     Om0=0.3075,
@@ -92,6 +118,7 @@ Planck15 = dict(
 
 # Planck 2013 paper XVI Table 5 penultimate column (best fit)
 Planck13 = dict(
+    cosmology="FlatLambdaCDM",
     Oc0=0.25886,
     Ob0=0.048252,
     Om0=0.30712,
@@ -111,6 +138,7 @@ Planck13 = dict(
 
 
 WMAP9 = dict(
+    cosmology="FlatLambdaCDM",
     Oc0=0.2402,
     Ob0=0.04628,
     Om0=0.2865,
@@ -130,6 +158,7 @@ WMAP9 = dict(
 )
 
 WMAP7 = dict(
+    cosmology="FlatLambdaCDM",
     Oc0=0.226,
     Ob0=0.0455,
     Om0=0.272,
@@ -149,6 +178,7 @@ WMAP7 = dict(
 )
 
 WMAP5 = dict(
+    cosmology="FlatLambdaCDM",
     Oc0=0.231,
     Ob0=0.0459,
     Om0=0.277,
@@ -168,5 +198,5 @@ WMAP5 = dict(
 )
 
 # If new parameters are added, this list must be updated
-available = ['Planck18_arXiv_v2', 'Planck15', 'Planck13', 'WMAP9', 'WMAP7',
-             'WMAP5']
+available = ['Planck18', 'Planck18_arXiv_v2', 'Planck15', 'Planck13',
+             'WMAP9', 'WMAP7', 'WMAP5']

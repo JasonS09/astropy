@@ -30,7 +30,7 @@ class TimeSeries(BaseTimeSeries):
     for folding time series, and a ``time`` attribute for easy access to the
     time values.
 
-    See also: http://docs.astropy.org/en/stable/timeseries/
+    See also: https://docs.astropy.org/en/stable/timeseries/
 
     Parameters
     ----------
@@ -38,15 +38,15 @@ class TimeSeries(BaseTimeSeries):
         Data to initialize time series. This does not need to contain the times,
         which can be provided separately, but if it does contain the times they
         should be in a column called ``'time'`` to be automatically recognized.
-    time : `~astropy.time.Time` or iterable
+    time : `~astropy.time.Time`, `~astropy.time.TimeDelta` or iterable
         The times at which the values are sampled - this can be either given
-        directly as a `~astropy.time.Time` array or as any iterable that
-        initializes the `~astropy.time.Time` class. If this is given, then
-        the remaining time-related arguments should not be used.
+        directly as a `~astropy.time.Time` or `~astropy.time.TimeDelta` array
+        or as any iterable that initializes the `~astropy.time.Time` class. If
+        this is given, then the remaining time-related arguments should not be used.
     time_start : `~astropy.time.Time` or str
         The time of the first sample in the time series. This is an alternative
         to providing ``time`` and requires that ``time_delta`` is also provided.
-    time_delta : `~astropy.time.TimeDelta` or `~astropy.units.Quantity`
+    time_delta : `~astropy.time.TimeDelta` or `~astropy.units.Quantity` ['time']
         The step size in time for the series. This can either be a scalar if
         the time series is evenly sampled, or an array of values if it is not.
     n_samples : int
@@ -92,10 +92,10 @@ class TimeSeries(BaseTimeSeries):
         elif time is not None and time_start is not None:
             raise TypeError("Cannot specify both 'time' and 'time_start'")
 
-        if time is not None and not isinstance(time, Time):
+        if time is not None and not isinstance(time, (Time, TimeDelta)):
             time = Time(time)
 
-        if time_start is not None and not isinstance(time_start, Time):
+        if time_start is not None and not isinstance(time_start, (Time, TimeDelta)):
             time_start = Time(time_start)
 
         if time_delta is not None and not isinstance(time_delta, (Quantity, TimeDelta)):
@@ -150,18 +150,18 @@ class TimeSeries(BaseTimeSeries):
 
         Parameters
         ----------
-        period : `~astropy.units.Quantity`
+        period : `~astropy.units.Quantity` ['time']
             The period to use for folding
         epoch_time : `~astropy.time.Time`
             The time to use as the reference epoch, at which the relative time
             offset / phase will be ``epoch_phase``. Defaults to the first time
             in the time series.
-        epoch_phase : float or `~astropy.units.Quantity`
+        epoch_phase : float or `~astropy.units.Quantity` ['dimensionless', 'time']
             Phase of ``epoch_time``. If ``normalize_phase`` is `True`, this
             should be a dimensionless value, while if ``normalize_phase`` is
             ``False``, this should be a `~astropy.units.Quantity` with time
             units. Defaults to 0.
-        wrap_phase : float or `~astropy.units.Quantity`
+        wrap_phase : float or `~astropy.units.Quantity` ['dimensionless', 'time']
             The value of the phase above which values are wrapped back by one
             period. If ``normalize_phase`` is `True`, this should be a
             dimensionless value, while if ``normalize_phase`` is ``False``,
@@ -322,7 +322,7 @@ class TimeSeries(BaseTimeSeries):
 
         This method uses the unified I/O infrastructure in Astropy which makes
         it easy to define readers/writers for various classes
-        (http://docs.astropy.org/en/stable/io/unified.html). By default, this
+        (https://docs.astropy.org/en/stable/io/unified.html). By default, this
         method will try and use readers defined specifically for the
         `astropy.timeseries.TimeSeries` class - however, it is also
         possible to use the ``format`` keyword to specify formats defined for

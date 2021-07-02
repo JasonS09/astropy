@@ -1,5 +1,3 @@
-.. include:: references.txt
-
 .. _astropy-coordinates-transforming:
 
 Transforming between Systems
@@ -16,6 +14,13 @@ section is focused on how to *use* transformations.
 The full list of built-in coordinate frames, the included transformations,
 and the frame names are shown as a (clickable) graph in the
 `~astropy.coordinates` API documentation.
+
+Examples
+--------
+
+..
+  EXAMPLE START
+  Transforming Coordinates to Another Frame
 
 The recommended method of transformation is shown below::
 
@@ -42,6 +47,13 @@ accept either a frame name, class, or instance::
     <SkyCoord (FK5: equinox=J1980.000): (ra, dec) in deg
         ( 229.0146935, -1.05560349)>
 
+..
+  EXAMPLE END
+
+..
+  EXAMPLE START
+  Using SkyCoord Objects as the Frame in Transformations
+
 As a convenience, it is also possible to use a |SkyCoord| object as the frame in
 :meth:`~astropy.coordinates.SkyCoord.transform_to`. This allows for putting one
 coordinate object into the frame of another::
@@ -51,10 +63,17 @@ coordinate object into the frame of another::
     <SkyCoord (FK5: equinox=J1980.000): (ra, dec) in deg
         ( 229.0146935, -1.05560349)>
 
-Additionally, some coordinate frames (including `~astropy.coordinates.FK5`,
+..
+  EXAMPLE END
+
+..
+  EXAMPLE START
+  Self Transformations of Coordinate Frames
+
+Some coordinate frames (including `~astropy.coordinates.FK5`,
 `~astropy.coordinates.FK4`, and `~astropy.coordinates.FK4NoETerms`) support
 "self transformations," meaning the *type* of frame does not change, but the
-frame attributes do. Any example is precessing a coordinate from one equinox
+frame attributes do. An example is precessing a coordinate from one equinox
 to another in an equatorial frame. This is done by passing ``transform_to`` a
 frame class with the relevant attributes, as shown below. Note that these
 frames use a default equinox if you do not specify one::
@@ -85,24 +104,34 @@ The same lower-level frame classes also have a
 :meth:`~astropy.coordinates.BaseCoordinateFrame.transform_to` method
 that works the same as above, but they do not support attribute-style
 access. They are also subtly different in that they only use frame
-attributes present in the initial or final frame, while |skycoord|
+attributes present in the initial or final frame, while |SkyCoord|
 objects use any frame attributes they have for all transformation
-steps. So |skycoord| can always transform from one frame to another and
+steps. So |SkyCoord| can always transform from one frame to another and
 back again without change, while low-level classes may lose information
 and hence often do not round-trip.
 
+..
+  EXAMPLE END
+
 .. _astropy-coordinates-transforming-ephemerides:
 
-Transformations and Solar-System Ephemerides
+Transformations and Solar System Ephemerides
 ============================================
 
 Some transformations (e.g., the transformation between
 `~astropy.coordinates.ICRS` and `~astropy.coordinates.GCRS`) require the use of
-a Solar-system ephemeris to calculate the position and velocity of the Earth
+a Solar System ephemeris to calculate the position and velocity of the Earth
 and Sun. By default, transformations are calculated using built-in
 `ERFA <https://github.com/liberfa/erfa>`_ routines, but they can also use more
 precise ones using the JPL ephemerides (which are derived from dynamical
 models).
+
+Example
+-------
+
+..
+  EXAMPLE START
+  Calculating Transformations Using Solar System Ephemeris
 
 To use the JPL ephemerides, use the
 `~astropy.coordinates.solar_system_ephemeris` context manager, as shown below:
@@ -120,3 +149,6 @@ For nearby objects, such as the Moon, the difference can be of the
 order of milli-arcseconds. For more details about what ephemerides
 are available, including the requirements for using JPL ephemerides, see
 :ref:`astropy-coordinates-solarsystem`.
+
+..
+  EXAMPLE END

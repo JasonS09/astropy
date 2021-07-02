@@ -1,6 +1,6 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 # -*- coding: utf-8 -*-
-
+# pylint: disable=invalid-name
 """
 Implements projections--particularly sky projections defined in WCS Paper II
 [1]_.
@@ -18,11 +18,10 @@ import abc
 
 import numpy as np
 
-from .core import Model
-from .parameters import Parameter, InputParameterError
-
 from astropy import units as u
 
+from .core import Model
+from .parameters import Parameter, InputParameterError
 from . import _projections
 from .utils import _to_radian, _to_orig_unit
 
@@ -96,7 +95,7 @@ __all__ = ['Projection', 'Pix2SkyProjection', 'Sky2PixProjection',
            'Pix2Sky_QSC', 'Sky2Pix_QSC',
            'Pix2Sky_HPX', 'Sky2Pix_HPX',
            'Pix2Sky_XPH', 'Sky2Pix_XPH'
-]
+           ]
 
 
 class Projection(Model):
@@ -132,11 +131,13 @@ class Pix2SkyProjection(Projection):
 
     @property
     def input_units(self):
-        return {'x': u.deg, 'y': u.deg}
+        return {self.inputs[0]: u.deg,
+                self.inputs[1]: u.deg}
 
     @property
     def return_units(self):
-        return {'phi': u.deg, 'theta': u.deg}
+        return {self.outputs[0]: u.deg,
+                self.outputs[1]: u.deg}
 
 
 class Sky2PixProjection(Projection):
@@ -155,11 +156,13 @@ class Sky2PixProjection(Projection):
 
     @property
     def input_units(self):
-        return {'phi': u.deg, 'theta': u.deg}
+        return {self.inputs[0]: u.deg,
+                self.inputs[1]: u.deg}
 
     @property
     def return_units(self):
-        return {'x': u.deg, 'y': u.deg}
+        return {self.outputs[0]: u.deg,
+                self.outputs[1]: u.deg}
 
 
 class Zenithal(Projection):
@@ -213,12 +216,13 @@ class Pix2Sky_ZenithalPerspective(Pix2SkyProjection, Zenithal):
         Look angle γ in degrees.  Default is 0°.
     """
 
-    mu = Parameter(default=0.0)
-    gamma = Parameter(default=0.0, getter=_to_orig_unit, setter=_to_radian)
+    mu = Parameter(default=0.0,
+                   description="Distance from point of projection to center of sphere")
+    gamma = Parameter(default=0.0, getter=_to_orig_unit, setter=_to_radian,
+                      description="Look angle γ in degrees (Default = 0°)")
 
     def __init__(self, mu=mu.default, gamma=gamma.default, **kwargs):
         # units : mu - in spherical radii, gamma - in deg
-        # TODO: Support quantity objects here and in similar contexts
         super().__init__(mu, gamma, **kwargs)
 
     @mu.validator
@@ -264,8 +268,8 @@ class Sky2Pix_ZenithalPerspective(Sky2PixProjection, Zenithal):
         Look angle γ in degrees. Default is 0°.
     """
 
-    mu = Parameter(default=0.0)
-    gamma = Parameter(default=0.0, getter=_to_orig_unit, setter=_to_radian)
+    mu = Parameter(default=0.0, description="Distance from point of projection to center of sphere")
+    gamma = Parameter(default=0.0, getter=_to_orig_unit, setter=_to_radian, description="Look angle γ in degrees (Default=0°)")
 
     @mu.validator
     def mu(self, value):
@@ -313,9 +317,9 @@ class Pix2Sky_SlantZenithalPerspective(Pix2SkyProjection, Zenithal):
                 "Zenithal perspective projection is not defined for mu=-1")
         return mu
 
-    mu = Parameter(default=0.0, setter=_validate_mu)
-    phi0 = Parameter(default=0.0, getter=_to_orig_unit, setter=_to_radian)
-    theta0 = Parameter(default=90.0, getter=_to_orig_unit, setter=_to_radian)
+    mu = Parameter(default=0.0, setter=_validate_mu, description="Distance from point of projection to center of sphere")
+    phi0 = Parameter(default=0.0, getter=_to_orig_unit, setter=_to_radian, description="The longitude φ₀ of the reference point in degrees (Default=0°)")
+    theta0 = Parameter(default=90.0, getter=_to_orig_unit, setter=_to_radian, description="The latitude θ₀ of the reference point, in degrees (Default=0°)")
 
     @property
     def inverse(self):
@@ -357,9 +361,12 @@ class Sky2Pix_SlantZenithalPerspective(Sky2PixProjection, Zenithal):
             raise ValueError("Zenithal perspective projection is not defined for mu=-1")
         return mu
 
-    mu = Parameter(default=0.0, setter=_validate_mu)
-    phi0 = Parameter(default=0.0, getter=_to_orig_unit, setter=_to_radian)
-    theta0 = Parameter(default=0.0, getter=_to_orig_unit, setter=_to_radian)
+    mu = Parameter(default=0.0, setter=_validate_mu,
+                   description="Distance from point of projection to center of sphere")
+    phi0 = Parameter(default=0.0, getter=_to_orig_unit, setter=_to_radian,
+                     description="The longitude φ₀ of the reference point in degrees")
+    theta0 = Parameter(default=0.0, getter=_to_orig_unit, setter=_to_radian,
+                       description="The latitude θ₀ of the reference point, in degrees")
 
     @property
     def inverse(self):
@@ -501,8 +508,8 @@ class Pix2Sky_SlantOrthographic(Pix2SkyProjection, Zenithal):
         Obliqueness parameter, η.  Default is 0.0.
     """
 
-    xi = Parameter(default=0.0)
-    eta = Parameter(default=0.0)
+    xi = Parameter(default=0.0, description="Obliqueness parameter")
+    eta = Parameter(default=0.0, description="Obliqueness parameter")
 
     @property
     def inverse(self):
@@ -696,7 +703,7 @@ class Sky2Pix_Airy(Sky2PixProjection, Zenithal):
         The latitude :math:`\theta_b` at which to minimize the error,
         in degrees.  Default is 90°.
     """
-    theta_b = Parameter(default=90.0)
+    theta_b = Parameter(default=90.0, description="The latitude at which to minimize the error,in degrees")
 
     @property
     def inverse(self):
@@ -791,8 +798,8 @@ class Sky2Pix_CylindricalPerspective(Sky2PixProjection, Cylindrical):
         Radius of the cylinder in spherical radii, λ.  Default is 0.
     """
 
-    mu = Parameter(default=1.0)
-    lam = Parameter(default=1.0)
+    mu = Parameter(default=1.0, description="Distance from center of sphere in spherical radii")
+    lam = Parameter(default=1.0, description="Radius of the cylinder in spherical radii")
 
     @mu.validator
     def mu(self, value):
@@ -831,7 +838,7 @@ class Pix2Sky_CylindricalEqualArea(Pix2SkyProjection, Cylindrical):
     Parameters
     ----------
     lam : float
-        Radius of the cylinder in spherical radii, λ.  Default is 0.
+        Radius of the cylinder in spherical radii, λ.  Default is 1.
     """
 
     lam = Parameter(default=1)
@@ -1643,7 +1650,7 @@ class Sky2Pix_BonneEqualArea(Sky2PixProjection, PseudoConic):
     theta1 : float
         Bonne conformal latitude, in degrees.
     """
-    theta1 = Parameter(default=0.0, getter=_to_orig_unit, setter=_to_radian)
+    theta1 = Parameter(default=0.0, getter=_to_orig_unit, setter=_to_radian, description="Bonne conformal latitude, in degrees")
     _separable = True
 
     @property
@@ -1857,8 +1864,8 @@ class Pix2Sky_HEALPix(Pix2SkyProjection, HEALPix):
     """
     _separable = True
 
-    H = Parameter(default=4.0)
-    X = Parameter(default=3.0)
+    H = Parameter(default=4.0, description="The number of facets in longitude direction.")
+    X = Parameter(default=3.0, description="The number of facets in latitude direction.")
 
     @property
     def inverse(self):
@@ -1888,8 +1895,8 @@ class Sky2Pix_HEALPix(Sky2PixProjection, HEALPix):
     """
     _separable = True
 
-    H = Parameter(default=4.0)
-    X = Parameter(default=3.0)
+    H = Parameter(default=4.0, description="The number of facets in longitude direction.")
+    X = Parameter(default=3.0, description="The number of facets in latitude direction.")
 
     @property
     def inverse(self):
@@ -2066,8 +2073,7 @@ class AffineTransformation2D(Model):
         augmented_matrix[2] = [0, 0, 1]
         if unit is not None:
             return augmented_matrix * unit
-        else:
-            return augmented_matrix
+        return augmented_matrix
 
     @property
     def input_units(self):

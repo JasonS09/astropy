@@ -1,14 +1,15 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 
 import itertools
+from contextlib import nullcontext
 
 import pytest
 import numpy as np
-from numpy.testing import assert_allclose, assert_array_almost_equal_nulp
+from numpy.testing import assert_allclose, assert_array_equal, assert_array_almost_equal_nulp
 
 from astropy.convolution.convolve import convolve_fft, convolve
 from astropy.utils.exceptions import AstropyUserWarning
-from astropy.utils.compat.context import nullcontext
+from astropy import units as u
 
 VALID_DTYPES = ('>f4', '<f4', '>f8', '<f8')
 VALID_DTYPE_MATRIX = list(itertools.product(VALID_DTYPES, VALID_DTYPES))
@@ -68,6 +69,22 @@ def assert_floatclose(x, y):
 
 
 class TestConvolve1D:
+
+    @pytest.mark.parametrize(option_names, options)
+    def test_quantity(self, boundary, nan_treatment, normalize_kernel):
+        """
+        Test that convolve_fft works correctly when input array is a Quantity
+        """
+
+        x = np.array([1., 4., 5., 6., 5., 7., 8.], dtype='float64') * u.ph
+        y = np.array([0.2, 0.6, 0.2], dtype='float64')
+
+        with expected_boundary_warning(boundary=boundary):
+            z = convolve_fft(x, y, boundary=boundary,
+                             nan_treatment=nan_treatment,
+                             normalize_kernel=normalize_kernel)
+
+        assert x.unit == z.unit
 
     @pytest.mark.parametrize(option_names, options)
     def test_unity_1_none(self, boundary, nan_treatment, normalize_kernel):
@@ -642,7 +659,7 @@ class TestConvolve2D:
         assert_floatclose(z[posns], z[posns])
 
     def test_big_fail(self):
-        """ Test that convolve_fft raises an exception if a too-large array is passed in """
+        """ Test that convolve_fft raises an exception if a too-large array is passed in."""
 
         with pytest.raises((ValueError, MemoryError)):
             # while a good idea, this approach did not work; it actually writes to disk
@@ -651,6 +668,32 @@ class TestConvolve2D:
             arr = np.empty([512, 512, 512], dtype=complex)
             # note 512**3 * 16 bytes = 2.0 GB
             convolve_fft(arr, arr)
+
+    def test_padding(self):
+        """
+        Test that convolve_fft pads to _next_fast_lengths and does not expand all dimensions
+        to length of longest side (#11242/#10047).
+        """
+
+        # old implementation expanded this to up to 2048**3
+        shape = (1, 1226, 518)
+        img = np.zeros(shape, dtype='float64')
+        img[0, 600:610, 300:304] = 1.0
+        kernel = np.zeros((1, 7, 7), dtype='float64')
+        kernel[0, 3, 3] = 1.0
+
+        with pytest.warns(AstropyUserWarning,
+                          match="psf_pad was set to False, which overrides the boundary='fill'"):
+            img_fft = convolve_fft(img, kernel, return_fft=True, psf_pad=False, fft_pad=False)
+            assert_array_equal(img_fft.shape, shape)
+            img_fft = convolve_fft(img, kernel, return_fft=True, psf_pad=False, fft_pad=True)
+            # should be from either hardcoded _good_sizes[] or scipy.fft.next_fast_len()
+            assert img_fft.shape in ((1, 1250, 540), (1, 1232, 525))
+
+        img_fft = convolve_fft(img, kernel, return_fft=True, psf_pad=True, fft_pad=False)
+        assert_array_equal(img_fft.shape, np.array(shape) + np.array(kernel.shape))
+        img_fft = convolve_fft(img, kernel, return_fft=True, psf_pad=True, fft_pad=True)
+        assert img_fft.shape in ((2, 1250, 540), (2, 1250, 525))
 
     @pytest.mark.parametrize(('boundary'), BOUNDARY_OPTIONS)
     def test_non_normalized_kernel(self, boundary):

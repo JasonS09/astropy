@@ -3,6 +3,7 @@
 import os
 from copy import copy
 from io import StringIO
+from collections import Counter
 
 import pytest
 import numpy as np
@@ -10,8 +11,6 @@ import numpy as np
 from astropy.io.registry import _readers, _writers, _identifiers
 from astropy.io import registry as io_registry
 from astropy.table import Table
-from astropy.utils.compat.context import nullcontext
-from astropy.utils.exceptions import AstropyUserWarning
 from astropy import units as u
 
 # Since we reset the readers/writers below, we need to also import any
@@ -25,12 +24,6 @@ from astropy import timeseries  # noqa
 # during test collection but *before* tests (and the final teardown) get run.
 # This leaves the registry corrupted.
 ORIGINAL = {}
-
-try:
-    import yaml  # pylint: disable=W0611 # noqa
-    HAS_YAML = True
-except ImportError:
-    HAS_YAML = False
 
 
 class TestData:
@@ -257,7 +250,9 @@ def test_read_toomanyformats():
     io_registry.register_identifier('test2', TestData, lambda o, *x, **y: True)
     with pytest.raises(io_registry.IORegistryError) as exc:
         TestData.read()
-    assert str(exc.value) == "Format is ambiguous - options are: test1, test2"
+    assert str(exc.value) == (
+        "Format is ambiguous - options are: test1, test2"
+    )
 
 
 def test_write_toomanyformats():
@@ -265,7 +260,49 @@ def test_write_toomanyformats():
     io_registry.register_identifier('test2', TestData, lambda o, *x, **y: True)
     with pytest.raises(io_registry.IORegistryError) as exc:
         TestData().write()
-    assert str(exc.value) == "Format is ambiguous - options are: test1, test2"
+    assert str(exc.value) == (
+        "Format is ambiguous - options are: test1, test2"
+    )
+
+
+def test_read_uses_priority():
+    counter = Counter()
+
+    def counting_reader1(*args, **kwargs):
+        counter["test1"] += 1
+        return TestData()
+
+    def counting_reader2(*args, **kwargs):
+        counter["test2"] += 1
+        return TestData()
+
+    io_registry.register_reader('test1', TestData, counting_reader1, priority=1)
+    io_registry.register_reader('test2', TestData, counting_reader2, priority=2)
+    io_registry.register_identifier('test1', TestData, lambda o, *x, **y: True)
+    io_registry.register_identifier('test2', TestData, lambda o, *x, **y: True)
+
+    TestData.read()
+    assert counter["test2"] == 1
+    assert counter["test1"] == 0
+
+
+def test_write_uses_priority():
+    counter = Counter()
+
+    def counting_writer1(*args, **kwargs):
+        counter["test1"] += 1
+
+    def counting_writer2(*args, **kwargs):
+        counter["test2"] += 1
+
+    io_registry.register_writer('test1', TestData, counting_writer1, priority=1)
+    io_registry.register_writer('test2', TestData, counting_writer2, priority=2)
+    io_registry.register_identifier('test1', TestData, lambda o, *x, **y: True)
+    io_registry.register_identifier('test2', TestData, lambda o, *x, **y: True)
+
+    TestData().write()
+    assert counter["test2"] == 1
+    assert counter["test1"] == 0
 
 
 def test_read_format_noreader():
@@ -466,16 +503,8 @@ class TestSubclass:
         mt['a'].format = '.4f'
         mt['a'].description = 'hello'
 
-        if HAS_YAML:
-            ctx = nullcontext()
-        else:
-            ctx = pytest.warns(
-                AstropyUserWarning,
-                match="These will be dropped unless you install PyYAML")
-
         testfile = str(tmpdir.join('junk.fits'))
-        with ctx:
-            mt.write(testfile, overwrite=True)
+        mt.write(testfile, overwrite=True)
 
         t = MTable.read(testfile)
         assert np.all(mt == t)
@@ -483,7 +512,26 @@ class TestSubclass:
         assert type(t) is MTable
         assert t['a'].unit == u.m
         assert t['a'].format == '{:13.4f}'
-        if HAS_YAML:
-            assert t['a'].description == 'hello'
-        else:
-            assert t['a'].description is None
+        assert t['a'].description == 'hello'
+
+
+def test_directory(tmpdir):
+
+    # Regression test for a bug that caused the I/O registry infrastructure to
+    # not work correctly for datasets that are represented by folders as
+    # opposed to files, when using the descriptors to add read/write methods.
+
+    io_registry.register_identifier('test_folder_format', TestData,
+                                    lambda o, *x, **y: o == 'read')
+    io_registry.register_reader('test_folder_format', TestData,
+                                empty_reader)
+
+    filename = tmpdir.mkdir('folder_dataset').strpath
+
+    # With the format explicitly specified
+    dataset = TestData.read(filename, format='test_folder_format')
+    assert isinstance(dataset, TestData)
+
+    # With the auto-format identification
+    dataset = TestData.read(filename)
+    assert isinstance(dataset, TestData)

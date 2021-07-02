@@ -1,10 +1,12 @@
-from collections import OrderedDict
+# Licensed under a 3-clause BSD style license - see LICENSE.rst
+# pylint: disable=invalid-name, no-member
 
 import pytest
 import numpy as np
 
 from astropy import units as u
 from astropy.tests.helper import assert_quantity_allclose
+from astropy.utils.compat.optional_deps import HAS_SCIPY  # noqa
 
 from astropy.modeling.functional_models import (
     Gaussian1D,
@@ -16,6 +18,8 @@ from astropy.modeling.functional_models import (
     RickerWavelet2D, AiryDisk2D, Moffat2D, Sersic2D,
     KingProjectedAnalytic1D)
 
+from astropy.modeling.physical_models import Plummer1D
+
 from astropy.modeling.powerlaws import (
     PowerLaw1D, BrokenPowerLaw1D, SmoothlyBrokenPowerLaw1D,
     ExponentialCutoffPowerLaw1D, LogParabola1D)
@@ -23,12 +27,6 @@ from astropy.modeling.powerlaws import (
 from astropy.modeling.polynomial import Polynomial1D, Polynomial2D
 
 from astropy.modeling.fitting import LevMarLSQFitter
-
-try:
-    from scipy import optimize  # noqa
-    HAS_SCIPY = True
-except ImportError:
-    HAS_SCIPY = False
 
 FUNC_MODELS_1D = [
 {'class': Gaussian1D,
@@ -54,7 +52,7 @@ FUNC_MODELS_1D = [
 {'class': Voigt1D,
  'parameters': {'amplitude_L': 2 * u.Jy, 'x_0': 505 * u.nm,
                 'fwhm_L': 100 * u.AA, 'fwhm_G': 50 * u.AA},
- 'evaluation': [(0.51 * u.micron, 1.06264568 * u.Jy)],
+ 'evaluation': [(0.51 * u.micron, 1.0621795524 * u.Jy)],
  'bounding_box': False},
 {'class': Const1D,
  'parameters': {'amplitude': 3 * u.Jy},
@@ -81,6 +79,14 @@ FUNC_MODELS_1D = [
  'evaluation': [(0.5 * u.pc, 0.2 * u.Msun/u.pc**2)],
  'bounding_box': [0. * u.pc, 2. * u.pc]}
  ]
+
+PHYS_MODELS_1D = [
+{'class': Plummer1D,
+ 'parameters': {'mass': 3 * u.kg, 'r_plum': 0.5 * u.m},
+ 'evaluation': [(1* u.m, 0.10249381 * u.kg / (u.m **3))],
+ 'bounding_box': False}
+ ]
+
 FUNC_MODELS_2D = [
 {'class': Gaussian2D,
  'parameters': {'amplitude': 3 * u.Jy, 'x_mean': 2 * u.m, 'y_mean': 1 * u.m,
@@ -150,7 +156,7 @@ POWERLAW_MODELS = [
  'bounding_box': False},
 {'class': SmoothlyBrokenPowerLaw1D,
  'parameters': {'amplitude': 5 * u.kg, 'x_break': 10 * u.cm, 'alpha_1': 1, 'alpha_2': -1, 'delta': 1},
- 'evaluation': [(1 * u.m, 15.125 * u.kg), (1 * u.cm, 15.125 * u.kg)],
+ 'evaluation': [(1 * u.cm, 15.125 * u.kg), (1 * u.m, 15.125 * u.kg)],
  'bounding_box': False},
 {'class': ExponentialCutoffPowerLaw1D,
  'parameters': {'amplitude': 5 * u.kg, 'x_0': 10 * u.cm, 'alpha': 1, 'x_cutoff': 1 * u.m},
@@ -163,37 +169,37 @@ POWERLAW_MODELS = [
 ]
 
 POLY_MODELS = [
-    {'class': Polynomial1D,
-        'parameters': {'degree': 2, 'c0': 3 * u.one, 'c1': 2 / u.m, 'c2': 3 / u.m**2},
-        'evaluation': [(3 * u.m, 36 * u.one)],
-        'bounding_box': False},
-    {'class': Polynomial1D,
-        'parameters': {'degree': 2, 'c0': 3 * u.kg, 'c1': 2 * u.kg / u.m, 'c2': 3 * u.kg / u.m**2},
-        'evaluation': [(3 * u.m, 36 * u.kg)],
-        'bounding_box': False},
-    {'class': Polynomial1D,
-        'parameters': {'degree': 2, 'c0': 3 * u.kg, 'c1': 2 * u.kg, 'c2': 3 * u.kg},
-        'evaluation': [(3 * u.one, 36 * u.kg)],
-        'bounding_box': False},
-    {'class': Polynomial2D,
-        'parameters': {'degree': 2, 'c0_0': 3 * u.one, 'c1_0': 2 / u.m, 'c2_0': 3 / u.m**2,
-                       'c0_1': 3 / u.s, 'c0_2': -2 / u.s**2, 'c1_1': 5 / u.m / u.s},
-        'evaluation': [(3 * u.m, 2 * u.s, 64 * u.one)],
-        'bounding_box': False},
-    {'class': Polynomial2D,
-        'parameters': {'degree': 2, 'c0_0': 3 * u.kg, 'c1_0': 2 * u.kg / u.m, 'c2_0': 3 * u.kg / u.m**2,
-                       'c0_1': 3 * u.kg / u.s, 'c0_2': -2 * u.kg / u.s**2, 'c1_1': 5 * u.kg / u.m / u.s},
-        'evaluation': [(3 * u.m, 2 * u.s, 64 * u.kg)],
-        'bounding_box': False},
-    {'class': Polynomial2D,
-        'parameters': {'degree': 2, 'c0_0': 3 * u.kg, 'c1_0': 2 * u.kg, 'c2_0': 3 * u.kg,
-                       'c0_1': 3 * u.kg, 'c0_2': -2 * u.kg, 'c1_1': 5 * u.kg},
-        'evaluation': [(3 * u.one, 2 * u.one, 64 * u.kg)],
-        'bounding_box': False},
+{'class': Polynomial1D,
+ 'parameters': {'degree': 2, 'c0': 3 * u.one, 'c1': 2 / u.m, 'c2': 3 / u.m**2},
+ 'evaluation': [(3 * u.m, 36 * u.one)],
+ 'bounding_box': False},
+{'class': Polynomial1D,
+ 'parameters': {'degree': 2, 'c0': 3 * u.kg, 'c1': 2 * u.kg / u.m, 'c2': 3 * u.kg / u.m**2},
+ 'evaluation': [(3 * u.m, 36 * u.kg)],
+ 'bounding_box': False},
+{'class': Polynomial1D,
+ 'parameters': {'degree': 2, 'c0': 3 * u.kg, 'c1': 2 * u.kg, 'c2': 3 * u.kg},
+ 'evaluation': [(3 * u.one, 36 * u.kg)],
+ 'bounding_box': False},
+{'class': Polynomial2D,
+ 'parameters': {'degree': 2, 'c0_0': 3 * u.one, 'c1_0': 2 / u.m, 'c2_0': 3 / u.m**2,
+                'c0_1': 3 / u.s, 'c0_2': -2 / u.s**2, 'c1_1': 5 / u.m / u.s},
+ 'evaluation': [(3 * u.m, 2 * u.s, 64 * u.one)],
+ 'bounding_box': False},
+{'class': Polynomial2D,
+ 'parameters': {'degree': 2, 'c0_0': 3 * u.kg, 'c1_0': 2 * u.kg / u.m, 'c2_0': 3 * u.kg / u.m**2,
+                'c0_1': 3 * u.kg / u.s, 'c0_2': -2 * u.kg / u.s**2, 'c1_1': 5 * u.kg / u.m / u.s},
+ 'evaluation': [(3 * u.m, 2 * u.s, 64 * u.kg)],
+ 'bounding_box': False},
+{'class': Polynomial2D,
+ 'parameters': {'degree': 2, 'c0_0': 3 * u.kg, 'c1_0': 2 * u.kg, 'c2_0': 3 * u.kg,
+                'c0_1': 3 * u.kg, 'c0_2': -2 * u.kg, 'c1_1': 5 * u.kg},
+ 'evaluation': [(3 * u.one, 2 * u.one, 64 * u.kg)],
+ 'bounding_box': False},
  ]
 
 
-MODELS = FUNC_MODELS_1D + FUNC_MODELS_2D + POWERLAW_MODELS
+MODELS = FUNC_MODELS_1D + FUNC_MODELS_2D + POWERLAW_MODELS + PHYS_MODELS_1D
 
 SCIPY_MODELS = set([Sersic1D, Sersic2D, AiryDisk2D])
 
@@ -205,9 +211,9 @@ def test_models_evaluate_without_units(model):
     m = model['class'](**model['parameters'])
     for args in model['evaluation']:
         if len(args) == 2:
-            kwargs = OrderedDict(zip(('x', 'y'), args))
+            kwargs = dict(zip(('x', 'y'), args))
         else:
-            kwargs = OrderedDict(zip(('x', 'y', 'z'), args))
+            kwargs = dict(zip(('x', 'y', 'z'), args))
             if kwargs['x'].unit.is_equivalent(kwargs['y'].unit):
                 kwargs['x'] = kwargs['x'].to(kwargs['y'].unit)
         mnu = m.without_units_for_data(**kwargs)

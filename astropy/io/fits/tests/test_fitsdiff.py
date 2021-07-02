@@ -7,9 +7,9 @@ import os
 from . import FitsTestCase
 from astropy.io.fits.convenience import writeto
 from astropy.io.fits.hdu import PrimaryHDU, hdulist
-from astropy.io.fits import Header, ImageHDU, HDUList
+from astropy.io.fits import Header, ImageHDU, HDUList, FITSDiff
 from astropy.io.fits.scripts import fitsdiff
-from astropy.version import version
+from astropy import __version__ as version
 
 
 class TestFITSDiff_script(FitsTestCase):
@@ -18,9 +18,16 @@ class TestFITSDiff_script(FitsTestCase):
             fitsdiff.main(['-h'])
         assert e.value.code == 0
 
+    def test_version(self, capsys):
+        with pytest.raises(SystemExit) as e:
+            fitsdiff.main(['--version'])
+            out = capsys.readouterr()[0]
+            assert out == f'fitsdiff {version}'
+        assert e.value.code == 0
+
     def test_noargs(self):
         with pytest.raises(SystemExit) as e:
-            fitsdiff.main()
+            fitsdiff.main([""])
         assert e.value.code == 2
 
     def test_oneargargs(self):
@@ -145,20 +152,23 @@ class TestFITSDiff_script(FitsTestCase):
         numdiff = fitsdiff.main(["-r", "1e-2", tmp_a, tmp_b])
         assert numdiff == 1
         out, err = capsys.readouterr()
-        assert out == """
- fitsdiff: {}
- a: {}
- b: {}
+        assert out == f"""
+ fitsdiff: {version}
+ a: {tmp_a}
+ b: {tmp_b}
  Maximum number of different data values to be reported: 10
  Relative tolerance: 0.01, Absolute tolerance: 0.0
 
-Primary HDU:\n\n   Data contains differences:
+Primary HDU:
+
+   Data contains differences:
      Data differs at [1, 2]:
         a> 10.0
          ?  ^
         b> 11.0
          ?  ^
-     1 different pixels found (1.00% different).\n""".format(version, tmp_a, tmp_b)
+     1 different pixels found (1.00% different).
+"""
         assert err == ""
 
     def test_wildcard(self):
@@ -179,14 +189,15 @@ Primary HDU:\n\n   Data contains differences:
         numdiff = fitsdiff.main([tmp_a, tmp_b])
         assert numdiff == 0
         out, err = capsys.readouterr()
-        assert out == """
- fitsdiff: {}
- a: {}
- b: {}
+        assert out == f"""
+ fitsdiff: {version}
+ a: {tmp_a}
+ b: {tmp_b}
  Maximum number of different data values to be reported: 10
  Relative tolerance: 0.0, Absolute tolerance: 0.0
 
-No differences found.\n""".format(version, tmp_a, tmp_b)
+No differences found.
+"""
         assert err == ""
 
     def test_quiet(self, capsys):
@@ -286,3 +297,18 @@ No differences found.\n""".format(version, tmp_a, tmp_b)
         out, err = capsys.readouterr()
         assert "testa.fits" in out
         assert "testb.fits" in out
+
+
+@pytest.mark.skip(reason="fails intentionally to show open files (see PR #10159)")
+def test_fitsdiff_openfile(tmpdir):
+    """Make sure that failing FITSDiff doesn't leave open files."""
+    path1 = str(tmpdir.join("file1.fits"))
+    path2 = str(tmpdir.join("file2.fits"))
+
+    hdulist = HDUList([PrimaryHDU(), ImageHDU(data=np.zeros(5))])
+    hdulist.writeto(path1)
+    hdulist[1].data[0] = 1
+    hdulist.writeto(path2)
+
+    diff = FITSDiff(path1, path2)
+    assert diff.identical, diff.report()

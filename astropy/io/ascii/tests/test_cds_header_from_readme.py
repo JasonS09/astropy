@@ -2,8 +2,9 @@
 
 import numpy as np
 from astropy.io import ascii
-from .common import (assert_equal, assert_almost_equal,
-                     setup_function, teardown_function)
+from .common import (assert_equal, assert_almost_equal,  # noqa
+                     setup_function, teardown_function)  # noqa
+from astropy import units as u
 
 
 def read_table1(readme, data):
@@ -157,9 +158,78 @@ def test_cds_units():
     assert table['Fit'].to(units.solMass).unit == units.solMass
 
 
+def test_cds_function_units():
+    data_and_readme = 'data/cdsFunctional.dat'
+    reader = ascii.get_reader(ascii.Cds)
+    table = reader.read(data_and_readme)
+    assert table['logg'].unit == u.dex(u.cm/u.s**2)
+    assert table['logTe'].unit == u.dex(u.K)
+    assert table['Mass'].unit == u.Msun
+    assert table['e_Mass'].unit == u.Msun
+    assert table['Age'].unit == u.Myr
+    assert table['e_Age'].unit == u.Myr
+
+
+def test_cds_function_units2():
+    # This one includes some dimensionless dex.
+    data_and_readme = 'data/cdsFunctional2.dat'
+    reader = ascii.get_reader(ascii.Cds)
+    table = reader.read(data_and_readme)
+    assert table['Teff'].unit == u.K
+    assert table['logg'].unit == u.dex(u.cm/u.s**2)
+    assert table['vturb'].unit == u.km/u.s
+    assert table['[Fe/H]'].unit == u.dex(u.one)
+    assert table['e_[Fe/H]'].unit == u.dex(u.one)
+    assert_almost_equal(table['[Fe/H]'].to(u.one),
+                        10.**(np.array([-2.07, -1.50, -2.11, -1.64])))
+
+
+def test_cds_ignore_nullable():
+    # Make sure CDS Reader does not ignore nullabilty for columns
+    # with a limit specifier
+    readme = 'data/cds/null/ReadMe'
+    data = 'data/cds/null/table.dat'
+    r = ascii.Cds(readme)
+    r.read(data)
+    assert_equal(r.header.cols[6].description, 'Temperature class codified (10)')
+    assert_equal(r.header.cols[8].description, 'Luminosity class codified (11)')
+    assert_equal(r.header.cols[5].description, 'Pericenter position angle (18)')
+
+
+def test_cds_no_whitespace():
+    # Make sure CDS Reader only checks null values when an '=' symbol is present,
+    # and read description text even if there is no whitespace after '?'.
+    readme = 'data/cds/null/ReadMe1'
+    data = 'data/cds/null/table.dat'
+    r = ascii.Cds(readme)
+    r.read(data)
+    assert_equal(r.header.cols[6].description, 'Temperature class codified (10)')
+    assert_equal(r.header.cols[6].null, '')
+    assert_equal(r.header.cols[7].description, 'Equivalent width (in mA)')
+    assert_equal(r.header.cols[7].null, '-9.9')
+    assert_equal(r.header.cols[10].description,
+                 'DAOSPEC quality parameter Q(large values are bad)')
+    assert_equal(r.header.cols[10].null, '-9.999')
+
+
+def test_cds_order():
+    # Make sure CDS Reader does not ignore order specifier that maybe present after
+    # the null specifier '?'
+    readme = 'data/cds/null/ReadMe1'
+    data = 'data/cds/null/table.dat'
+    r = ascii.Cds(readme)
+    r.read(data)
+    assert_equal(r.header.cols[5].description, 'Catalogue Identification Number')
+    assert_equal(r.header.cols[8].description, 'Equivalent width (in mA)')
+    assert_equal(r.header.cols[9].description, 'Luminosity class codified (11)')
+
+
 if __name__ == "__main__":  # run from main directory; not from test/
     test_header_from_readme()
     test_multi_header()
     test_glob_header()
     test_description()
     test_cds_units()
+    test_cds_ignore_nullable()
+    test_cds_no_whitespace()
+    test_cds_order()

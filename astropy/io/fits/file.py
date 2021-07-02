@@ -1,13 +1,10 @@
 # Licensed under a 3-clause BSD style license - see PYFITS.rst
 
-
-import bz2
 import gzip
 import errno
 import http.client
 import mmap
 import operator
-import pathlib
 import io
 import os
 import sys
@@ -27,9 +24,14 @@ from astropy.utils.data import download_file, _is_url
 from astropy.utils.decorators import classproperty, deprecated_renamed_argument
 from astropy.utils.exceptions import AstropyUserWarning
 
+# NOTE: Python can be built without bz2.
+from astropy.utils.compat.optional_deps import HAS_BZ2
+if HAS_BZ2:
+    import bz2
+
 
 # Maps astropy.io.fits-specific file mode names to the appropriate file
-# modes to use for the underlying raw files
+# modes to use for the underlying raw files.
 IO_FITS_MODES = {
     'readonly': 'rb',
     'copyonwrite': 'rb',
@@ -76,6 +78,13 @@ PKZIP_MAGIC = b'\x50\x4b\x03\x04'
 BZIP2_MAGIC = b'\x42\x5a'
 
 
+def _is_bz2file(fileobj):
+    if HAS_BZ2:
+        return isinstance(fileobj, bz2.BZ2File)
+    else:
+        return False
+
+
 def _normalize_fits_mode(mode):
     if mode is not None and mode not in IO_FITS_MODES:
         if TEXT_RE.match(mode):
@@ -100,36 +109,29 @@ class _File:
         self.strict_memmap = bool(memmap)
         memmap = True if memmap is None else memmap
 
-        if fileobj is None:
-            self._file = None
-            self.closed = False
-            self.binary = True
-            self.mode = mode
-            self.memmap = memmap
-            self.compression = None
-            self.readonly = False
-            self.writeonly = False
-            self.simulateonly = True
-            self.close_on_error = False
-            return
-        else:
-            self.simulateonly = False
-            # If fileobj is of type pathlib.Path
-            if isinstance(fileobj, pathlib.Path):
-                fileobj = str(fileobj)
-            elif isinstance(fileobj, bytes):
-                # Using bytes as filename is tricky, it's deprecated for Windows
-                # in Python 3.5 (because it could lead to false-positives) but
-                # was fixed and un-deprecated in Python 3.6.
-                # However it requires that the bytes object is encoded with the
-                # file system encoding.
-                # Probably better to error out and ask for a str object instead.
-                # TODO: This could be revised when Python 3.5 support is dropped
-                # See also: https://github.com/astropy/astropy/issues/6789
-                raise TypeError("names should be `str` not `bytes`.")
+        self._file = None
+        self.closed = False
+        self.binary = True
+        self.mode = mode
+        self.memmap = memmap
+        self.compression = None
+        self.readonly = False
+        self.writeonly = False
+
+        # Should the object be closed on error: see
+        # https://github.com/astropy/astropy/issues/6168
+        self.close_on_error = False
 
         # Holds mmap instance for files that use mmap
         self._mmap = None
+
+        if fileobj is None:
+            self.simulateonly = True
+            return
+        else:
+            self.simulateonly = False
+            if isinstance(fileobj, os.PathLike):
+                fileobj = os.fspath(fileobj)
 
         if mode is not None and mode not in IO_FITS_MODES:
             raise ValueError(f"Mode '{mode}' not recognized")
@@ -144,7 +146,7 @@ class _File:
             mode = 'readonly'
 
         # Handle raw URLs
-        if (isinstance(fileobj, str) and
+        if (isinstance(fileobj, (str, bytes)) and
                 mode not in ('ostream', 'append', 'update') and _is_url(fileobj)):
             self.name = download_file(fileobj, cache=cache)
         # Handle responses from URL requests that have already been opened
@@ -156,27 +158,15 @@ class _File:
         else:
             self.name = fileobj_name(fileobj)
 
-        self.closed = False
-        self.binary = True
         self.mode = mode
-        self.memmap = memmap
 
         # Underlying fileobj is a file-like object, but an actual file object
         self.file_like = False
 
-        # Should the object be closed on error: see
-        # https://github.com/astropy/astropy/issues/6168
-        self.close_on_error = False
-
-        # More defaults to be adjusted below as necessary
-        self.compression = None
-        self.readonly = False
-        self.writeonly = False
-
         # Initialize the internal self._file object
         if isfile(fileobj):
             self._open_fileobj(fileobj, mode, overwrite)
-        elif isinstance(fileobj, str):
+        elif isinstance(fileobj, (str, bytes)):
             self._open_filename(fileobj, mode, overwrite)
         else:
             self._open_filelike(fileobj, mode, overwrite)
@@ -188,7 +178,7 @@ class _File:
         elif isinstance(fileobj, zipfile.ZipFile):
             # Reading from zip files is supported but not writing (yet)
             self.compression = 'zip'
-        elif isinstance(fileobj, bz2.BZ2File):
+        elif _is_bz2file(fileobj):
             self.compression = 'bzip2'
 
         if (mode in ('readonly', 'copyonwrite', 'denywrite') or
@@ -220,8 +210,7 @@ class _File:
                 self.memmap = False
 
     def __repr__(self):
-        return '<{}.{} {}>'.format(self.__module__, self.__class__.__name__,
-                                   self._file)
+        return f'<{self.__module__}.{self.__class__.__name__} {self._file}>'
 
     # Support the 'with' statement
     def __enter__(self):
@@ -352,6 +341,8 @@ class _File:
         return iswritable(self._file)
 
     def write(self, string):
+        if self.simulateonly:
+            return
         if hasattr(self._file, 'write'):
             _write_string(self._file, string)
 
@@ -363,10 +354,14 @@ class _File:
         the file on disk reflects the data written.
         """
 
+        if self.simulateonly:
+            return
         if hasattr(self._file, 'write'):
             _array_to_file(array, self._file)
 
     def flush(self):
+        if self.simulateonly:
+            return
         if hasattr(self._file, 'flush'):
             self._file.flush()
 
@@ -381,6 +376,8 @@ class _File:
                           .format(self.size, pos), AstropyUserWarning)
 
     def tell(self):
+        if self.simulateonly:
+            raise OSError
         if not hasattr(self._file, 'tell'):
             raise EOFError
         return self._file.tell()
@@ -462,6 +459,9 @@ class _File:
             if mode in ['update', 'append']:
                 raise OSError("update and append modes are not supported "
                               "with bzip2 files")
+            if not HAS_BZ2:
+                raise ModuleNotFoundError(
+                    "This Python installation does not provide the bz2 module.")
             # bzip2 only supports 'w' and 'r' modes
             bzip2_mode = 'w' if mode == 'ostream' else 'r'
             self._file = bz2.BZ2File(obj_or_name, mode=bzip2_mode)
@@ -561,7 +561,7 @@ class _File:
         # Make certain we're back at the beginning of the file
         # BZ2File does not support seek when the file is open for writing, but
         # when opening a file for write, bz2.BZ2File always truncates anyway.
-        if not (isinstance(self._file, bz2.BZ2File) and mode == 'ostream'):
+        if not (_is_bz2file(self._file) and mode == 'ostream'):
             self._file.seek(0)
 
     @classproperty(lazy=True)

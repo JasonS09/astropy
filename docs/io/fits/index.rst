@@ -146,10 +146,7 @@ file as ``-32768``, along with the header keyword ``BZERO = 32768``.
 
 ``astropy`` recognizes and applies this convention by default, so that all data
 that looks like it should be interpreted as unsigned integers is automatically
-converted (this applies to both images and tables). In ``astropy`` versions
-prior to v1.1.0 this was *not* applied automatically, and it is necessary to
-pass the argument ``uint=True`` to :func:`open`. In v1.1.0 or later this is the
-default.
+converted (this applies to both images and tables).
 
 Even with ``uint=False``, the ``BZERO`` shift is still applied, but the
 returned array is of "float64" type. To disable scaling/shifting entirely, use
@@ -172,11 +169,33 @@ about a FITS file that has been compressed with one of these utilities (e.g., a
 
 There are some limitations when working with compressed files. For example,
 with Zip files that contain multiple compressed files, only the first file will
-be accessible. Also bzip does not support the append or update access modes.
+be accessible. Also bzip2 does not support the append or update access modes.
 
 When writing a file (e.g., with the :func:`writeto` function), compression will
 be determined based on the filename extension given, or the compression used in
 a pre-existing file that is being written to.
+
+
+Working with non-standard files
+"""""""""""""""""""""""""""""""
+When `astropy.io.fits` reads a FITS file which does not conform to the FITS
+standard it will try to make an educated interpretation of non-compliant fields.
+This may not always succeed and may trigger warnings when accessing headers or
+exceptions when writing to file. Verification of fields written to an output
+file can be controlled with the ``output_verify`` parameter of :func:`open`.
+Files opened for reading can be verified and fixed with method
+``HDUList.verify``. This method is typically invoked after opening the file
+but before accessing any headers or data::
+
+    >>> with fits.open(fits_image_filename) as hdul:
+    ...    hdul.verify('fix')
+    ...    data = hdul[1].data
+
+In the above example, the call to ``hdul.verify("fix")`` requests that `astropy.io.fits`
+fix non-compliant fields and print informative messages. Other options in addition to ``"fix"``
+are described under FITS :ref:`fits_io_verification`
+
+.. seealso:: FITS :ref:`fits_io_verification`.
 
 Working with FITS Headers
 ^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -309,6 +328,43 @@ would with a dict::
 
     See also :ref:`sphx_glr_generated_examples_io_modify-fits-header.py`.
 
+.. _structural_keywords:
+
+Structural Keywords
+"""""""""""""""""""
+
+FITS keywords mix up both metadata and critical information about the file structure
+that is needed to parse the file. These *structural* keywords are managed internally by
+:mod:`astropy.io.fits` and, in general, should not be touched by the user. Instead one
+should use  the related attributes of the `astropy.io.fits` classes (see examples below).
+
+The specific set of structural keywords used by the FITS standard varies with HDU type.
+The following table lists which keywords are associated with each HDU type:
+
+.. csv-table:: Structural Keywords
+   :header: "HDU Type", "Structural Keywords"
+   :widths: 20, 20
+
+   "All", "``SIMPLE``, ``BITPIX``, ``NAXIS``"
+   ":class:`PrimaryHDU`", "``EXTEND``"
+   ":class:`ImageHDU`, :class:`TableHDU`, :class:`BinTableHDU`",  "``PCOUNT``, ``GCOUNT``"
+   ":class:`GroupsHDU`", "``NAXIS1``, ``GCOUNT``, ``PCOUNT``, ``GROUPS``"
+   ":class:`TableHDU`, :class:`BinTableHDU`", "``TFIELDS``, ``TFORM``, ``TBCOL``"
+
+There are many other reserved keywords, for instance for the data scaling, or for table's column
+attributes, as described in the  `FITS Standard <https://fits.gsfc.nasa.gov/fits_standard.html>`__.
+Most of these are accessible via attributes of the :class:`Column` or HDU objects, for instance
+``hdu.name`` to set ``EXTNAME``, or ``hdu.ver`` for ``EXTVER``. Structural keywords are checked
+and/or updated as a consequence of common operations. For example, when:
+
+1. Setting the data. The ``NAXIS*`` keywords are set from the data shape (``.data.shape``), and ``BITPIX``
+   from the data type (``.data.dtype``).
+2. Setting the header. Its keywords are updated based on the data properties (as above).
+3. Writing a file. All the necessary keywords are deleted, updated or added to the header.
+4. Calling an HDU's verify method (e.g., :func:`PrimaryHDU.verify`). Some keywords can be fixed automatically.
+
+In these cases any hand-written values users might assign to those keywords will be overwrittten.
+
 Working with Image Data
 ^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -389,7 +445,7 @@ personal computers.
 If at this point you want to preserve all of the changes you made and write it
 to a new file, you can use the :meth:`HDUList.writeto` method (see below).
 
-.. _Numpy documentation: https://docs.scipy.org/doc/numpy/reference/arrays.indexing.html
+.. _Numpy documentation: https://numpy.org/doc/stable/reference/arrays.indexing.html
 
 .. topic:: Examples:
 
@@ -409,6 +465,7 @@ attribute::
     >>> fits_table_filename = fits.util.get_testdata_filepath('tb.fits')
     >>> hdul = fits.open(fits_table_filename)
     >>> data = hdul[1].data # assuming the first extension is a table
+    >>> hdul.close()
 
 If you are familiar with ``numpy`` `~numpy.recarray` (record array) objects, you
 will find the table data is basically a record array with some extra
@@ -633,7 +690,7 @@ numbers::
 
     It is not necessary to create a :class:`Column` object explicitly
     if the data is stored in a
-    `structured array <https://docs.scipy.org/doc/numpy/user/basics.rec.html>`_.
+    `structured array <https://numpy.org/doc/stable/user/basics.rec.html>`_.
 
 Next, create a :class:`ColDefs` (column-definitions) object for all columns::
 
@@ -935,6 +992,7 @@ Other Information
 .. note that if this section gets too long, it should be moved to a separate
    doc page - see the top of performance.inc.rst for the instructions on how to do
    that
+
 .. include:: performance.inc.rst
 
 Reference/API

@@ -24,7 +24,7 @@ import re
 from .base import Base
 from . import core, utils
 from astropy.units.utils import is_effectively_unity
-from astropy.utils import classproperty
+from astropy.utils import classproperty, parsing
 from astropy.utils.misc import did_you_mean
 
 
@@ -36,7 +36,7 @@ class CDS(Base):
     <http://cds.u-strasbg.fr/>`_ `Standards for Astronomical
     Catalogues 2.0 <http://vizier.u-strasbg.fr/vizier/doc/catstd-3.2.htx>`_
     format, and the `complete set of supported units
-    <http://vizier.u-strasbg.fr/cgi-bin/Unit>`_.  This format is used
+    <https://vizier.u-strasbg.fr/viz-bin/Unit>`_.  This format is used
     by VOTable up to version 1.2.
     """
 
@@ -45,11 +45,14 @@ class CDS(Base):
         'DIVISION',
         'OPEN_PAREN',
         'CLOSE_PAREN',
+        'OPEN_BRACKET',
+        'CLOSE_BRACKET',
         'X',
         'SIGN',
         'UINT',
         'UFLOAT',
-        'UNIT'
+        'UNIT',
+        'DIMENSIONLESS'
     )
 
     @classproperty(lazy=True)
@@ -79,18 +82,18 @@ class CDS(Base):
 
     @classmethod
     def _make_lexer(cls):
-
-        from astropy.extern.ply import lex
-
         tokens = cls._tokens
 
         t_PRODUCT = r'\.'
         t_DIVISION = r'/'
         t_OPEN_PAREN = r'\('
         t_CLOSE_PAREN = r'\)'
+        t_OPEN_BRACKET = r'\['
+        t_CLOSE_BRACKET = r'\]'
 
         # NOTE THE ORDERING OF THESE RULES IS IMPORTANT!!
         # Regular expression rules for simple tokens
+
         def t_UFLOAT(t):
             r'((\d+\.?\d+)|(\.\d+))([eE][+-]?\d+)?'
             if not re.search(r'[eE\.]', t.value):
@@ -119,6 +122,12 @@ class CDS(Base):
             t.value = cls._get_unit(t)
             return t
 
+        def t_DIMENSIONLESS(t):
+            r'---|-'
+            # These are separate from t_UNIT since they cannot have a prefactor.
+            t.value = cls._get_unit(t)
+            return t
+
         t_ignore = ''
 
         # Error handling rule
@@ -126,17 +135,8 @@ class CDS(Base):
             raise ValueError(
                 f"Invalid character at col {t.lexpos}")
 
-        lexer_exists = os.path.exists(os.path.join(os.path.dirname(__file__),
-                                      'cds_lextab.py'))
-
-        lexer = lex.lex(optimize=True, lextab='cds_lextab',
-                        outputdir=os.path.dirname(__file__),
-                        reflags=int(re.UNICODE))
-
-        if not lexer_exists:
-            cls._add_tab_header('cds_lextab')
-
-        return lexer
+        return parsing.lex(lextab='cds_lextab', package='astropy/units',
+                           reflags=int(re.UNICODE))
 
     @classmethod
     def _make_parser(cls):
@@ -149,19 +149,23 @@ class CDS(Base):
         <https://bitbucket.org/nxg/unity/>`_.
         """
 
-        from astropy.extern.ply import yacc
-
         tokens = cls._tokens
 
         def p_main(p):
             '''
             main : factor combined_units
                  | combined_units
+                 | DIMENSIONLESS
+                 | OPEN_BRACKET combined_units CLOSE_BRACKET
+                 | OPEN_BRACKET DIMENSIONLESS CLOSE_BRACKET
                  | factor
             '''
             from astropy.units.core import Unit
+            from astropy.units import dex
             if len(p) == 3:
                 p[0] = Unit(p[1] * p[2])
+            elif len(p) == 4:
+                p[0] = dex(p[2])
             else:
                 p[0] = Unit(p[1])
 
@@ -265,26 +269,19 @@ class CDS(Base):
         def p_error(p):
             raise ValueError()
 
-        parser_exists = os.path.exists(os.path.join(os.path.dirname(__file__),
-                                       'cds_parsetab.py'))
-
-        parser = yacc.yacc(debug=False, tabmodule='cds_parsetab',
-                           outputdir=os.path.dirname(__file__),
-                           write_tables=True)
-
-        if not parser_exists:
-            cls._add_tab_header('cds_parsetab')
-
-        return parser
+        return parsing.yacc(tabmodule='cds_parsetab', package='astropy/units')
 
     @classmethod
     def _get_unit(cls, t):
         try:
             return cls._parse_unit(t.value)
         except ValueError as e:
+            registry = core.get_current_unit_registry()
+            if t.value in registry.aliases:
+                return registry.aliases[t.value]
+
             raise ValueError(
-                "At col {}, {}".format(
-                    t.lexpos, str(e)))
+                f"At col {t.lexpos}, {str(e)}")
 
     @classmethod
     def _parse_unit(cls, unit, detailed_exception=True):
@@ -332,8 +329,7 @@ class CDS(Base):
             if power == 1:
                 out.append(cls._get_unit_name(base))
             else:
-                out.append('{}{}'.format(
-                    cls._get_unit_name(base), int(power)))
+                out.append(f'{cls._get_unit_name(base)}{int(power)}')
         return '.'.join(out)
 
     @classmethod
@@ -342,8 +338,9 @@ class CDS(Base):
         unit = utils.decompose_to_known_units(unit, cls._get_unit_name)
 
         if isinstance(unit, core.CompositeUnit):
-            if(unit.physical_type == 'dimensionless' and
-               is_effectively_unity(unit.scale*100.)):
+            if unit == core.dimensionless_unscaled:
+                return '---'
+            elif is_effectively_unity(unit.scale*100.):
                 return '%'
 
             if unit.scale == 1:

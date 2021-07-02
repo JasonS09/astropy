@@ -1,9 +1,8 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
+# pylint: disable=invalid-name, pointless-statement
 
-import pytest
 import pickle
-
-from copy import deepcopy
+import pytest
 
 import numpy as np
 
@@ -18,16 +17,7 @@ from astropy.modeling.models import (Const1D, Shift, Scale, Rotation2D, Gaussian
                                      Identity, Mapping,
                                      Tabular1D, fix_inputs)
 import astropy.units as u
-from ..core import CompoundModel
-
-
-try:
-    import scipy
-    HAS_SCIPY = True
-except ImportError:
-    HAS_SCIPY = False
-
-HAS_SCIPY_14 = HAS_SCIPY and minversion(scipy, "0.14")
+from astropy.utils.compat.optional_deps import HAS_SCIPY  # noqa
 
 
 @pytest.mark.parametrize(('expr', 'result'),
@@ -53,7 +43,7 @@ def test_model_set_raises_value_error(expr, result):
        different raise a value error
     """
     with pytest.raises(ValueError):
-        s = expr(Const1D((2, 2), n_models=2), Const1D(3, n_models=1))
+        expr(Const1D((2, 2), n_models=2), Const1D(3, n_models=1))
 
 
 @pytest.mark.parametrize(('expr', 'result'),
@@ -306,34 +296,19 @@ def test_compound_with_polynomials_2d(poly):
     assert_allclose(result, result_compound)
 
 
-@pytest.mark.parametrize('poly', [Chebyshev1D(5), Legendre1D(5), Polynomial1D(5)])
-def test_compound_with_polynomials_1d(poly):
-    """
-    Tests that polynomials are scaled when used in compound models.
-    Issue #3699
-    """
-    poly.parameters = [1, 2, 3, 4, 1, 2]
-    shift = Shift(3)
-    model = poly | shift
-    x, y = np.mgrid[:20, :37]
-    result_compound = model(x)
-    result = shift(poly(x))
-    assert_allclose(result, result_compound)
-
-
 def test_fix_inputs():
     g1 = Gaussian2D(1, 0, 0, 1, 2)
     g2 = Gaussian2D(1.5, .5, -.2, .5, .3)
     sg1_1 = fix_inputs(g1, {1: 0})
     assert_allclose(sg1_1(0), g1(0, 0))
-    assert_allclose(sg1_1([0,1,3]), g1([0,1,3],[0,0,0]))
+    assert_allclose(sg1_1([0, 1, 3]), g1([0, 1, 3], [0, 0, 0]))
     sg1_2 = fix_inputs(g1, {'x': 1})
     assert_allclose(sg1_2(1.5), g1(1, 1.5))
     gg1 = g1 & g2
     sgg1_1 = fix_inputs(gg1, {1: 0.1, 3: 0.2})
     assert_allclose(sgg1_1(0, 0), gg1(0, 0.1, 0, 0.2))
     sgg1_2 = fix_inputs(gg1, {'x0': -.1, 2: .1})
-    assert_allclose(sgg1_2(1,1), gg1(-0.1, 1, 0.1, 1))
+    assert_allclose(sgg1_2(1, 1), gg1(-0.1, 1, 0.1, 1))
     assert_allclose(sgg1_2(y0=1, y1=1), gg1(-0.1, 1, 0.1, 1))
 
 
@@ -349,6 +324,12 @@ def test_fix_inputs_invalid():
         fix_inputs(g1, {3: 2})
 
     with pytest.raises(ValueError):
+        fix_inputs(g1, {np.int32(3): 2})
+
+    with pytest.raises(ValueError):
+        fix_inputs(g1, {np.int64(3): 2})
+
+    with pytest.raises(ValueError):
         fix_inputs(g1, {'w': 2})
 
     with pytest.raises(ModelDefinitionError):
@@ -358,18 +339,26 @@ def test_fix_inputs_invalid():
         gg1 = fix_inputs(g1, {0: 1})
         gg1(2, y=2)
 
+    with pytest.raises(ValueError):
+        gg1 = fix_inputs(g1, {np.int32(0): 1})
+        gg1(2, y=2)
+
+    with pytest.raises(ValueError):
+        gg1 = fix_inputs(g1, {np.int64(0): 1})
+        gg1(2, y=2)
+
 
 def test_fix_inputs_with_bounding_box():
     g1 = Gaussian2D(1, 0, 0, 1, 1)
     g2 = Gaussian2D(1, 0, 0, 1, 1)
-    assert g1.bounding_box == ((-5.5,5.5), (-5.5,5.5))
+    assert g1.bounding_box == ((-5.5, 5.5), (-5.5, 5.5))
 
     gg1 = g1 & g2
-    gg1.bounding_box = ((-5.5,5.5), (-5.4,5.4), (-5.3,5.3), (-5.2,5.2))
-    assert gg1.bounding_box == ((-5.5,5.5), (-5.4,5.4), (-5.3,5.3), (-5.2,5.2))
+    gg1.bounding_box = ((-5.5, 5.5), (-5.4, 5.4), (-5.3, 5.3), (-5.2, 5.2))
+    assert gg1.bounding_box == ((-5.5, 5.5), (-5.4, 5.4), (-5.3, 5.3), (-5.2, 5.2))
 
     sg = fix_inputs(gg1, {0: 0, 2: 0})
-    assert sg.bounding_box == ((-5.4,5.4), (-5.2,5.2))
+    assert sg.bounding_box == ((-5.4, 5.4), (-5.2, 5.2))
 
     g1 = Gaussian1D(10, 3, 1)
     g = g1 & g1
@@ -425,6 +414,11 @@ def test_indexing_on_instance():
 
     with pytest.raises(IndexError):
         m['foobar']
+
+    # Confirm index-by-name works with fix_inputs
+    g = Gaussian2D(1, 2, 3, 4, 5, name='g')
+    m = fix_inputs(g, {0: 1})
+    assert m['g'].name == 'g'
 
     # Test string slicing
     A = Const1D(1.1, name='A')
@@ -489,6 +483,14 @@ def test_inherit_constraints():
     assert model.mean_1.fixed is False
     assert model[1].mean.fixed is False
 
+    # Now turn off syncing of constraints
+    assert model.bounds['stddev_0']  == (0.1, 0.5)
+    model.sync_constraints = False
+    model[0].stddev.bounds = (0, 0.2)
+    assert model.bounds['stddev_0'] == (0.1, 0.5)
+    model.sync_constraints = True
+    assert model.bounds['stddev_0'] == (0, 0.2)
+
 
 def test_compound_custom_inverse():
     """
@@ -541,15 +543,15 @@ def test_update_parameters():
     offx = Shift(1)
     scl = Scale(2)
     m = offx | scl
-    assert(m(1) == 4)
+    assert m(1) == 4
 
     offx.offset = 42
-    assert(m(1) == 86)
+    assert m(1) == 86
 
     m.factor_1 = 100
-    assert(m(1) == 4300)
+    assert m(1) == 4300
     m2 = m | offx
-    assert(m2(1) == 4342)
+    assert m2(1) == 4342
 
 
 def test_name():
@@ -579,7 +581,7 @@ def test_name_index():
         g['bozo']
 
 
-@pytest.mark.skipif("not HAS_SCIPY_14")
+@pytest.mark.skipif("not HAS_SCIPY")
 def test_tabular_in_compound():
     """
     Issue #7411 - evaluate should not change the shape of the output.
@@ -629,32 +631,17 @@ def test_bounding_box():
     mask = ~np.isnan(val)
     assert_allclose(val[mask], compare[mask])
     val2 = g(x+2, y+2, with_bounding_box=True)
-    assert(np.isnan(val2).sum() == 100)
-    val3 = g(.1, .1, with_bounding_box=True)
+    assert np.isnan(val2).sum() == 100
+    # val3 = g(.1, .1, with_bounding_box=True)
 
 
-@pytest.mark.skipif("not HAS_SCIPY_14")
+@pytest.mark.skipif("not HAS_SCIPY")
 def test_bounding_box_with_units():
     points = np.arange(5) * u.pix
     lt = np.arange(5) * u.AA
     t = Tabular1D(points, lt)
 
-    assert(t(1 * u.pix, with_bounding_box=True) == 1. * u.AA)
-
-
-@pytest.mark.parametrize('poly', [Chebyshev2D(1, 2), Polynomial2D(2), Legendre2D(1, 2)])
-def test_compound_with_polynomials_2d(poly):
-    """
-    Tests that polynomials are offset when used in compound models.
-    Issue #3699
-    """
-    poly.parameters = [1, 2, 3, 4, 1, 2]
-    shift = Shift(3)
-    model = poly | shift
-    x, y = np.mgrid[:20, :37]
-    result_compound = model(x, y)
-    result = shift(poly(x, y))
-    assert_allclose(result, result_compound)
+    assert t(1 * u.pix, with_bounding_box=True) == 1. * u.AA
 
 
 @pytest.mark.parametrize('poly', [Chebyshev1D(5), Legendre1D(5), Polynomial1D(5)])
@@ -671,3 +658,265 @@ def test_compound_with_polynomials_1d(poly):
     result = shift(poly(x))
     assert_allclose(result, result_compound)
     assert model.param_names == ('c0_0', 'c1_0', 'c2_0', 'c3_0', 'c4_0', 'c5_0', 'offset_1')
+
+
+def test_replace_submodel():
+    """
+    Replace a model in a Compound model
+    """
+    S1 = Shift(2, name='shift2') | Scale(3, name='scale3')  # First shift then scale
+    S2 = Scale(2, name='scale2') | Shift(3, name='shift3')  # First scale then shift
+
+    m = S1 & S2
+    assert m(1, 2) == (9, 7)
+
+    m2 = m.replace_submodel('scale3', Scale(4, name='scale4'))
+    assert m2(1, 2) == (12, 7)
+    assert m(1, 2) == (9, 7)
+    # Check the inverse has been updated
+    assert m2.inverse(12, 7) == (1, 2)
+
+    # Produce the same result by replacing a single model with a compound
+    m3 = m.replace_submodel('shift2', Shift(2) | Scale(2))
+    assert m(1, 2) == (9, 7)
+    assert m3(1, 2) == (18, 7)
+    # Check the inverse has been updated
+    assert m3.inverse(18, 7) == (1, 2)
+
+    # Test with arithmetic model compunding operator
+    m = S1 + S2
+    assert m(1) == 14
+    m2 = m.replace_submodel('scale2', Scale(4, name='scale4'))
+    assert m2(1) == 16
+
+    # Test with fix_inputs()
+    R = fix_inputs(Rotation2D(angle=90, name='rotate'), {0: 1})
+    m4 = S1 | R
+    assert_allclose(m4(0), (-6, 1))
+
+    m5 = m4.replace_submodel('rotate', Rotation2D(180))
+    assert_allclose(m5(0), (-1, -6))
+
+    # Check we get a value error when model name doesn't exist
+    with pytest.raises(ValueError):
+        m2 = m.replace_submodel('not_there', Scale(2))
+
+    # And now a model set
+    P = Polynomial1D(degree=1, n_models=2, name='poly')
+    S = Shift([1, 2], n_models=2)
+    m = P | S
+    assert_array_equal(m([0, 1]), (1, 2))
+    with pytest.raises(ValueError):
+        m2 = m.replace_submodel('poly', Polynomial1D(degree=1, c0=1))
+    m2 = m.replace_submodel('poly', Polynomial1D(degree=1, c0=[1, 2],
+                                                 n_models=2))
+    assert_array_equal(m2([0, 1]), (2, 4))
+
+    # Ensure previous _user_inverse doesn't stick around
+    S1 = Shift(1)
+    S2 = Shift(2)
+    S3 = Shift(3, name='S3')
+
+    S23 = S2 | S3
+    S23.inverse = Shift(-4.9)
+    m = S1 & S23
+
+    # This should delete the S23._user_inverse
+    m2 = m.replace_submodel('S3', Shift(4))
+    assert m2(1, 2) == (2, 8)
+    assert m2.inverse(2, 8) == (1, 2)
+
+
+@pytest.mark.parametrize(
+    "expr",
+    [
+        lambda m1, m2: m1 + m2,
+        lambda m1, m2: m1 - m2,
+        lambda m1, m2: m1 * m2,
+        lambda m1, m2: m1 / m2,
+    ],
+)
+def test_compound_evaluate(expr):
+    """
+    Tests that compound evaluate function produces the same
+    result as the models with the operator applied
+    """
+    x = np.linspace(-5, 5, 10)
+    # Some evaluate functions assume that inputs are numpy arrays or quantities including Const1D
+    p1 = np.array([1, 2, 3, 4, 1, 2])
+    p2 = np.array([1, 0, 0.5])
+
+    model1 = Polynomial1D(5)
+    model2 = Gaussian1D(2, 1, 5)
+    compound = expr(model1, model2)
+
+    assert_array_equal(
+        compound.evaluate(x, *p1, *p2),
+        expr(model1.evaluate(x, *p1), model2.evaluate(x, *p2)),
+    )
+
+
+def test_compound_evaluate_power():
+    """
+    Tests that compound evaluate function produces the same
+    result as the models with the power operator applied
+    """
+    x = np.linspace(-5, 5, 10)
+    p1 = np.array([1, 0, 0.2])
+    p2 = np.array([3])
+
+    model1 = Gaussian1D(2, 1, 5)
+    model2 = Const1D(2)
+    compound = model1 ** model2
+
+    assert_array_equal(
+        compound.evaluate(x, *p1, *p2),
+        model1.evaluate(x, *p1) ** model2.evaluate(x, *p2),
+    )
+
+
+def test_compound_evaluate_double_shift():
+    x = np.linspace(-5, 5, 10)
+    y = np.linspace(-5, 5, 10)
+
+    m1 = Gaussian2D(1, 0, 0, 1, 1, 1)
+    m2 = Shift(1)
+    m3 = Shift(2)
+    m = Gaussian2D(1, 0, 0, 1, 1, 1) & Shift(1) & Shift(2)
+    assert_array_equal(
+        m.evaluate(x, y, x - 10, y + 20, 1, 0, 0, 1, 1, 1, 1, 2),
+        [
+            m1.evaluate(x, y, 1, 0, 0, 1, 1, 1),
+            m2.evaluate(x - 10, 1),
+            m3.evaluate(y + 20, 2),
+        ],
+    )
+
+
+@pytest.mark.parametrize(
+    "expr",
+    [
+        lambda m1, m2: m1 + m2,
+        lambda m1, m2: m1 - m2,
+        lambda m1, m2: m1 * m2,
+        lambda m1, m2: m1 / m2,
+    ],
+)
+def test_compound_evaluate_named_param(expr):
+    """
+    Tests that compound evaluate function produces the same
+    result as the models with the operator applied
+    """
+    x = np.linspace(-5, 5, 10)
+    p1 = np.array([1, 0, 0.2])
+    p2 = np.array([3, 0.5, 0.5])
+
+    model1 = Gaussian1D(2, 1, 5)
+    model2 = Gaussian1D(2, 1, 5)
+    compound = expr(model1, model2)
+
+    assert_array_equal(
+        compound.evaluate(
+            x, *p2, amplitude_0=p1[0], mean_0=p1[1], stddev_0=p1[2]
+        ),
+        expr(model1.evaluate(x, *p1), model2.evaluate(x, *p2)),
+    )
+
+
+def test_compound_evaluate_name_param_power():
+    """
+    Tests that compound evaluate function produces the same
+    result as the models with the power operator applied
+    """
+    x = np.linspace(-5, 5, 10)
+    p1 = np.array([1, 0, 0.2])
+    p2 = np.array([3])
+
+    model1 = Gaussian1D(2, 1, 5)
+    model2 = Const1D(2)
+    compound = model1 ** model2
+
+    assert_array_equal(
+        compound.evaluate(
+            x, *p2, amplitude_0=p1[0], mean_0=p1[1], stddev_0=p1[2]
+        ),
+        model1.evaluate(x, *p1) ** model2.evaluate(x, *p2),
+    )
+
+
+def test_compound_evaluate_and():
+    """
+    Tests that compound evaluate function produces the same
+    result as the models with the operator applied
+    """
+    x = np.linspace(-5, 5, 10)
+    p1 = np.array([1, 0.1, 0.5])
+    p2 = np.array([3])
+
+    model1 = Gaussian1D()
+    model2 = Shift()
+    compound = model1 & model2
+
+    assert_array_equal(
+        compound.evaluate(x, x, *p1, p2),
+        [model1.evaluate(x, *p1), model2.evaluate(x, p2)],
+    )
+
+
+def test_compound_evaluate_or():
+    """
+    Tests that compound evaluate function produces the same
+    result as the models with the operator applied
+    """
+    x = np.linspace(-5, 5, 10)
+    p1 = np.array([0.5])
+    p2_amplitude = np.array([3])
+    p2_mean = np.array([0])
+    p2_std = np.array([0.1])
+
+    model1 = Shift(0.5)
+    model2 = Gaussian1D(1, 0, 0.5)
+    compound = model1 | model2
+
+    assert_array_equal(
+        compound.evaluate(x, p1, p2_amplitude, p2_mean, p2_std),
+        model2.evaluate(model1.evaluate(x, p1), p2_amplitude, p2_mean, p2_std),
+    )
+
+
+def test_compound_evaluate_fix_inputs_by_keyword():
+    """
+    Tests that compound evaluate function produces the same
+    result as the models fix_inputs operator is applied
+    when using the keyword
+    """
+    y, x = np.mgrid[:10, :10]
+
+    model_params = [3, 0, 0.1, 1, 0.5, 0]
+
+    model = Gaussian2D(1, 2, 0, 0.5)
+    compound = fix_inputs(model, {"x": x + 5})
+
+    assert_array_equal(
+        compound.evaluate(x, y, *model_params),
+        model.evaluate(x + 5, y, *model_params),
+    )
+
+
+def test_compound_evaluate_fix_inputs_by_position():
+    """
+    Tests that compound evaluate function produces the same
+    result as the models fix_inputs operator is applied
+    when using the input index
+    """
+    y, x = np.mgrid[:10, :10]
+
+    model_params = [3, 0, 0.1, 1, 0.5, 0]
+
+    model = Gaussian2D(1, 2, 0, 0.5)
+    compound = fix_inputs(model, {0: x + 5})
+
+    assert_array_equal(
+        compound.evaluate(x, y, *model_params),
+        model.evaluate(x + 5, y, *model_params),
+    )

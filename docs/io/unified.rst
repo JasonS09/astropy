@@ -5,7 +5,7 @@ Unified File Read/Write Interface
 
 ``astropy`` provides a unified interface for reading and writing data in
 different formats. For many common cases this will streamline the process of
-file I/O and reduce the need to master the separate details of all of the I/O
+file I/O and reduce the need to learn the separate details of all of the I/O
 packages within ``astropy``. For details on the implementation see
 :ref:`io_registry`.
 
@@ -145,7 +145,7 @@ For convenience, the command-line tool ``showtable`` can be used to print the
 content of tables for the formats supported by the unified I/O interface.
 
 Example
--------
+^^^^^^^
 
 ..
   EXAMPLE START
@@ -202,6 +202,7 @@ ascii.fixed_width_no_header    Yes          :class:`~astropy.io.ascii.FixedWidth
                  ascii.ipac    Yes          :class:`~astropy.io.ascii.Ipac`: IPAC format table
                 ascii.latex    Yes    .tex  :class:`~astropy.io.ascii.Latex`: LaTeX table
             ascii.no_header    Yes          :class:`~astropy.io.ascii.NoHeader`: Basic table with no headers
+                  ascii.qdp    Yes    .qdp   :class:`~astropy.io.ascii.QDP`: Quick and Dandy Plotter files
                   ascii.rdb    Yes    .rdb  :class:`~astropy.io.ascii.Rdb`: Tab-separated with a type definition header line
                   ascii.rst    Yes    .rst  :class:`~astropy.io.ascii.RST`: reStructuredText simple format table
            ascii.sextractor     No          :class:`~astropy.io.ascii.SExtractor`: SExtractor format table
@@ -231,7 +232,7 @@ that all supported ASCII table formats will be tried in order to successfully
 parse the input.
 
 Examples
---------
+^^^^^^^^
 
 ..
   EXAMPLE START
@@ -279,10 +280,6 @@ column use:
 
      >>> dat = ascii.read('file.dat', format='daophot')
      >>> dat = Table.read('file.dat', format='ascii.daophot')
-
-   For compatibility with ``astropy`` version 0.2 and earlier, the following
-   format values are also allowed in ``Table.read()``: ``daophot``, ``ipac``,
-   ``html``, ``latex``, and ``rdb``.
 
 .. attention:: **ECSV is recommended**
 
@@ -350,19 +347,21 @@ If the file already exists and you want to overwrite it, then set the
 
     >>> t.write('existing_table.fits', overwrite=True)  # doctest: +SKIP
 
-At this time there is no support for appending an HDU to an existing
-file or writing multi-HDU files using the Table interface. Instead, you
-can use the convenience function
+If you want to append a table to an existing file, set the ``append``
+keyword::
+
+    >>> t.write('existing_table.fits', append=True)  # doctest: +SKIP
+
+Alternatively, you can use the convenience function
 :func:`~astropy.io.fits.table_to_hdu` to create a single
 binary table HDU and insert or append that to an existing
 :class:`~astropy.io.fits.HDUList`.
 
-As of ``astropy`` version 3.0 there is support for writing a table which
-contains :ref:`mixin_columns` such as `~astropy.time.Time` or
-`~astropy.coordinates.SkyCoord`. This uses FITS ``COMMENT`` cards to capture
-additional information needed order to fully reconstruct the mixin columns when
-reading back from FITS. The information is a Python `dict` structure which is
-serialized using YAML.
+There is support for writing a table which contains :ref:`mixin_columns` such
+as `~astropy.time.Time` or `~astropy.coordinates.SkyCoord`. This uses FITS
+``COMMENT`` cards to capture additional information needed order to fully
+reconstruct the mixin columns when reading back from FITS. The information is a
+Python `dict` structure which is serialized using YAML.
 
 Keywords
 ^^^^^^^^
@@ -374,7 +373,7 @@ a table you can view the available keywords in a readable format using:
 .. doctest-skip::
 
   >>> for key, value in t.meta.items():
-  ...     print('{0} = {1}'.format(key, value))
+  ...     print(f'{key} = {value}')
 
 This does not include the "internal" FITS keywords that are required to specify
 the FITS table properties (e.g., ``NAXIS``, ``TTYPE1``). ``HISTORY`` and
@@ -807,7 +806,7 @@ Time as a dimension in astronomical data presents challenges in its
 representation in FITS files. The standard has therefore been extended to
 describe rigorously the time coordinate in the ``World Coordinate System``
 framework. Refer to `FITS WCS paper IV
-<http://adsabs.harvard.edu/abs/2015A%26A...574A..36R/>`_ for details.
+<https://ui.adsabs.harvard.edu/abs/2015A%26A...574A..36R/>`_ for details.
 
 Allowing ``Time`` columns to be written as time coordinate
 columns in FITS tables thus involves storing time values in a way that
@@ -925,7 +924,7 @@ Since HDF5 files can contain multiple tables, the full path to the table
 should be specified via the ``path=`` argument when reading and writing.
 
 Examples
---------
+^^^^^^^^
 
 ..
   EXAMPLE START
@@ -971,7 +970,7 @@ and ``meta``.
 
 By default, when writing a table to HDF5 the code will attempt to store each
 key/value pair within the table ``meta`` as HDF5 attributes of the table
-dataset. This will fail as the values within ``meta`` are not objects that can
+dataset. This will fail if the values within ``meta`` are not objects that can
 be stored as HDF5 attributes. In addition, if the table columns being stored
 have defined values for any of the above-listed column attributes, these
 metadata will *not* be stored and a warning will be issued.
@@ -987,30 +986,16 @@ the call to ``write()``::
 
     >>> t.write('observations.hdf5', path='data', serialize_meta=True)
 
+The table metadata are stored as a dataset of strings by serializing the
+metadata in YAML following the `ECSV header format
+<https://github.com/astropy/astropy-APEs/blob/main/APE6.rst#header-details>`_
+definition. Since there are YAML parsers for most common languages, one can
+easily access and use the table metadata if reading the HDF5 in a non-astropy
+application.
+
 As of ``astropy`` 3.0, by specifying ``serialize_meta=True`` one can also store
 to HDF5 tables that contain :ref:`mixin_columns` such as `~astropy.time.Time` or
 `~astropy.coordinates.SkyCoord` columns.
-
-compatibility_mode
-~~~~~~~~~~~~~~~~~~
-
-The way metadata are saved in the HDF5 dataset has changed in ``astropy`` 3.0.
-Previously, the metadata were serialized with YAML and this was stored as an
-HDF5 attribute. This process was subject to a fixed limit on the size of an
-attribute. Starting with 3.0 the YAML-serialized metadata are stored as a
-separate dataset as described above, with no size limit.
-
-Files using the old convention are automatically recognized and will always be
-read correctly.
-
-If for some reason you need to *write* in the old format, you should
-specify the deprecated ``compatibility_mode`` keyword::
-
-    >>> t.write('observations.hdf5', path='updated_data', serialize_meta=True,
-    ...         compatibility_mode=True)
-
-.. warning:: The ``compatibility_mode`` keyword will be removed in a future
-   version of ``astropy``, so your code should be changed.
 
 .. _table_io_pandas:
 
@@ -1059,7 +1044,7 @@ allow to visualize interactively an HTML table (with columns sorting, search,
 and pagination).
 
 Example
--------
+^^^^^^^
 
 ..
   EXAMPLE START
@@ -1097,7 +1082,7 @@ file, but if not, or if writing to disk, then the format should be explicitly
 specified.
 
 Examples
---------
+^^^^^^^^
 
 ..
   EXAMPLE START

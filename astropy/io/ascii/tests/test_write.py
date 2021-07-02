@@ -1,11 +1,10 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 
-
 import os
 import copy
+from contextlib import nullcontext
 from io import StringIO
 from itertools import chain
-
 
 import pytest
 import numpy as np
@@ -13,18 +12,14 @@ import numpy as np
 from astropy.io import ascii
 from astropy import table
 from astropy.table.table_helpers import simple_table
-from astropy.tests.helper import catch_warnings
 from astropy.utils.exceptions import AstropyWarning, AstropyDeprecationWarning
+from astropy.utils.compat.optional_deps import HAS_BS4
 from astropy import units as u
 
-from .common import setup_function, teardown_function
+from .common import setup_function, teardown_function  # noqa
 
-# Check to see if the BeautifulSoup dependency is present.
-try:
-    from bs4 import BeautifulSoup, FeatureNotFound
-    HAS_BEAUTIFUL_SOUP = True
-except ImportError:
-    HAS_BEAUTIFUL_SOUP = False
+if HAS_BS4:
+    from bs4 import BeautifulSoup, FeatureNotFound  # noqa
 
 test_defs = [
     dict(kwargs=dict(),
@@ -114,7 +109,7 @@ ID & XCENTER & YCENTER & MAG & MERR & MSKY & NITER & SHARPNESS & CHI & PIER & PE
 18 & 18.114 & 280.170 & 22.329 & 0.206 & 30.12784 & 4 & -2.544 & 1.104 & 0 & No_error
 \\enddata
 \\end{deluxetable}
-"""
+"""  # noqa
          ),
     dict(
         kwargs=dict(Writer=ascii.AASTex, caption='Mag values \\label{tab1}', latexdict={
@@ -129,15 +124,15 @@ ID & XCENTER & YCENTER & MAG & MERR & MSKY & NITER & SHARPNESS & CHI & PIER & PE
 18 & 18.114 & 280.170 & 22.329 & 0.206 & 30.12784 & 4 & -2.544 & 1.104 & 0 & No_error
 \\enddata
 \\end{deluxetable*}
-"""
+"""  # noqa
     ),
     dict(
         kwargs=dict(Writer=ascii.Latex, caption='Mag values \\label{tab1}',
                     latexdict={'preamble': '\\begin{center}', 'tablefoot': '\\end{center}',
                                'data_end': ['\\hline', '\\hline'],
                                'units':{'MAG': '[mag]', 'XCENTER': '[pixel]'},
-                    'tabletype': 'table*',
-                    'tablealign': 'h'},
+                               'tabletype': 'table*',
+                               'tablealign': 'h'},
                     col_align='|lcccccccccc|'),
         out="""\
 \\begin{table*}[h]
@@ -281,7 +276,7 @@ table,th,td{border:1px solid black;  </style>
 |     null|      null|      null|        null|          null|           null|  null|                   null|        null|  null|         null|
  14        138.538    256.405    15.461       0.003          34.85955        4      -0.032                  0.802        0      No_error
  18        18.114     280.170    22.329       0.206          30.12784        4      -2.544                  1.104        0      No_error
-"""
+"""  # noqa
          ),
 ]
 
@@ -402,8 +397,8 @@ def check_write_table(test_def, table, fast_writer):
         if 'not in the list of formats with fast writers' not in str(e.value):
             raise e
         return
-    print('Expected:\n{}'.format(test_def['out']))
-    print('Actual:\n{}'.format(out.getvalue()))
+    print(f"Expected:\n{test_def['out']}")
+    print(f'Actual:\n{out.getvalue()}')
     assert [x.strip() for x in out.getvalue().strip().splitlines()] == [
         x.strip() for x in test_def['out'].strip().splitlines()]
 
@@ -413,7 +408,7 @@ def check_write_table_via_table(test_def, table, fast_writer):
 
     test_def = copy.deepcopy(test_def)
     if 'Writer' in test_def['kwargs']:
-        format = 'ascii.{}'.format(test_def['kwargs']['Writer']._format_name)
+        format = f"ascii.{test_def['kwargs']['Writer']._format_name}"
         del test_def['kwargs']['Writer']
     else:
         format = 'ascii'
@@ -424,8 +419,8 @@ def check_write_table_via_table(test_def, table, fast_writer):
         if 'not in the list of formats with fast writers' not in str(e.value):
             raise e
         return
-    print('Expected:\n{}'.format(test_def['out']))
-    print('Actual:\n{}'.format(out.getvalue()))
+    print(f"Expected:\n{test_def['out']}")
+    print(f'Actual:\n{out.getvalue()}')
     assert [x.strip() for x in out.getvalue().strip().splitlines()] == [
         x.strip() for x in test_def['out'].strip().splitlines()]
 
@@ -478,12 +473,11 @@ def test_write_invalid_toplevel_meta_ipac():
     table = ascii.get_reader(Reader=ascii.Ipac)
     data = table.read('data/no_data_ipac.dat')
     data.meta['blah'] = 'extra'
+    out = StringIO()
 
-    with catch_warnings(AstropyWarning) as ASwarn:
-        out = StringIO()
+    with pytest.warns(AstropyWarning, match=r'.*were not written.*') as warn:
         data.write(out, format='ascii.ipac')
-    assert len(ASwarn) == 1
-    assert "were not written" in str(ASwarn[0].message)
+    assert len(warn) == 1
 
 
 def test_write_invalid_keyword_meta_ipac():
@@ -494,12 +488,11 @@ def test_write_invalid_keyword_meta_ipac():
     table = ascii.get_reader(Reader=ascii.Ipac)
     data = table.read('data/no_data_ipac.dat')
     data.meta['keywords']['blah'] = 'invalid'
+    out = StringIO()
 
-    with catch_warnings(AstropyWarning) as ASwarn:
-        out = StringIO()
+    with pytest.warns(AstropyWarning, match=r'.*has been skipped.*') as warn:
         data.write(out, format='ascii.ipac')
-    assert len(ASwarn) == 1
-    assert "has been skipped" in str(ASwarn[0].message)
+    assert len(warn) == 1
 
 
 def test_write_valid_meta_ipac():
@@ -508,11 +501,8 @@ def test_write_valid_meta_ipac():
     table = ascii.get_reader(Reader=ascii.Ipac)
     data = table.read('data/no_data_ipac.dat')
     data.meta['keywords']['blah'] = {'value': 'invalid'}
-
-    with catch_warnings(AstropyWarning) as ASwarn:
-        out = StringIO()
-        data.write(out, format='ascii.ipac')
-    assert len(ASwarn) == 0
+    out = StringIO()
+    data.write(out, format='ascii.ipac')
 
 
 @pytest.mark.parametrize("fast_writer", [True, False])
@@ -565,7 +555,7 @@ def test_latex_units():
     **latexdict** does not specify units.
     """
     t = table.Table([table.Column(name='date', data=['a', 'b']),
-               table.Column(name='NUV exp.time', data=[1, 2])])
+                     table.Column(name='NUV exp.time', data=[1, 2])])
     latexdict = copy.deepcopy(ascii.latexdicts['AA'])
     latexdict['units'] = {'NUV exp.time': 's'}
     out = StringIO()
@@ -629,11 +619,19 @@ def test_byte_string_output(fast_writer):
 def test_names_with_formats(names, include_names, exclude_names, formats, issues_warning):
     """Test for #4508."""
     t = table.Table([[1, 2, 3], [4.1, 5.2, 6.3]])
-    with catch_warnings(AstropyWarning) as ASwarn:
-        out = StringIO()
+    out = StringIO()
+
+    if issues_warning:
+        ctx = pytest.warns(AstropyWarning)
+    else:
+        ctx = nullcontext()
+
+    with ctx as warn:
         ascii.write(t, out, names=names, include_names=include_names,
-        exclude_names=exclude_names, formats=formats)
-    assert (issues_warning == (len(ASwarn) == 1))
+                    exclude_names=exclude_names, formats=formats)
+
+    if issues_warning:
+        assert len(warn) == 1
 
 
 @pytest.mark.parametrize('formats, issues_warning', [
@@ -645,10 +643,18 @@ def test_names_with_formats(names, include_names, exclude_names, formats, issues
 def test_columns_names_with_formats(formats, issues_warning):
     """Test the fix for #4508."""
     t = table.Table([[1, 2, 3], [4.1, 5.2, 6.3]])
-    with catch_warnings(AstropyWarning) as ASwarn:
-        out = StringIO()
+    out = StringIO()
+
+    if issues_warning:
+        ctx = pytest.warns(AstropyWarning)
+    else:
+        ctx = nullcontext()
+
+    with ctx as warn:
         ascii.write(t, out, formats=formats)
-    assert (issues_warning == (len(ASwarn) == 1))
+
+    if issues_warning:
+        assert len(warn) == 1
 
 
 @pytest.mark.parametrize("fast_writer", [True, False])
@@ -692,12 +698,12 @@ def test_write_overwrite_ascii(format, fast_writer, tmpdir):
                 fast_writer=fast_writer)
     assert str(err.value).endswith('already exists')
 
-    with catch_warnings(AstropyDeprecationWarning) as warning:
+    with pytest.warns(
+            AstropyDeprecationWarning,
+            match=r".* Automatically overwriting ASCII files is deprecated. "
+            "Use the argument 'overwrite=True' in the future.") as warning:
         t.write(filename, format=format, fast_writer=fast_writer)
     assert len(warning) == 1
-    assert str(warning[0].message).endswith(
-        "Automatically overwriting ASCII files is deprecated. "
-        "Use the argument 'overwrite=True' in the future.")
 
     t.write(filename, overwrite=True, format=format,
             fast_writer=fast_writer)
@@ -728,25 +734,31 @@ def test_roundtrip_masked(fmt_name_class):
         return
 
     # Skip tests for fixed_width or HTML without bs4
-    if ((fmt_name == 'html' and not HAS_BEAUTIFUL_SOUP)
+    if ((fmt_name == 'html' and not HAS_BS4)
             or fmt_name == 'fixed_width'):
         return
 
-    t = simple_table(masked=True)
+    if 'qdp' in fmt_name:
+        # QDP tables are for numeric values only
+        t = simple_table(masked=True, kinds=['f', 'i'])
+    else:
+        t = simple_table(masked=True)
 
     out = StringIO()
     fast = fmt_name in ascii.core.FAST_CLASSES
     try:
         ascii.write(t, out, format=fmt_name, fast_writer=fast)
-    except ImportError:  # Some failed dependency, e.g. PyYAML, skip test
+    except ImportError:  # Some failed dependency, skip test
         return
 
     # No-header formats need to be told the column names
     kwargs = {'names': t.colnames} if 'no_header' in fmt_name else {}
+    if 'qdp' in fmt_name:
+        kwargs.update({'table_id': 0, 'names': t.colnames})
 
     t2 = ascii.read(out.getvalue(), format=fmt_name, fast_reader=fast, guess=False, **kwargs)
-
     assert t.colnames == t2.colnames
+
     for col, col2 in zip(t.itercols(), t2.itercols()):
         assert col.dtype.kind == col2.dtype.kind
         assert np.all(col == col2)
@@ -771,6 +783,24 @@ def test_write_newlines(fast_writer, tmpdir):
 
 
 @pytest.mark.parametrize("fast_writer", [True, False])
+def test_write_csv_with_comments(fast_writer):
+    """
+    Test fix for #7357 where writing a Table with comments to 'csv' fails with
+    a cryptic message. The comments are dropped by default, but when comment='#'
+    is supplied they are still written.
+    """
+    out = StringIO()
+    t = table.Table([[1, 2], [3, 4]], names=['a', 'b'])
+    t.meta['comments'] = ['hello']
+    ascii.write(t, out, format='csv', fast_writer=fast_writer)
+    assert out.getvalue().splitlines() == ['a,b', '1,3', '2,4']
+
+    out = StringIO()
+    ascii.write(t, out, format='csv', fast_writer=fast_writer, comment='#')
+    assert out.getvalue().splitlines() == ['#hello', 'a,b', '1,3', '2,4']
+
+
+@pytest.mark.parametrize("fast_writer", [True, False])
 def test_write_formatted_mixin(fast_writer):
     """
     Test fix for #8680 where writing a QTable with a quantity mixin generates
@@ -782,3 +812,39 @@ def test_write_formatted_mixin(fast_writer):
     assert out.getvalue().splitlines() == ['a b',
                                            '01 1.00',
                                            '02 2.00']
+
+
+def test_validate_write_kwargs():
+    out = StringIO()
+    t = table.QTable([[1, 2], [1, 2]], names=['a', 'b'])
+
+    with pytest.raises(TypeError, match=r"write\(\) argument 'fast_writer' must be a "
+                       r"\(<class 'bool'>, <class 'str'>\) object, "
+                       r"got <class 'int'> instead"):
+        ascii.write(t, out, fast_writer=12)
+
+
+@pytest.mark.parametrize("fmt_name_class", fmt_name_classes)
+def test_multidim_column_error(fmt_name_class):
+    """
+    Test that trying to write a multidim column fails in every format except
+    ECSV.
+    """
+    fmt_name, fmt_cls = fmt_name_class
+
+    if not getattr(fmt_cls, '_io_registry_can_write', True):
+        return
+
+    # Skip tests for ecsv or HTML without bs4. See the comment in latex.py
+    # Latex class where max_ndim = None is defined regarding latex and aastex.
+    if ((fmt_name == 'html' and not HAS_BS4)
+            or fmt_name in ('ecsv', 'latex', 'aastex')):
+        return
+
+    out = StringIO()
+    t = table.Table()
+    t['a'] = np.arange(16).reshape(2, 2, 2, 2)
+    t['b'] = [1, 2]
+    fast = fmt_name in ascii.core.FAST_CLASSES
+    with pytest.raises(ValueError, match=r'column\(s\) with dimension'):
+        ascii.write(t, out, format=fmt_name, fast_writer=fast)

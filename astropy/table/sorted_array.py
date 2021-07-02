@@ -36,8 +36,9 @@ class SortedArray:
         Sorted columns of the original table
     row_index : Column object
         Row numbers corresponding to data columns
-    unique : bool (defaults to False)
-        Whether the values of the index must be unique
+    unique : bool
+        Whether the values of the index must be unique.
+        Defaults to False.
     '''
 
     def __init__(self, data, row_index, unique=False):
@@ -48,7 +49,7 @@ class SortedArray:
 
     @property
     def cols(self):
-        return self.data.columns.values()
+        return list(self.data.columns.values())
 
     def add(self, key, row):
         '''
@@ -66,8 +67,7 @@ class SortedArray:
         if self.unique and 0 <= pos < len(self.row_index) and \
            all(self.data[pos][i] == key[i] for i in range(len(key))):
             # already exists
-            raise ValueError('Cannot add duplicate value "{}" in a '
-                             'unique index'.format(key))
+            raise ValueError(f'Cannot add duplicate value "{key}" in a unique index')
         self.data.insert_row(pos, key)
         self.row_index = self.row_index.insert(pos, row)
 
@@ -112,8 +112,8 @@ class SortedArray:
             if exact and (t == len(key_slice) or key_slice[t] != key[i]):
                 # no match
                 return -1
-            elif t == len(key_slice) or (t == 0 and len(key_slice) > 0 and
-                                         key[i] < key_slice[0]):
+            elif t == len(key_slice) or (t == 0 and len(key_slice) > 0
+                                         and key[i] < key_slice[0]):
                 # too small or too large
                 return begin + t
             end = begin + _searchsorted(key_slice, key[i], side='right')
@@ -168,11 +168,11 @@ class SortedArray:
             Lower search bound
         upper : tuple
             Upper search bound
-        bounds : tuple (x, y) of bools
+        bounds : (2,) tuple of bool
             Indicates whether the search should be inclusive or
             exclusive with respect to the endpoints. The first
-            argument x corresponds to an inclusive lower bound,
-            and the second argument y to an inclusive upper bound.
+            argument corresponds to an inclusive lower bound,
+            and the second argument to an inclusive upper bound.
         '''
         lower_pos = self.find_pos(lower, 0)
         upper_pos = self.find_pos(upper, 0)
@@ -308,7 +308,4 @@ class SortedArray:
     def __repr__(self):
         t = self.data.copy()
         t['rows'] = self.row_index
-        return str(t)
-
-    def __str__(self):
-        return repr(self)
+        return f'<{self.__class__.__name__} length={len(t)}>\n{t}'

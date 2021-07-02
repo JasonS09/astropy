@@ -15,22 +15,22 @@ __all__ = ['Galactic']
 
 
 doc_components = """
-    l : `~astropy.coordinates.Angle`, optional, must be keyword
+    l : `~astropy.coordinates.Angle`, optional, keyword-only
         The Galactic longitude for this object (``b`` must also be given and
         ``representation`` must be None).
-    b : `~astropy.coordinates.Angle`, optional, must be keyword
+    b : `~astropy.coordinates.Angle`, optional, keyword-only
         The Galactic latitude for this object (``l`` must also be given and
         ``representation`` must be None).
-    distance : `~astropy.units.Quantity`, optional, must be keyword
+    distance : `~astropy.units.Quantity` ['length'], optional, keyword-only
         The Distance for this object along the line-of-sight.
 
-    pm_l_cosb : :class:`~astropy.units.Quantity`, optional, must be keyword
+    pm_l_cosb : `~astropy.units.Quantity` ['angular speed'], optional, keyword-only
         The proper motion in Galactic longitude (including the ``cos(b)`` term)
         for this object (``pm_b`` must also be given).
-    pm_b : :class:`~astropy.units.Quantity`, optional, must be keyword
+    pm_b : `~astropy.units.Quantity` ['angular speed'], optional, keyword-only
         The proper motion in Galactic latitude for this object (``pm_l_cosb``
         must also be given).
-    radial_velocity : :class:`~astropy.units.Quantity`, optional, must be keyword
+    radial_velocity : `~astropy.units.Quantity` ['speed'], optional, keyword-only
         The radial velocity of this object.
 """
 
@@ -39,7 +39,7 @@ doc_footer = """
     -----
     .. [1] Blaauw, A.; Gum, C. S.; Pawsey, J. L.; Westerhout, G. (1960), "The
        new I.A.U. system of galactic coordinates (1958 revision),"
-       `MNRAS, Vol 121, pp.123 <http://adsabs.harvard.edu/abs/1960MNRAS.121..123B>`_.
+       `MNRAS, Vol 121, pp.123 <https://ui.adsabs.harvard.edu/abs/1960MNRAS.121..123B>`_.
 """
 
 
@@ -87,7 +87,7 @@ class Galactic(BaseCoordinateFrame):
     # These are *not* from Reid & Brunthaler 2004 - instead, they were
     # derived by doing:
     #
-    # >>> FK4NoETerms(ra=192.25*u.degree, dec=27.4*u.degree).transform_to(FK5)
+    # >>> FK4NoETerms(ra=192.25*u.degree, dec=27.4*u.degree).transform_to(FK5())
     #
     # This gives better consistency with other codes than using the values
     # from Reid & Brunthaler 2004 and the best self-consistency between FK5

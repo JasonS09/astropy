@@ -23,7 +23,7 @@ matplotlib's default of 10 bins, the second with an arbitrarily chosen
     import matplotlib.pyplot as plt
 
     # generate some complicated data
-    rng = np.random.RandomState(0)
+    rng = np.random.default_rng(0)
     t = np.concatenate([-5 + 1.8 * rng.standard_cauchy(500),
                         -4 + 0.8 * rng.standard_cauchy(2000),
                         -1 + 0.3 * rng.standard_cauchy(500),
@@ -41,7 +41,7 @@ matplotlib's default of 10 bins, the second with an arbitrarily chosen
         ax[i].hist(t, bins=bins, histtype='stepfilled', alpha=0.2, density=True)
         ax[i].set_xlabel('t')
         ax[i].set_ylabel('P(t)')
-        ax[i].set_title('plt.hist(t, bins={0})'.format(bins),
+        ax[i].set_title(f'plt.hist(t, bins={bins})',
                         fontdict=dict(family='monospace'))
 
 Upon visual inspection, it is clear that each of these choices is suboptimal:
@@ -78,7 +78,7 @@ The following figure shows the results of these two rules on the above dataset:
     from astropy.visualization import hist
 
     # generate some complicated data
-    rng = np.random.RandomState(0)
+    rng = np.random.default_rng(0)
     t = np.concatenate([-5 + 1.8 * rng.standard_cauchy(500),
                         -4 + 0.8 * rng.standard_cauchy(2000),
                         -1 + 0.3 * rng.standard_cauchy(500),
@@ -97,7 +97,7 @@ The following figure shows the results of these two rules on the above dataset:
              alpha=0.2, density=True)
         ax[i].set_xlabel('t')
         ax[i].set_ylabel('P(t)')
-        ax[i].set_title('hist(t, bins="{0}")'.format(bins),
+        ax[i].set_title(f'hist(t, bins="{bins}")',
                         fontdict=dict(family='monospace'))
 
 
@@ -133,7 +133,7 @@ the results of these procedures for the above dataset:
     from astropy.visualization import hist
 
     # generate some complicated data
-    rng = np.random.RandomState(0)
+    rng = np.random.default_rng(0)
     t = np.concatenate([-5 + 1.8 * rng.standard_cauchy(500),
                         -4 + 0.8 * rng.standard_cauchy(2000),
                         -1 + 0.3 * rng.standard_cauchy(500),
@@ -152,7 +152,7 @@ the results of these procedures for the above dataset:
                 alpha=0.2, density=True)
         ax[i].set_xlabel('t')
         ax[i].set_ylabel('P(t)')
-        ax[i].set_title('hist(t, bins="{0}")'.format(bins),
+        ax[i].set_title(f'hist(t, bins="{bins}")',
                         fontdict=dict(family='monospace'))
 
 

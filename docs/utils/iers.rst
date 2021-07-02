@@ -1,8 +1,8 @@
 .. _utils-iers:
 
-************************************************
+***************************************
 IERS data access (`astropy.utils.iers`)
-************************************************
+***************************************
 
 Introduction
 ============
@@ -70,27 +70,24 @@ and includes transforms dating back to 1973-01-01.
 Configuration parameters
 ------------------------
 
-There are three configuration parameters that control the behavior
-of the automatic IERS downloading:
+There are a number of IERS configuration parameters in `astropy.utils.iers.Conf`
+that control the behavior of the automatic IERS downloading. Three of the most
+important to consider are the following:
 
   auto_download:
     Enable auto-downloading of the latest IERS data.  If set to ``False`` then
     the local IERS-B file will be used by default (even if the full IERS file
-    with predictions was already downloaded and cached).  This replicates the
-    behavior prior to astropy 1.2.  (default=True)
+    with predictions was already downloaded and cached).  This parameter also
+    controls whether internet resources will be queried to update the leap
+    second table if the installed version is out of date.
 
   auto_max_age:
     Maximum age of predictive data before auto-downloading (days).  See
     next section for details. (default=30)
 
-  iers_auto_url:
-    URL for auto-downloading IERS file data
-
-  iers_auto_url_mirror:
-    Mirror URL for auto-downloading IERS file data.
-
   remote_timeout:
     Remote timeout downloading IERS file data (seconds)
+
 
 Auto refresh behavior
 ---------------------
@@ -162,7 +159,7 @@ transformations.  For example::
   >>> t = Time('2010:001')
   >>> iers_b = iers.IERS_B.open()
   >>> iers_b.ut1_utc(t)  # doctest: +FLOAT_CMP
-  <Quantity 0.1140827 s>
+  <Quantity 0.114033 s>
   >>> iers.earth_orientation_table.set(iers_b)
   <ScienceState earth_orientation_table: <IERS_B length=...>...>
   >>> t.ut1.iso
@@ -183,14 +180,14 @@ To reset to the default, pass in `None` (which is equivalent to passing in
 ``iers.IERS_Auto.open()``)::
 
   >>> iers.earth_orientation_table.set(None)  # doctest: +REMOTE_DATA
-  <ScienceState earth_orientation_table: <IERS_Auto length=...>...>
+  <ScienceState earth_orientation_table: <IERS...>...>
 
 To see the internal IERS data that gets used in astropy you can do the
 following::
 
   >>> dat = iers.earth_orientation_table.get()  # doctest: +REMOTE_DATA
   >>> type(dat)  # doctest: +REMOTE_DATA
-  <class 'astropy.utils.iers.iers.IERS_Auto'>
+  <class 'astropy.utils.iers.iers.IERS...'>
   >>> dat  # doctest: +SKIP
   <IERS_Auto length=16196>
    year month  day    MJD   PolPMFlag_A ... UT1Flag    PM_x     PM_y   PolPMFlag

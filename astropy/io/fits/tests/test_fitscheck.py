@@ -1,15 +1,25 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 
+import re
 import pytest
 from . import FitsTestCase
 from astropy.io.fits.scripts import fitscheck
 from astropy.io import fits
+from astropy.utils.exceptions import AstropyUserWarning
+from astropy import __version__ as version
 
 
 class TestFitscheck(FitsTestCase):
-    def test_noargs(self):
+    def test_help(self):
         with pytest.raises(SystemExit) as e:
             fitscheck.main(['-h'])
+        assert e.value.code == 0
+
+    def test_version(self, capsys):
+        with pytest.raises(SystemExit) as e:
+            fitscheck.main(['--version'])
+            out = capsys.readouterr()[0]
+            assert out == f'fitscheck {version}'
         assert e.value.code == 0
 
     def test_missing_file(self, capsys):
@@ -46,7 +56,7 @@ class TestFitscheck(FitsTestCase):
         stdout, stderr = capsys.readouterr()
         assert stderr == ''
 
-    def test_overwrite_invalid(self, capsys):
+    def test_overwrite_invalid(self, caplog):
         """
         Tests that invalid checksum or datasum are overwriten when the file is
         saved.
@@ -65,13 +75,15 @@ class TestFitscheck(FitsTestCase):
             hdul.writeto(testfile)
 
         assert fitscheck.main([testfile]) == 1
-        stdout, stderr = capsys.readouterr()
-        assert 'BAD' in stderr
-        assert 'Checksum verification failed' in stderr
+        assert re.match(r'BAD.*Checksum verification failed for HDU',
+                        caplog.records[0].message)
+        caplog.clear()
 
-        assert fitscheck.main([testfile, '--write', '--force']) == 1
-        stdout, stderr = capsys.readouterr()
-        assert 'BAD' in stderr
+        with pytest.warns(AstropyUserWarning):
+            assert fitscheck.main([testfile, '--write', '--force']) == 1
+        assert re.match(r'BAD.*Checksum verification failed for HDU',
+                        caplog.records[0].message)
+        caplog.clear()
 
         # check that the file was fixed
         assert fitscheck.main([testfile]) == 0

@@ -1,7 +1,6 @@
 /*============================================================================
-
-  WCSLIB 6.4 - an implementation of the FITS WCS standard.
-  Copyright (C) 1995-2019, Mark Calabretta
+  WCSLIB 7.6 - an implementation of the FITS WCS standard.
+  Copyright (C) 1995-2021, Mark Calabretta
 
   This file is part of WCSLIB.
 
@@ -18,14 +17,12 @@
   You should have received a copy of the GNU Lesser General Public License
   along with WCSLIB.  If not, see http://www.gnu.org/licenses.
 
-  Direct correspondence concerning WCSLIB to mark@calabretta.id.au
-
   Author: Mark Calabretta, Australia Telescope National Facility, CSIRO.
   http://www.atnf.csiro.au/people/Mark.Calabretta
-  $Id: wcslib.h,v 6.4 2019/08/15 09:30:18 mcalabre Exp $
+  $Id: wcslib.h,v 7.6 2021/04/13 12:57:01 mcalabre Exp $
 *=============================================================================
 *
-* WCSLIB 6.4 - C routines that implement the FITS World Coordinate System
+* WCSLIB 7.6 - C routines that implement the FITS World Coordinate System
 * (WCS) standard.  Refer to the README file provided with WCSLIB for an
 * overview of the library.
 *
@@ -60,4 +57,4 @@
 #include "wcsutil.h"
 #include "wtbarr.h"
 
-#endif /* WCSLIB_WCSLIB */
+#endif // WCSLIB_WCSLIB

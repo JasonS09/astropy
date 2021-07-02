@@ -2,6 +2,7 @@
 # This file connects the readers/writers to the astropy.table.Table class
 
 import functools
+import os.path
 
 from astropy.table import Table
 import astropy.io.registry as io_registry
@@ -42,24 +43,11 @@ def import_html_libs():
 
     global _HAS_BS4, _HAS_LXML, _HAS_HTML5LIB
 
-    try:
-        import bs4  # noqa
-        _HAS_BS4 = True
-    except ImportError:
-        pass
-
-    try:
-        import lxml  # noqa
-        _HAS_LXML = True
-    except ImportError:
-        pass
-
-    try:
-        import html5lib  # noqa
-        _HAS_HTML5LIB = True
-    except ImportError:
-        pass
-
+    from astropy.utils.compat.optional_deps import (
+        HAS_BS4 as _HAS_BS4,
+        HAS_LXML as _HAS_LXML,
+        HAS_HTML5LIB as _HAS_HTML5LIB
+    )
     _IMPORTS = True
 
 
@@ -97,7 +85,7 @@ def _pandas_read(fmt, filespec, **kwargs):
     return Table.from_pandas(df)
 
 
-def _pandas_write(fmt, tbl, filespec, **kwargs):
+def _pandas_write(fmt, tbl, filespec, overwrite=False, **kwargs):
     """Provide io Table connector to write table using pandas.
 
     """
@@ -109,6 +97,15 @@ def _pandas_write(fmt, tbl, filespec, **kwargs):
 
     df = tbl.to_pandas()
     write_method = getattr(df, 'to_' + pandas_fmt)
+
+    if not overwrite:
+        try:  # filespec is not always a path-like
+            exists = os.path.exists(filespec)
+        except TypeError:  # skip invalid arguments
+            pass
+        else:
+            if exists:  # only error if file already exists
+                raise OSError(f"{filespec} already exists")
 
     return write_method(filespec, **write_kwargs)
 

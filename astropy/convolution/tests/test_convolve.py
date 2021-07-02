@@ -3,12 +3,13 @@
 import pytest
 import numpy as np
 import numpy.ma as ma
+from contextlib import nullcontext
 
 from astropy.convolution.convolve import convolve, convolve_fft
 from astropy.convolution.kernels import Gaussian2DKernel
 from astropy.utils.exceptions import AstropyUserWarning
 from astropy import units as u
-from astropy.utils.compat.context import nullcontext
+from astropy.utils.compat.optional_deps import HAS_SCIPY, HAS_PANDAS  # noqa
 
 from numpy.testing import (assert_array_almost_equal_nulp,
                            assert_array_almost_equal,
@@ -29,20 +30,10 @@ BOUNDARIES_AND_CONVOLUTIONS = (list(zip(itertools.cycle((convolve,)),
                                                                'wrap'),
                                                               (convolve_fft,
                                                                'fill')])
-HAS_SCIPY = True
-try:
-    import scipy
-except ImportError:
-    HAS_SCIPY = False
-
-HAS_PANDAS = True
-try:
-    import pandas
-except ImportError:
-    HAS_PANDAS = False
 
 
 class TestConvolve1D:
+
     def test_list(self):
         """
         Test that convolve works correctly when inputs are lists
@@ -64,6 +55,26 @@ class TestConvolve1D:
         z = convolve(x, y, boundary=None)
         assert_array_almost_equal_nulp(z,
             np.array([0., 3.6, 5., 5.6, 5.6, 6.8, 0.]), 10)
+
+    @pytest.mark.parametrize(('boundary', 'nan_treatment',
+                              'normalize_kernel', 'preserve_nan', 'dtype'),
+                             itertools.product(BOUNDARY_OPTIONS,
+                                               NANHANDLING_OPTIONS,
+                                               NORMALIZE_OPTIONS,
+                                               PRESERVE_NAN_OPTIONS,
+                                               VALID_DTYPES))
+    def test_quantity(self, boundary, nan_treatment,
+                      normalize_kernel, preserve_nan, dtype):
+        """
+        Test that convolve works correctly when input array is a Quantity
+        """
+
+        x = np.array([1, 4, 5, 6, 5, 7, 8], dtype=dtype) * u.ph
+        y = np.array([0.2, 0.6, 0.2], dtype=dtype)
+        z = convolve(x, y, boundary=boundary, nan_treatment=nan_treatment,
+                          normalize_kernel=normalize_kernel, preserve_nan=preserve_nan)
+
+        assert x.unit == z.unit
 
     @pytest.mark.parametrize(('boundary', 'nan_treatment',
                               'normalize_kernel', 'preserve_nan', 'dtype'),
@@ -915,6 +926,8 @@ def test_astropy_convolution_against_scipy():
 
 @pytest.mark.skipif('not HAS_PANDAS')
 def test_regression_6099():
+    import pandas
+
     wave = np.array(np.linspace(5000, 5100, 10))
     boxcar = 3
     nonseries_result = convolve(wave, np.ones((boxcar,))/boxcar)

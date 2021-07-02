@@ -5,7 +5,7 @@ Ripley's K Function Estimators
 ******************************
 
 Spatial correlation functions have been used in the astronomical
-context to estimate the probability of finding an object, e.g. a galaxy,
+context to estimate the probability of finding an object (e.g., a galaxy)
 within a given distance of another object [1]_.
 
 Ripley's K function is a type of estimator used to characterize the correlation
@@ -14,13 +14,13 @@ of such spatial point processes
 More precisely, it describes correlation among objects in a given field.
 The `~astropy.stats.RipleysKEstimator` class implements some
 estimators for this function which provides several methods for
-edge-effects correction.
+edge effects correction.
 
 Basic Usage
 ===========
 
 The actual implementation of Ripley's K function estimators lie in the method
-``evaluate`` which take the following arguments ``data``, ``radii``, and,
+``evaluate``, which take the following arguments: ``data``, ``radii``, and
 optionally, ``mode``.
 
 The ``data`` argument is a 2D array which represents the set of observed
@@ -28,13 +28,20 @@ points (events) in the area of study. The ``radii`` argument corresponds to a
 set of distances for which the estimator will be evaluated. The ``mode``
 argument takes a value on the following linguistic set
 ``{none, translation, ohser, var-width, ripley}``; each keyword represents a
-different method to perform correction due to edge-effects. See the API
+different method to perform correction due to edge effects. See the API
 documentation and references for details about these methods.
 
 Instances of `~astropy.stats.RipleysKEstimator` can also be used as
 callables (which is equivalent to calling the ``evaluate`` method).
 
-A minimal usage example is shown as follows:
+Example
+-------
+
+..
+  EXAMPLE START
+  Using Ripley's K Function Estimators
+
+To use Ripley's K Function Estimators from ``astropy``'s stats sub-package:
 
 .. plot::
     :include-source:
@@ -58,11 +65,15 @@ A minimal usage example is shown as follows:
              label=r'$K_{var-width}$')
     plt.plot(r, Kest(data=z, radii=r, mode='ripley'), color='yellow',
              label=r'$K_{ripley}$')
+    plt.legend()
+
+..
+  EXAMPLE END
 
 References
 ==========
 .. [1] Peebles, P.J.E. *The large scale structure of the universe*.
-       <http://adsabs.harvard.edu/cgi-bin/nph-bib_query?bibcode=1980lssu.book.....P&db_key=AST>
+       <https://ui.adsabs.harvard.edu/abs/1980lssu.book.....P>
 .. [2] Ripley, B.D. *The second-order analysis of stationary point processes*.
        Journal of Applied Probability. 13: 255–266, 1976.
 .. [3] *Spatial descriptive statistics*.

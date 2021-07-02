@@ -1,11 +1,8 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 
-
 import os
 
-
 import numpy as np
-
 
 __all__ = ['raises', 'assert_equal', 'assert_almost_equal',
            'assert_true', 'setup_function', 'teardown_function',
@@ -16,10 +13,10 @@ TEST_DIR = os.path.dirname(__file__)
 
 has_isnan = True
 try:
-    from math import isnan  # pylint: disable=W0611
+    from math import isnan  # noqa
 except ImportError:
     try:
-        from numpy import isnan  # pylint: disable=W0611
+        from numpy import isnan  # noqa
     except ImportError:
         has_isnan = False
         print('Tests requiring isnan will fail')
@@ -33,7 +30,7 @@ def teardown_function(function):
     os.chdir(CWD)
 
 
-# Compatibility functions to convert from nose to py.test
+# Compatibility functions to convert from nose to pytest
 def assert_equal(a, b):
     assert a == b
 

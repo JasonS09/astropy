@@ -1,7 +1,6 @@
 /*============================================================================
-
-  WCSLIB 6.4 - an implementation of the FITS WCS standard.
-  Copyright (C) 1995-2019, Mark Calabretta
+  WCSLIB 7.6 - an implementation of the FITS WCS standard.
+  Copyright (C) 1995-2021, Mark Calabretta
 
   This file is part of WCSLIB.
 
@@ -18,14 +17,12 @@
   You should have received a copy of the GNU Lesser General Public License
   along with WCSLIB.  If not, see http://www.gnu.org/licenses.
 
-  Direct correspondence concerning WCSLIB to mark@calabretta.id.au
-
   Author: Mark Calabretta, Australia Telescope National Facility, CSIRO.
   http://www.atnf.csiro.au/people/Mark.Calabretta
-  $Id: wcsutil.h,v 6.4 2019/08/15 09:30:18 mcalabre Exp $
+  $Id: wcsutil.h,v 7.6 2021/04/13 12:57:01 mcalabre Exp $
 *=============================================================================
 *
-* WCSLIB 6.4 - C routines that implement the FITS World Coordinate System
+* WCSLIB 7.6 - C routines that implement the FITS World Coordinate System
 * (WCS) standard.  Refer to the README file provided with WCSLIB for an
 * overview of the library.
 *
@@ -60,22 +57,61 @@
 *             void
 *
 *
+* wcsutil_strcvt() - Copy character string with padding
+* -----------------------------------------------------
+* INTERNAL USE ONLY.
+*
+* wcsutil_strcvt() copies one character string to another up to the specified
+* maximum number of characters.
+*
+* If the given string is null-terminated, then the NULL character copied to
+* the returned string, and all characters following it up to the specified
+* maximum, are replaced with the specified substitute character, either blank
+* or NULL.
+*
+* If the source string is not null-terminated and the substitute character is
+* blank, then copy the maximum number of characters and do nothing further.
+* However, if the substitute character is NULL, then the last character and
+* all consecutive blank characters preceding it will be replaced with NULLs.
+*
+* Used by the Fortran wrapper functions in translating C strings into Fortran
+* CHARACTER variables and vice versa.
+*
+* Given:
+*   n         int       Maximum number of characters to copy.
+*
+*   c         char      Substitute character, either NULL or blank (anything
+*                       other than NULL).
+*
+*   nt        int       If true, then dst is of length n+1, with the last
+*                       character always set to NULL.
+*
+*   src       char[]    Character string to be copied.  If null-terminated,
+*                       then need not be of length n, otherwise it must be.
+*
+* Returned:
+*   dst       char[]    Destination character string, which must be long
+*                       enough to hold n characters.  Note that this string
+*                       will not be null-terminated if the substitute
+*                       character is blank.
+*
+* Function return value:
+*             void
+*
+*
 * wcsutil_blank_fill() - Fill a character string with blanks
 * ----------------------------------------------------------
 * INTERNAL USE ONLY.
 *
-* wcsutil_blank_fill() pads a character string with blanks starting with the
-* terminating NULL character.
-*
-* Used by the Fortran wrapper functions in translating C character strings
-* into Fortran CHARACTER variables.
+* wcsutil_blank_fill() pads a character sub-string with blanks starting with
+* the terminating NULL character (if any).
 *
 * Given:
-*   n         int       Length of the character array, c[].
+*   n         int       Length of the sub-string.
 *
 * Given and returned:
-*   c         char[]    The character string.  It will not be null-terminated
-*                       on return.
+*   c         char[]    The character sub-string, which will not be
+*                       null-terminated on return.
 *
 * Function return value:
 *             void
@@ -85,21 +121,88 @@
 * --------------------------------------------------------
 * INTERNAL USE ONLY.
 *
-* wcsutil_null_fill() strips off trailing blanks and pads the character array
-* holding the string with NULL characters.
+* wcsutil_null_fill() strips trailing blanks from a string (or sub-string) and
+* propagates the terminating NULL character (if any) to the end of the string.
 *
-* Used mainly to make character strings intelligible in the GNU debugger which
-* prints the rubbish following the terminating NULL, obscuring the valid part
-* of the string.
+* If the string is not null-terminated, then the last character and all
+* consecutive blank characters preceding it will be replaced with NULLs.
+*
+* Mainly used in the C library to strip trailing blanks from FITS keyvalues.
+* Also used to make character strings intelligible in the GNU debugger, which
+* prints the rubbish following the terminating NULL character, thereby
+* obscuring the valid part of the string.
 *
 * Given:
 *   n         int       Number of characters.
 *
 * Given and returned:
-*   c         char[]    The character string.
+*   c         char[]    The character (sub-)string.
 *
 * Function return value:
 *             void
+*
+*
+* wcsutil_all_ival() - Test if all elements an int array have a given value
+* -------------------------------------------------------------------------
+* INTERNAL USE ONLY.
+*
+* wcsutil_all_ival() tests whether all elements of an array of type int all
+* have the specified value.
+*
+* Given:
+*   nelem     int       The length of the array.
+*
+*   ival      int       Value to be tested.
+*
+*   iarr      const int[]
+*                       Pointer to the first element of the array.
+*
+* Function return value:
+*             int       Status return value:
+*                         0: Not all equal.
+*                         1: All equal.
+*
+*
+* wcsutil_all_dval() - Test if all elements a double array have a given value
+* ---------------------------------------------------------------------------
+* INTERNAL USE ONLY.
+*
+* wcsutil_all_dval() tests whether all elements of an array of type double all
+* have the specified value.
+*
+* Given:
+*   nelem     int       The length of the array.
+*
+*   dval      int       Value to be tested.
+*
+*   darr      const double[]
+*                       Pointer to the first element of the array.
+*
+* Function return value:
+*             int       Status return value:
+*                         0: Not all equal.
+*                         1: All equal.
+*
+*
+* wcsutil_all_sval() - Test if all elements a string array have a given value
+* ---------------------------------------------------------------------------
+* INTERNAL USE ONLY.
+*
+* wcsutil_all_sval() tests whether all elements of an array of type
+* char (*)[72] all have the specified value.
+*
+* Given:
+*   nelem     int       The length of the array.
+*
+*   sval      char *    String to be tested.
+*
+*   sarr      const (*char)[72]
+*                       Pointer to the first element of the array.
+*
+* Function return value:
+*             int       Status return value:
+*                         0: Not all equal.
+*                         1: All equal.
 *
 *
 * wcsutil_allEq() - Test for equality of a particular vector element
@@ -133,11 +236,11 @@
 *                         1: All equal.
 *
 *
-* wcsutil_Eq() - Test for equality of two double arrays
-* -----------------------------------------------------
+* wcsutil_dblEq() - Test for equality of two arrays of type double
+* ----------------------------------------------------------------
 * INTERNAL USE ONLY.
 *
-* wcsutil_Eq() tests for equality of two double-precision arrays.
+* wcsutil_dblEq() tests for equality of two double-precision arrays.
 *
 * Given:
 *   nelem     int       The number of elements in each array.
@@ -159,8 +262,8 @@
 *                         1: Equal.
 *
 *
-* wcsutil_intEq() - Test for equality of two int arrays
-* -----------------------------------------------------
+* wcsutil_intEq() - Test for equality of two arrays of type int
+* -------------------------------------------------------------
 * INTERNAL USE ONLY.
 *
 * wcsutil_intEq() tests for equality of two int arrays.
@@ -205,7 +308,8 @@
 * --------------------------------------------------
 * INTERNAL USE ONLY.
 *
-* wcsutil_setAll() sets the value of a particular element in a set of vectors.
+* wcsutil_setAll() sets the value of a particular element in a set of vectors
+* of type double.
 *
 * Given:
 *   nvec      int       The number of vectors.
@@ -233,7 +337,8 @@
 * --------------------------------------------------
 * INTERNAL USE ONLY.
 *
-* wcsutil_setAli() sets the value of a particular element in a set of vectors.
+* wcsutil_setAli() sets the value of a particular element in a set of vectors
+* of type int.
 *
 * Given:
 *   nvec      int       The number of vectors.
@@ -366,12 +471,18 @@ extern "C" {
 
 void wcsdealloc(void *ptr);
 
+void wcsutil_strcvt(int n, char c, int nt, const char src[], char dst[]);
+
 void wcsutil_blank_fill(int n, char c[]);
 void wcsutil_null_fill (int n, char c[]);
 
+int  wcsutil_all_ival(int nelem, int ival, const int iarr[]);
+int  wcsutil_all_dval(int nelem, double dval, const double darr[]);
+int  wcsutil_all_sval(int nelem, const char *sval, const char (*sarr)[72]);
 int  wcsutil_allEq (int nvec, int nelem, const double *first);
-int  wcsutil_Eq(int nelem, double tol, const double *arr1,
-                const double *arr2);
+
+int  wcsutil_dblEq(int nelem, double tol, const double *arr1,
+                   const double *arr2);
 int  wcsutil_intEq(int nelem, const int *arr1, const int *arr2);
 int  wcsutil_strEq(int nelem, char (*arr1)[72], char (*arr2)[72]);
 void wcsutil_setAll(int nvec, int nelem, double *first);
@@ -386,4 +497,4 @@ int  wcsutil_str2double2(const char *buf, double *value);
 }
 #endif
 
-#endif /* WCSLIB_WCSUTIL */
+#endif // WCSLIB_WCSUTIL

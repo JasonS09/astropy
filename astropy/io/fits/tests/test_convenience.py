@@ -1,34 +1,30 @@
 # Licensed under a 3-clause BSD style license - see PYFITS.rst
 
-
 import os
+import pathlib
 import warnings
+import io
 
 import pytest
 import numpy as np
+from numpy.testing import assert_array_equal
 
 from astropy.io import fits
 from astropy import units as u
 from astropy.table import Table
 from astropy.io.fits import printdiff
-from astropy.tests.helper import catch_warnings
+from astropy.io.fits.connect import REMOVE_KEYWORDS
 from astropy.utils.exceptions import AstropyUserWarning
 
 from . import FitsTestCase
-from ..connect import REMOVE_KEYWORDS
 
 
 class TestConvenience(FitsTestCase):
 
     def test_resource_warning(self):
         warnings.simplefilter('always', ResourceWarning)
-        with catch_warnings() as w:
-            _ = fits.getdata(self.data('test0.fits'))
-        assert len(w) == 0
-
-        with catch_warnings() as w:
-            _ = fits.getheader(self.data('test0.fits'))
-        assert len(w) == 0
+        _ = fits.getdata(self.data('test0.fits'))
+        _ = fits.getheader(self.data('test0.fits'))
 
     def test_fileobj_not_closed(self):
         """
@@ -54,11 +50,10 @@ class TestConvenience(FitsTestCase):
         table['a'].unit = 'm/s'
         table['b'].unit = 'not-a-unit'
 
-        with catch_warnings() as w:
+        with pytest.warns(u.UnitsWarning, match="'not-a-unit' did not parse as"
+                          " fits unit") as w:
             hdu = fits.table_to_hdu(table)
-            assert len(w) == 1
-            assert str(w[0].message).startswith("'not-a-unit' did not parse as"
-                                                " fits unit")
+        assert len(w) == 1
 
         # Check that TUNITn cards appear in the correct order
         # (https://github.com/astropy/astropy/pull/5720)
@@ -68,15 +63,34 @@ class TestConvenience(FitsTestCase):
         filename = self.temp('test_table_to_hdu.fits')
         hdu.writeto(filename, overwrite=True)
 
+    def test_masked_table_to_hdu(self):
+        i = np.ma.MaskedArray([1, 2, 3], mask=[True, False, False])
+        s = np.ma.MaskedArray(['a', 'b', 'c'], mask=[False, True, True])
+        c = np.ma.MaskedArray([2.3+1j, 4.5+0j, 6.7-1j], mask=[True, False, True])
+        f = np.ma.MaskedArray([2.3, 4.5, 6.7], mask=[True, False, True])
+        table = Table([i, s, c, f], names=['i', 's', 'c', 'f'])
+        # Check that FITS standard is used in replacing masked values.
+        hdu = fits.table_to_hdu(table)
+        assert isinstance(hdu, fits.BinTableHDU)
+        assert hdu.header['TNULL1'] == i.fill_value
+        assert_array_equal(hdu.data['i'], i.filled())
+        assert_array_equal(hdu.data['s'], s.filled(''))
+        assert_array_equal(hdu.data['c'], c.filled(np.nan))
+        assert_array_equal(hdu.data['c'].real, c.real.filled(np.nan))
+        assert_array_equal(hdu.data['c'].imag, c.imag.filled(np.nan))
+        assert_array_equal(hdu.data['c'], c.filled(complex(np.nan, np.nan)))
+        assert_array_equal(hdu.data['f'], f.filled(np.nan))
+        filename = self.temp('test_table_to_hdu.fits')
+        hdu.writeto(filename, overwrite=True)
+
     def test_table_non_stringifyable_unit_to_hdu(self):
         table = Table([[1, 2, 3], ['a', 'b', 'c'], [2.3, 4.5, 6.7]],
                       names=['a', 'b', 'c'], dtype=['i', 'U1', 'f'])
         table['a'].unit = u.core.IrreducibleUnit("test")
 
-        with catch_warnings() as w:
+        with pytest.warns(AstropyUserWarning, match="The unit 'test' could not be saved") as w:
             fits.table_to_hdu(table)
-            assert len(w) == 1
-            assert str(w[0].message).startswith("The unit 'test' could not be saved")
+        assert len(w) == 1
 
     def test_table_to_hdu_convert_comment_convention(self):
         """
@@ -285,3 +299,94 @@ class TestConvenience(FitsTestCase):
 
         with fits.open(testfile, checksum=True) as hdus:
             assert len(hdus) == 5
+
+    def test_pathlib(self):
+        testfile = pathlib.Path(self.temp('test.fits'))
+        data = np.arange(10)
+        hdulist = fits.HDUList([fits.PrimaryHDU(data)])
+        hdulist.writeto(testfile)
+
+        with fits.open(testfile) as hdul:
+            np.testing.assert_array_equal(hdul[0].data, data)
+
+    def test_getdata_ext_given(self):
+        prihdu = fits.PrimaryHDU(data=np.zeros((5, 5), dtype=int))
+        exthdu1 = fits.ImageHDU(data=np.ones((5, 5), dtype=int))
+        exthdu2 = fits.ImageHDU(data=2 * np.ones((5, 5), dtype=int))
+        hdulist = fits.HDUList([prihdu, exthdu1, exthdu2])
+        buf = io.BytesIO()
+        hdulist.writeto(buf)
+
+        for ext in [0, 1, 2]:
+            buf.seek(0)
+            data = fits.getdata(buf, ext=ext)
+            assert data[0, 0] == ext
+
+    def test_getdata_ext_given_nodata(self):
+        prihdu = fits.PrimaryHDU(data=np.zeros((5, 5), dtype=int))
+        exthdu1 = fits.ImageHDU(data=np.ones((5, 5), dtype=int))
+        exthdu2 = fits.ImageHDU(data=None)
+        hdulist = fits.HDUList([prihdu, exthdu1, exthdu2])
+        buf = io.BytesIO()
+        hdulist.writeto(buf)
+        buf.seek(0)
+
+        with pytest.raises(IndexError, match="No data in HDU #2."):
+            fits.getdata(buf, ext=2)
+
+    def test_getdata_ext_not_given_with_data_in_primary(self):
+        prihdu = fits.PrimaryHDU(data=np.zeros((5, 5), dtype=int))
+        exthdu1 = fits.ImageHDU(data=None)
+        exthdu2 = fits.ImageHDU(data=None)
+        hdulist = fits.HDUList([prihdu, exthdu1, exthdu2])
+        buf = io.BytesIO()
+        hdulist.writeto(buf)
+        buf.seek(0)
+
+        data = fits.getdata(buf)
+        assert data[0, 0] == 0
+
+    def test_getdata_ext_not_given_with_data_in_ext(self):
+        # tests fallback mechanism
+        prihdu = fits.PrimaryHDU(data=None)
+        exthdu1 = fits.ImageHDU(data=np.ones((5, 5), dtype=int))
+        exthdu2 = fits.ImageHDU(data=None)
+        hdulist = fits.HDUList([prihdu, exthdu1, exthdu2])
+        buf = io.BytesIO()
+        hdulist.writeto(buf)
+        buf.seek(0)
+
+        data = fits.getdata(buf)
+        assert data[0, 0] == 1
+
+    def test_getdata_ext_not_given_nodata_any(self):
+        # tests exception raised when there is no data in either
+        # Primary HDU or first extension HDU
+        prihdu = fits.PrimaryHDU(data=None)
+        exthdu1 = fits.ImageHDU(data=None)
+        exthdu2 = fits.ImageHDU(data=np.ones((5, 5), dtype=int))
+        hdulist = fits.HDUList([prihdu, exthdu1, exthdu2])
+        buf = io.BytesIO()
+        hdulist.writeto(buf)
+        buf.seek(0)
+
+        with pytest.raises(
+            IndexError,
+            match="No data in either Primary or first extension HDUs."
+        ):
+            fits.getdata(buf)
+
+    def test_getdata_ext_not_given_nodata_noext(self):
+        # tests exception raised when there is no data in the
+        # Primary HDU and there are no extension HDUs
+        prihdu = fits.PrimaryHDU(data=None)
+        hdulist = fits.HDUList([prihdu])
+        buf = io.BytesIO()
+        hdulist.writeto(buf)
+        buf.seek(0)
+
+        with pytest.raises(
+            IndexError,
+            match="No data in Primary HDU and no extension HDU found."
+        ):
+            fits.getdata(buf)

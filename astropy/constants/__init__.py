@@ -57,7 +57,7 @@ def set_enabled_constants(modname):
     """
     Context manager to temporarily set values in the ``constants``
     namespace to an older version.
-    See :ref:`astropy-constants-prior` for usage.
+    See :ref:`astropy:astropy-constants-prior` for usage.
 
     Parameters
     ----------
@@ -77,8 +77,7 @@ def set_enabled_constants(modname):
         codata_context = modmodule.codata
         iaudata_context = modmodule.iaudata
     except ImportError as exc:
-        exc.args += ('Context manager does not currently handle {}'
-                     .format(modname),)
+        exc.args += (f'Context manager does not currently handle {modname}',)
         raise
 
     module = find_current_module()

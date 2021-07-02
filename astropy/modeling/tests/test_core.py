@@ -1,5 +1,5 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
-
+# pylint: disable=invalid-name
 import os
 import sys
 import subprocess
@@ -10,18 +10,13 @@ from inspect import signature
 from numpy.testing import assert_allclose
 
 import astropy
-from astropy.modeling.core import Model, custom_model
+from astropy.modeling.core import Model, custom_model, SPECIAL_OPERATORS, _add_special_operator
 from astropy.modeling.parameters import Parameter
 from astropy.modeling import models
+from astropy.convolution import convolve_models
 import astropy.units as u
 from astropy.tests.helper import assert_quantity_allclose
-
-try:
-    import scipy  # pylint: disable=W0611 # noqa
-except ImportError:
-    HAS_SCIPY = False
-else:
-    HAS_SCIPY = True
+from astropy.utils.compat.optional_deps import HAS_SCIPY  # noqa
 
 
 class NonFittableModel(Model):
@@ -41,14 +36,14 @@ def test_Model_instance_repr_and_str():
     m = NonFittableModel(42.5)
     assert repr(m) == "<NonFittableModel(a=42.5)>"
     assert (str(m) ==
-        "Model: NonFittableModel\n"
-        "Inputs: ()\n"
-        "Outputs: ()\n"
-        "Model set size: 1\n"
-        "Parameters:\n"
-        "     a  \n"
-        "    ----\n"
-        "    42.5")
+            "Model: NonFittableModel\n"
+            "Inputs: ()\n"
+            "Outputs: ()\n"
+            "Model set size: 1\n"
+            "Parameters:\n"
+            "     a  \n"
+            "    ----\n"
+            "    42.5")
 
     assert len(m) == 1
 
@@ -89,6 +84,11 @@ def test_inputless_model():
 
     # Test a model set
     m = TestModel(a=[[1, 2, 3], [4, 5, 6]], model_set_axis=0)
+    assert len(m) == 2
+    assert np.all(m() == [[1, 2, 3], [4, 5, 6]])
+
+    # Test a model set
+    m = TestModel(a=[[1, 2, 3], [4, 5, 6]], model_set_axis=np.int64(0))
     assert len(m) == 2
     assert np.all(m() == [[1, 2, 3], [4, 5, 6]])
 
@@ -359,6 +359,19 @@ def test_render_model_3d():
                     assert (np.sum(expected) - np.sum(boxed)) == 0
 
 
+def test_render_model_out_dtype():
+    """Test different out.dtype for model.render."""
+    for model in [models.Gaussian2D(), models.Gaussian2D() + models.Planar2D()]:
+        for dtype in [np.float64, np.float32, np.complex64]:
+            im = np.zeros((40, 40), dtype=dtype)
+            imout = model.render(out=im)
+            assert imout is im
+            assert imout.sum() != 0
+        with pytest.raises(TypeError):
+            im = np.zeros((40, 40), dtype=np.int32)
+            imout = model.render(out=im)
+
+
 def test_custom_bounding_box_1d():
     """
     Tests that the bounding_box setter works.
@@ -388,7 +401,7 @@ def test_n_submodels_in_single_models():
 
 
 def test_compound_deepcopy():
-    model = (models.Gaussian1D(10, 2,3) | models.Shift(2)) & models.Rotation2D(21.3)
+    model = (models.Gaussian1D(10, 2, 3) | models.Shift(2)) & models.Rotation2D(21.3)
     new_model = model.deepcopy()
     assert id(model) != id(new_model)
     assert id(model._leaflist) != id(new_model._leaflist)
@@ -468,6 +481,34 @@ def test_rename_2d(model_class):
     assert new_model.name == 'Test2D'
 
 
+def test_fix_inputs_integer():
+    """
+    Tests that numpy integers can be passed as dictionary keys to fix_inputs
+    Issue #11358
+    """
+    m = models.Identity(2)
+
+    mf = models.fix_inputs(m, {1: 22})
+    assert mf(1) == (1, 22)
+
+    mf_int32 = models.fix_inputs(m, {np.int32(1): 33})
+    assert mf_int32(1) == (1, 33)
+
+    mf_int64 = models.fix_inputs(m, {np.int64(1): 44})
+    assert mf_int64(1) == (1, 44)
+
+
+def test_fix_inputs_empty_dict():
+    """
+    Tests that empty dictionary can be passed to fix_inputs
+    Issue #11355
+    """
+    m = models.Identity(2)
+
+    mf = models.fix_inputs(m, {})
+    assert mf(1, 2) == (1, 2)
+
+
 def test_rename_inputs_outputs():
     g2 = models.Gaussian2D(10, 2, 3, 1, 2)
     assert g2.inputs == ("x", "y")
@@ -478,3 +519,211 @@ def test_rename_inputs_outputs():
 
     with pytest.raises(ValueError):
         g2.outputs = ("w", "e")
+
+
+def test_prepare_outputs_mixed_broadcast():
+    """
+    Tests that _prepare_outputs_single_model does not fail when a smaller
+    array is passed as first input, but output is broadcast to larger
+    array.
+    Issue #10170
+    """
+
+    model = models.Gaussian2D(1, 2, 3, 4, 5)
+
+    output = model([1, 2], 3)
+    assert output.shape == (2,)
+    np.testing.assert_array_equal(output, [0.9692332344763441, 1.0])
+
+    output = model(4, [5, 6])
+    assert output.shape == (2,)
+    np.testing.assert_array_equal(output, [0.8146473164114145, 0.7371233743916278])
+
+
+def test_prepare_outputs_complex_reshape():
+    x = np.array([[1,  2,  3,  4,  5],
+                  [6,  7,  8,  9,  10],
+                  [11, 12, 13, 14, 15]])
+    y = np.array([[16, 17, 18, 19, 20],
+                  [21, 22, 23, 24, 25],
+                  [26, 27, 28, 29, 30]])
+
+    m = models.Identity(3) | models.Mapping((2, 1, 0))
+    m.bounding_box = ((0, 100), (0, 200), (0, 50))
+    mf = models.fix_inputs(m, {2: 22})
+    t = mf | models.Mapping((2, 1), n_inputs=3)
+
+    output = mf(1, 2)
+    assert output == (22, 2, 1)
+
+    output = t(1, 2)
+    assert output == (1, 2)
+
+    output = t(x, y)
+    assert len(output) == 2
+    np.testing.assert_array_equal(output[0], x)
+    np.testing.assert_array_equal(output[1], y)
+
+    m = models.Identity(3) | models.Mapping((0, 1, 2))
+    m.bounding_box = ((0, 100), (0, 200), (0, 50))
+    mf = models.fix_inputs(m, {2: 22})
+    t = mf | models.Mapping((0, 1), n_inputs=3)
+
+    output = mf(1, 2)
+    assert output == (1, 2, 22)
+
+    output = t(1, 2)
+    assert output == (1, 2)
+
+    output = t(x, y)
+    assert len(output) == 2
+    np.testing.assert_array_equal(output[0], x)
+    np.testing.assert_array_equal(output[1], y)
+
+
+def test_prepare_outputs_single_entry_vector():
+    """
+    jwst and gwcs both require that single entry vectors produce single entry output vectors, not scalars. This
+    tests for that behavior.
+    """
+
+    model = models.Gaussian2D(1, 2, 3, 4, 5)
+
+    output = model(np.array([1]), np.array([2]))
+    assert output.shape == (1,)
+    np.testing.assert_array_equal(output, [0.9500411305585278])
+
+
+@pytest.mark.skipif('not HAS_SCIPY')
+@pytest.mark.filterwarnings('ignore: Using a non-tuple')
+def test_prepare_outputs_sparse_grid():
+    """
+    Test to show that #11060 has been solved.
+    """
+
+    shape = (3, 3)
+    data = np.arange(np.product(shape)).reshape(shape) * u.m / u.s
+
+    points_unit = u.pix
+    points = [np.arange(size) * points_unit for size in shape]
+
+    kwargs = {
+        'bounds_error': False,
+        'fill_value': np.nan,
+        'method': 'nearest',
+    }
+
+    transform = models.Tabular2D(points, data, **kwargs)
+    truth = np.array([[0., 1., 2.],
+                      [3., 4., 5.],
+                      [6., 7., 8.]]) * u.m / u.s
+
+    points = np.meshgrid(np.arange(3), np.arange(3), indexing='ij', sparse=True)
+    x = points[0] * u.pix
+    y = points[1] * u.pix
+    value = transform(x, y)
+    assert (value == truth).all()
+
+    points = np.meshgrid(np.arange(3), np.arange(3), indexing='ij', sparse=False) * u.pix
+    value = transform(*points)
+    assert (value == truth).all()
+
+
+def test_coerce_units():
+    model = models.Polynomial1D(1, c0=1, c1=2)
+
+    with pytest.raises(u.UnitsError):
+        model(u.Quantity(10, u.m))
+
+    with_input_units = model.coerce_units({"x": u.m})
+    result = with_input_units(u.Quantity(10, u.m))
+    assert np.isclose(result, 21.0)
+
+    with_input_units_tuple = model.coerce_units((u.m,))
+    result = with_input_units_tuple(u.Quantity(10, u.m))
+    assert np.isclose(result, 21.0)
+
+    with_return_units = model.coerce_units(return_units={"y": u.s})
+    result = with_return_units(10)
+    assert np.isclose(result.value, 21.0)
+    assert result.unit == u.s
+
+    with_return_units_tuple = model.coerce_units(return_units=(u.s,))
+    result = with_return_units_tuple(10)
+    assert np.isclose(result.value, 21.0)
+    assert result.unit == u.s
+
+    with_both = model.coerce_units({"x": u.m}, {"y": u.s})
+
+    result = with_both(u.Quantity(10, u.m))
+    assert np.isclose(result.value, 21.0)
+    assert result.unit == u.s
+
+    with pytest.raises(ValueError, match=r"input_units keys.*do not match model inputs"):
+        model.coerce_units({"q": u.m})
+
+    with pytest.raises(ValueError, match=r"input_units length does not match n_inputs"):
+        model.coerce_units((u.m, u.s))
+
+    model_with_existing_input_units = models.BlackBody()
+    with pytest.raises(ValueError, match=r"Cannot specify input_units for model with existing input units"):
+        model_with_existing_input_units.coerce_units({"x": u.m})
+
+    with pytest.raises(ValueError, match=r"return_units keys.*do not match model outputs"):
+        model.coerce_units(return_units={"q": u.m})
+
+    with pytest.raises(ValueError, match=r"return_units length does not match n_outputs"):
+        model.coerce_units(return_units=(u.m, u.s))
+
+
+def test_bounding_box_general_inverse():
+    model = NonFittableModel(42.5)
+
+    with pytest.raises(NotImplementedError):
+        model.bounding_box
+    model.bounding_box = ()
+    assert model.bounding_box == ()
+
+    model.inverse = NonFittableModel(3.14)
+    inverse_model = model.inverse
+    with pytest.raises(NotImplementedError):
+        inverse_model.bounding_box
+
+
+def test__add_special_operator():
+    sop_name = 'name'
+    sop = 'value'
+
+    key = _add_special_operator(sop_name, 'value')
+    assert key[0] == sop_name
+    assert key[1] == SPECIAL_OPERATORS._unique_id
+
+    assert key in SPECIAL_OPERATORS
+    assert SPECIAL_OPERATORS[key] == sop
+
+
+def test_print_special_operator_CompoundModel(capsys):
+    """
+    Test that issue #11310 has been fixed
+    """
+
+    model = convolve_models(models.Sersic2D(), models.Gaussian2D())
+    print(model)
+
+    true_out = "Model: CompoundModel\n" +\
+               "Inputs: ('x', 'y')\n" +\
+               "Outputs: ('z',)\n" +\
+               "Model set size: 1\n" +\
+               "Expression: convolve_fft (([0]), ([1]))\n" +\
+               "Components: \n" +\
+               "    [0]: <Sersic2D(amplitude=1., r_eff=1., n=4., x_0=0., y_0=0., ellip=0., theta=0.)>\n" +\
+               "\n" +\
+               "    [1]: <Gaussian2D(amplitude=1., x_mean=0., y_mean=0., x_stddev=1., y_stddev=1., theta=0.)>\n" +\
+               "Parameters:\n" +\
+               "    amplitude_0 r_eff_0 n_0 x_0_0 y_0_0 ... y_mean_1 x_stddev_1 y_stddev_1 theta_1\n" +\
+               "    ----------- ------- --- ----- ----- ... -------- ---------- ---------- -------\n" +\
+               "            1.0     1.0 4.0   0.0   0.0 ...      0.0        1.0        1.0     0.0\n"
+
+    out, err = capsys.readouterr()
+    assert err == ''
+    assert out == true_out

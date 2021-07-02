@@ -36,8 +36,8 @@ coord.galactocentric_frame_defaults.set('latest')
 # For this example, let's work with the coordinates and barycentric radial
 # velocity of the star HD 155967, as obtained from
 # `Simbad <http://simbad.harvard.edu/simbad/>`_:
-icrs = coord.ICRS(ra=258.58356362*u.deg, dec=14.55255619*u.deg,
-                  radial_velocity=-16.1*u.km/u.s)
+icrs = coord.SkyCoord(ra=258.58356362*u.deg, dec=14.55255619*u.deg,
+                      radial_velocity=-16.1*u.km/u.s, frame='icrs')
 
 ################################################################################
 # We next need to decide on the velocity of the Sun in the assumed GSR frame.
@@ -80,7 +80,7 @@ def rv_to_gsr(c, v_sun=None):
     c : `~astropy.coordinates.BaseCoordinateFrame` subclass instance
         The radial velocity, associated with a sky coordinates, to be
         transformed.
-    v_sun : `~astropy.units.Quantity` (optional)
+    v_sun : `~astropy.units.Quantity`, optional
         The 3D velocity of the solar system barycenter in the GSR frame.
         Defaults to the same solar motion as in the
         `~astropy.coordinates.Galactocentric` frame.

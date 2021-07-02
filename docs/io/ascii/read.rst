@@ -16,18 +16,71 @@ list of table lines. The return value (``data`` in this case) is a :ref:`Table
 <astropy-table>` object.
 
 By default, |read| will try to `guess the table format <#guess-table-format>`_
-by trying all of the supported formats. Guessing the file format is often slow
-for large files because the reader tries parsing the file with every
-allowed format until one succeeds. For large files, it is recommended to
-disable guessing with ``guess=False``.
+by trying all of the supported formats.
 
-If guessing does not work, as in the case for unusually formatted tables, then
-you may need to give `astropy.io.ascii` additional hints about the format::
+.. Warning::
+
+   Guessing the file format is often slow for large files because the reader
+   tries parsing the file with every allowed format until one succeeds.
+   For large files it is recommended to disable guessing with ``guess=False``.
+
+..
+  EXAMPLE START
+  Reading ASCII Tables Using astropy.io.ascii
+
+For unusually formatted tables where guessing does not work, give additional
+hints about the format::
+
+   >>> lines = ['objID                   & osrcid            & xsrcid       ',
+   ...          '----------------------- & ----------------- & -------------',
+   ...          '              277955213 & S000.7044P00.7513 & XS04861B6_005',
+   ...          '              889974380 & S002.9051P14.7003 & XS03957B7_004']
+   >>> data = ascii.read(lines, data_start=2, delimiter='&')
+   >>> print(data)
+     objID         osrcid          xsrcid
+   --------- ----------------- -------------
+   277955213 S000.7044P00.7513 XS04861B6_005
+   889974380 S002.9051P14.7003 XS03957B7_004
+
+Other examples are as follows::
 
    >>> data = astropy.io.ascii.read('data/nls1_stackinfo.dbout', data_start=2, delimiter='|')  # doctest: +SKIP
    >>> data = astropy.io.ascii.read('data/simple.txt', quotechar="'")  # doctest: +SKIP
    >>> data = astropy.io.ascii.read('data/simple4.txt', format='no_header', delimiter='|')  # doctest: +SKIP
    >>> data = astropy.io.ascii.read('data/tab_and_space.txt', delimiter=r'\s')  # doctest: +SKIP
+
+If the format of a file is known (e.g., it is a fixed-width table or an IPAC
+table), then it is more efficient and reliable to provide a value for the
+``format`` argument from one of the values in the :ref:`supported_formats`. For
+example::
+
+   >>> data = ascii.read(lines, format='fixed_width_two_line', delimiter='&')
+
+See the :ref:`guess_formats` section for additional details on format guessing.
+
+..
+  EXAMPLE END
+
+For simpler formats such as CSV, |read| will automatically try reading with the
+Cython/C parsing engine, which is significantly faster than the ordinary Python
+implementation (described in :ref:`fast_ascii_io`). If the fast engine fails,
+|read| will fall back on the Python reader by default. The argument
+``fast_reader`` can be specified to control this behavior. For example, to
+disable the fast engine::
+
+   >>> data = ascii.read(lines, format='csv', fast_reader=False)
+
+For reading very large tables see the section on :ref:`chunk_reading` or
+use `pandas <https://pandas.pydata.org/>`_ (see Note below).
+
+.. Note::
+
+   Reading a table which contains unicode characters is supported with the
+   pure Python readers by specifying the ``encoding`` parameter. The fast
+   C-readers do not support unicode. For large data files containing unicode,
+   we recommend reading the file using `pandas <https://pandas.pydata.org/>`_
+   and converting to a :ref:`Table <astropy-table>` via the :ref:`Table -
+   Pandas interface <pandas>`.
 
 The |read| function accepts a number of parameters that specify the detailed
 table format. Different formats can define different defaults, so the
@@ -42,14 +95,17 @@ Parameters for ``read()``
 **table** : input table
   There are four ways to specify the table to be read:
 
-  - Name of a file (string)
+  - Path to a file (string)
   - Single string containing all table lines separated by newlines
   - File-like object with a callable read() method
   - List of strings where each list element is a table line
 
   The first two options are distinguished by the presence of a newline in the
   string. This assumes that valid file names will not normally contain a
-  newline.
+  newline, and a valid table input will at least contain two rows.
+  Note that a table read in ``no_header`` format can legitimately consist
+  of a single row; in this case passing the string as a list with a single
+  item will ensure that it is not interpreted as a file name.
 
 **format** : file format (default='basic')
   This specifies the top-level format of the ASCII table; for example,
@@ -57,7 +113,7 @@ Parameters for ``read()``
   a CDS-compatible table, etc. The value of this parameter must
   be one of the :ref:`supported_formats`.
 
-**guess** : try to guess table format (default=True)
+**guess** : try to guess table format (default=None)
   If set to True, then |read| will try to guess the table format by cycling
   through a number of possible table format permutations and attempting to read
   the table in each case. See the `Guess table format`_ section for further details.
@@ -120,11 +176,16 @@ Parameters for ``read()``
   for more information and examples. The default is that any blank table
   values are treated as missing.
 
-**fill_include_names** : list of column names, which are affected by ``fill_values``.
-  If not supplied, then ``fill_values`` can affect all columns.
+**fill_include_names** : list of column names affected by ``fill_values``
+  This is a list of column names (found from the header or the ``names``
+  parameter) for all columns where values will be filled. `None` (the default) will
+  apply ``fill_values`` to all columns.
 
-**fill_exclude_names** : list of column names, which are not affected by ``fill_values``.
-  If not supplied, then ``fill_values`` can affect all columns.
+**fill_exclude_names** : list of column names not affected by ``fill_values``
+  This is a list of column names (found from the header or the ``names``
+  parameter) for all columns where values will be **not** be filled.
+  This parameter takes precedence over ``fill_include_names``.  A value
+  of `None` (default) does not exclude any columns.
 
 **Outputter** : Outputter class
   This converts the raw data tables value into the
@@ -198,14 +259,6 @@ slicing convention where to select data rows 5 and 6 you would do
 ``rows[5:7]``. For ``data_end`` you can also supply a negative index to
 count backward from the end, so ``data_end=-1`` (like ``rows[5:-1]``) would
 work in this case.
-
-.. note::
-
-   Prior to ``astropy`` v1.1, there was a bug in which a blank line that had
-   one or more whitespace characters was mistakenly counted for
-   ``header_start`` but was (correctly) not counted for ``data_start`` and
-   ``data_end``. If you have code that depends on the incorrect pre-1.1
-   behavior then it needs to be modified.
 
 ..
   EXAMPLE END
@@ -320,12 +373,55 @@ values in with typical placeholders::
 ..
   EXAMPLE END
 
+Selecting columns for masking
+-----------------------------
+The |read| function provides the parameters ``fill_include_names`` and ``fill_exclude_names``
+to select which columns will be used in the ``fill_values`` masking process described above.
+
+..
+  EXAMPLE START
+  Using the ``fill_include_names`` and ``fill_exclude_names`` parameters for ASCII tables
+
+The use of these parameters is not common but in some cases can considerably simplify
+the code required to read a table. The following gives a simple example to illustrate how
+``fill_include_names`` and ``fill_exclude_names`` can be used
+in the most basic and typical cases::
+
+  >>> from astropy.io import ascii
+  >>> lines = ['a,b,c,d', '1.0,2.0,3.0,4.0', ',,,']
+  >>> ascii.read(lines)
+  <Table length=2>
+     a       b       c       d
+  float64 float64 float64 float64
+  ------- ------- ------- -------
+      1.0     2.0     3.0     4.0
+       --      --      --      --
+
+  >>> ascii.read(lines, fill_include_names=['a', 'c'])
+  <Table length=2>
+     a     b      c     d
+  float64 str3 float64 str3
+  ------- ---- ------- ----
+      1.0  2.0     3.0  4.0
+       --           --
+
+  >>> ascii.read(lines, fill_exclude_names=['a', 'c'])
+  <Table length=2>
+   a      b     c      d
+  str3 float64 str3 float64
+  ---- ------- ---- -------
+   1.0     2.0  3.0     4.0
+            --           --
+
+..
+  EXAMPLE END
+
 .. _guess_formats:
 
 Guess Table Format
 ==================
 
-If the ``guess`` parameter in |read| is set to True (which is the default) then
+If the ``guess`` parameter in |read| is set to True, then
 |read| will try to guess the table format by cycling through a number of
 possible table format permutations and attempting to read the table in each
 case. The first format which succeeds and will be used to read the table. To
@@ -461,7 +557,7 @@ These take advantage of the :func:`~astropy.io.ascii.convert_numpy`
 function which returns a two-element tuple ``(converter_func, converter_type)``
 as described in the previous section. The type provided to
 :func:`~astropy.io.ascii.convert_numpy` must be a valid `NumPy type
-<https://docs.scipy.org/doc/numpy/user/basics.types.html>`_ such as
+<https://numpy.org/doc/stable/user/basics.types.html>`_ such as
 ``numpy.int``, ``numpy.uint``, ``numpy.int8``, ``numpy.int64``,
 ``numpy.float``, ``numpy.float64``, or ``numpy.str``.
 
@@ -471,6 +567,15 @@ The default converters for each column can be overridden with the
   >>> import numpy as np
   >>> converters = {'col1': [ascii.convert_numpy(np.uint)],
   ...               'col2': [ascii.convert_numpy(np.float32)]}
+  >>> ascii.read('file.dat', converters=converters)  # doctest: +SKIP
+
+In addition to single column names you can use wildcards via `fnmatch` to
+select multiple columns. For example, we can set the format for all columns
+with a name starting with "col" to an unsigned integer while applying default
+converters to all other columns in the table::
+
+  >>> import numpy as np
+  >>> converters = {'col*': [ascii.convert_numpy(np.uint)]}
   >>> ascii.read('file.dat', converters=converters)  # doctest: +SKIP
 
 

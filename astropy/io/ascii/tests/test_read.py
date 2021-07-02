@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 
-
+from astropy.io.ascii.core import convert_numpy
 import re
 from io import BytesIO, open
 from collections import OrderedDict
@@ -14,28 +14,26 @@ import pytest
 import numpy as np
 
 from astropy.io import ascii
-from astropy.table import Table
+from astropy.table import Table, MaskedColumn
 from astropy import table
 from astropy.units import Unit
 from astropy.table.table_helpers import simple_table
 
-from .common import (raises, assert_equal, assert_almost_equal,
+from .common import (assert_equal, assert_almost_equal,
                      assert_true)
 from astropy.io.ascii import core
-from astropy.io.ascii.ui import _probably_html, get_read_trace, cparser
+from astropy.io.ascii.ui import _probably_html, get_read_trace
 from astropy.utils.exceptions import AstropyWarning
 
+# NOTE: Python can be built without bz2.
+from astropy.utils.compat.optional_deps import HAS_BZ2  # noqa
+
 # setup/teardown function to have the tests run in the correct directory
-from .common import setup_function, teardown_function
+from .common import setup_function, teardown_function  # noqa
 
-try:
-    import bz2  # pylint: disable=W0611
-except ImportError:
-    HAS_BZ2 = False
-else:
-    HAS_BZ2 = True
 
-asciiIO = lambda x: BytesIO(x.encode('ascii'))
+def asciiIO(x):
+    return BytesIO(x.encode('ascii'))
 
 
 @pytest.mark.parametrize('fast_reader', [True, False, {'use_fast_converter': False},
@@ -51,6 +49,44 @@ def test_convert_overflow(fast_reader):
         dat = ascii.read(['a', '1' * 10000], format='basic',
                          fast_reader=fast_reader, guess=False)
     assert dat['a'].dtype.kind == expected_kind
+
+
+def test_read_specify_converters_with_names():
+    """
+    Exact example from #9701: When using ascii.read with both the names and
+    converters arguments, the converters dictionary ignores the user-supplied
+    names and requires that you know the guessed names.
+    """
+    csv_text = ['a,b,c', '1,2,3', '4,5,6']
+    names = ['A', 'B', 'C']
+
+    converters = {
+        'A': [ascii.convert_numpy(float)],
+        'B': [ascii.convert_numpy(int)],
+        'C': [ascii.convert_numpy(str)]
+    }
+    t = ascii.read(csv_text, format='csv', names=names, converters=converters)
+    assert t['A'].dtype.kind == 'f'
+    assert t['B'].dtype.kind == 'i'
+    assert t['C'].dtype.kind == 'U'
+
+
+def test_read_remove_and_rename_columns():
+    csv_text = ['a,b,c', '1,2,3', '4,5,6']
+    reader = ascii.get_reader(Reader=ascii.Csv)
+    reader.read(csv_text)
+    header = reader.header
+    with pytest.raises(KeyError, match='Column NOT-EXIST does not exist'):
+        header.remove_columns(['NOT-EXIST'])
+
+    header.remove_columns(['c'])
+    assert header.colnames == ('a', 'b')
+
+    header.rename_column('a', 'aa')
+    assert header.colnames == ('aa', 'b')
+
+    with pytest.raises(KeyError, match='Column NOT-EXIST does not exist'):
+        header.rename_column('NOT-EXIST', 'aa')
 
 
 def test_guess_with_names_arg():
@@ -124,7 +160,7 @@ def test_guess_with_delimiter_arg():
     # Forcing space as delimiter produces type str columns ('10.1E+19,')
     t1 = ascii.read(asciiIO(', '.join(fields)), guess=True, delimiter=' ')
     for n, v in zip(t1.colnames[:-1], fields[:-1]):
-        assert t1[n][0] == v+','
+        assert t1[n][0] == v + ','
 
 
 def test_reading_mixed_delimiter_tabs_spaces():
@@ -151,14 +187,14 @@ def test_read_with_names_arg(fast_reader):
 def test_read_all_files(fast_reader):
     for testfile in get_testfiles():
         if testfile.get('skip'):
-            print('\n\n******** SKIPPING {}'.format(testfile['name']))
+            print(f"\n\n******** SKIPPING {testfile['name']}")
             continue
-        print('\n\n******** READING {}'.format(testfile['name']))
+        print(f"\n\n******** READING {testfile['name']}")
         for guess in (True, False):
             test_opts = testfile['opts'].copy()
             if 'guess' not in test_opts:
                 test_opts['guess'] = guess
-            if ('Reader' in test_opts and 'fast_{}'.format(test_opts['Reader']._format_name)
+            if ('Reader' in test_opts and f"fast_{test_opts['Reader']._format_name}"
                     in core.FAST_CLASSES):  # has fast version
                 if 'Inputter' not in test_opts:  # fast reader doesn't allow this
                     test_opts['fast_reader'] = fast_reader
@@ -172,15 +208,15 @@ def test_read_all_files(fast_reader):
 def test_read_all_files_via_table(fast_reader):
     for testfile in get_testfiles():
         if testfile.get('skip'):
-            print('\n\n******** SKIPPING {}'.format(testfile['name']))
+            print(f"\n\n******** SKIPPING {testfile['name']}")
             continue
-        print('\n\n******** READING {}'.format(testfile['name']))
+        print(f"\n\n******** READING {testfile['name']}")
         for guess in (True, False):
             test_opts = testfile['opts'].copy()
             if 'guess' not in test_opts:
                 test_opts['guess'] = guess
             if 'Reader' in test_opts:
-                format = 'ascii.{}'.format(test_opts['Reader']._format_name)
+                format = f"ascii.{test_opts['Reader']._format_name}"
                 del test_opts['Reader']
             else:
                 format = 'ascii'
@@ -195,11 +231,11 @@ def test_read_all_files_via_table(fast_reader):
 def test_guess_all_files():
     for testfile in get_testfiles():
         if testfile.get('skip'):
-            print('\n\n******** SKIPPING {}'.format(testfile['name']))
+            print(f"\n\n******** SKIPPING {testfile['name']}")
             continue
         if not testfile['opts'].get('guess', True):
             continue
-        print('\n\n******** READING {}'.format(testfile['name']))
+        print(f"\n\n******** READING {testfile['name']}")
         for filter_read_opts in (['Reader', 'delimiter', 'quotechar'], []):
             # Copy read options except for those in filter_read_opts
             guess_opts = dict((k, v) for k, v in testfile['opts'].items()
@@ -208,6 +244,22 @@ def test_guess_all_files():
             assert_equal(table.dtype.names, testfile['cols'])
             for colname in table.dtype.names:
                 assert_equal(len(table[colname]), testfile['nrows'])
+
+
+def test_validate_read_kwargs():
+    lines = ['a b', '1 2', '3 4']
+    # Check that numpy integers are allowed
+    out = ascii.read(lines, data_start=np.int16(2))
+    assert np.all(out['a'] == [3])
+
+    with pytest.raises(TypeError, match=r"read\(\) argument 'data_end' must be a "
+                       r"<class 'int'> object, "
+                       r"got <class 'str'> instead"):
+        ascii.read(lines, data_end='needs integer')
+
+    with pytest.raises(TypeError, match=r"read\(\) argument 'fill_include_names' must "
+                       r"be a list-like object, got <class 'str'> instead"):
+        ascii.read(lines, fill_include_names='ID')
 
 
 def test_daophot_indef():
@@ -289,9 +341,9 @@ def test_extra_data_col2(fast_reader):
         ascii.read('data/simple5.txt', delimiter='|', fast_reader=fast_reader)
 
 
-@raises(OSError)
 def test_missing_file():
-    ascii.read('does_not_exist')
+    with pytest.raises(OSError):
+        ascii.read('does_not_exist')
 
 
 @pytest.mark.parametrize('fast_reader', [True, False, 'force'])
@@ -491,7 +543,7 @@ def test_masking_Cds():
     f = 'data/cds.dat'
     testfile = get_testfiles(f)
     data = ascii.read(f,
-                           **testfile['opts'])
+                      **testfile['opts'])
     assert_true(data['AK'].mask[0])
     assert not hasattr(data['Fit'], 'mask')
 
@@ -835,7 +887,7 @@ def get_testfiles(name=None):
     ]
 
     try:
-        import bs4  # pylint: disable=W0611
+        import bs4  # noqa
         testfiles.append({'cols': ('Column 1', 'Column 2', 'Column 3'),
                           'name': 'data/html.html',
                           'nrows': 3,
@@ -860,7 +912,7 @@ def test_header_start_exception():
                         ascii.BaseReader, ascii.FixedWidthNoHeader,
                         ascii.Cds, ascii.Daophot]:
         with pytest.raises(ValueError):
-            reader = ascii.core._get_reader(readerclass, header_start=5)
+            ascii.core._get_reader(readerclass, header_start=5)
 
 
 def test_csv_table_read():
@@ -914,19 +966,23 @@ def test_sextractor_last_column_array():
     table = ascii.read('data/sextractor3.dat', Reader=ascii.SExtractor, guess=False)
     expected_columns = ['X_IMAGE', 'Y_IMAGE', 'ALPHA_J2000', 'DELTA_J2000',
                         'MAG_AUTO', 'MAGERR_AUTO',
-                        'MAG_APER', 'MAG_APER_1', 'MAG_APER_2', 'MAG_APER_3', 'MAG_APER_4', 'MAG_APER_5', 'MAG_APER_6',
-                        'MAGERR_APER', 'MAGERR_APER_1', 'MAGERR_APER_2', 'MAGERR_APER_3', 'MAGERR_APER_4', 'MAGERR_APER_5', 'MAGERR_APER_6']
+                        'MAG_APER', 'MAG_APER_1', 'MAG_APER_2', 'MAG_APER_3',
+                        'MAG_APER_4', 'MAG_APER_5', 'MAG_APER_6',
+                        'MAGERR_APER', 'MAGERR_APER_1', 'MAGERR_APER_2', 'MAGERR_APER_3',
+                        'MAGERR_APER_4', 'MAGERR_APER_5', 'MAGERR_APER_6']
     expected_units = [Unit('pix'), Unit('pix'), Unit('deg'), Unit('deg'),
                       Unit('mag'), Unit('mag'),
-                      Unit('mag'), Unit('mag'), Unit('mag'), Unit('mag'), Unit('mag'), Unit('mag'), Unit('mag'),
-                      Unit('mag'), Unit('mag'), Unit('mag'), Unit('mag'), Unit('mag'), Unit('mag'), Unit('mag')]
+                      Unit('mag'), Unit('mag'), Unit('mag'),
+                      Unit('mag'), Unit('mag'), Unit('mag'), Unit('mag'),
+                      Unit('mag'), Unit('mag'), Unit('mag'), Unit('mag'), Unit('mag'),
+                      Unit('mag'), Unit('mag')]
     expected_descrs = ['Object position along x', None,
                        'Right ascension of barycenter (J2000)',
                        'Declination of barycenter (J2000)',
                        'Kron-like elliptical aperture magnitude',
                        'RMS error for AUTO magnitude', ] + [
-                       'Fixed aperture magnitude vector'] * 7 + [
-                       'RMS error vector for fixed aperture mag.'] * 7
+        'Fixed aperture magnitude vector'] * 7 + [
+        'RMS error vector for fixed aperture mag.'] * 7
     for i, colname in enumerate(table.colnames):
         assert table[colname].name == expected_columns[i]
         assert table[colname].unit == expected_units[i]
@@ -981,7 +1037,8 @@ def test_guess_fail():
 
     # Test the case with guessing enabled but with all params specified
     with pytest.raises(ValueError) as err:
-        ascii.read('asfdasdf\n1 2 3', format='basic', quotechar='"', delimiter=' ', fast_reader=False)
+        ascii.read('asfdasdf\n1 2 3', format='basic',
+                   quotechar='"', delimiter=' ', fast_reader=False)
     assert 'Number of header columns (1) inconsistent with data columns (3)' in str(err.value)
 
 
@@ -990,7 +1047,8 @@ def test_guessing_file_object():
     """
     Test guessing a file object.  Fixes #3013 and similar issue noted in #3019.
     """
-    t = ascii.read(open('data/ipac.dat.bz2', 'rb'))
+    with open('data/ipac.dat.bz2', 'rb') as fd:
+        t = ascii.read(fd)
     assert t.colnames == ['ra', 'dec', 'sai', 'v2', 'sptype']
 
 
@@ -1089,7 +1147,7 @@ def test_probably_html():
     """
     Test the routine for guessing if a table input to ascii.read is probably HTML
     """
-    for table in ('data/html.html',
+    for tabl0 in ('data/html.html',
                   'http://blah.com/table.html',
                   'https://blah.com/table.html',
                   'file://blah/table.htm',
@@ -1099,10 +1157,10 @@ def test_probably_html():
                   'junk < table baz> <tr foo > <td bar> </td> </tr> </table> junk',
                   ['junk < table baz>', ' <tr foo >', ' <td bar> ', '</td> </tr>', '</table> junk'],
                   (' <! doctype html > ', ' hello world'),
-                   ):
-        assert _probably_html(table) is True
+                  ):
+        assert _probably_html(tabl0) is True
 
-    for table in ('data/html.htms',
+    for tabl0 in ('data/html.htms',
                   'Xhttp://blah.com/table.html',
                   ' https://blah.com/table.htm',
                   'fole://blah/table.htm',
@@ -1111,8 +1169,8 @@ def test_probably_html():
                   ['junk < table baz>', ' <t foo >', ' <td bar> ', '</td> </tr>', '</table> junk'],
                   (' <! doctype htm > ', ' hello world'),
                   [[1, 2, 3]],
-                   ):
-        assert _probably_html(table) is False
+                  ):
+        assert _probably_html(tabl0) is False
 
 
 @pytest.mark.parametrize('fast_reader', [True, False, 'force'])
@@ -1126,7 +1184,7 @@ def test_data_header_start(fast_reader):
               [{'header_start': 1},
                {'header_start': 1, 'data_start': 2}
                ]
-               ),
+              ),
 
              (['# comment',
                '',
@@ -1228,11 +1286,14 @@ def test_non_C_locale_with_fast_reader():
 
     try:
         if platform.system() == 'Darwin':
-            locale.setlocale(locale.LC_ALL, 'de_DE')
+            locale.setlocale(locale.LC_ALL, 'fr_FR')
         else:
-            locale.setlocale(locale.LC_ALL, 'de_DE.utf8')
+            locale.setlocale(locale.LC_ALL, 'fr_FR.utf8')
 
-        for fast_reader in (True, False, {'use_fast_converter': False}, {'use_fast_converter': True}):
+        for fast_reader in (True,
+                            False,
+                            {'use_fast_converter': False},
+                            {'use_fast_converter': True}):
             t = ascii.read(['a b', '1.5 2'], format='basic', guess=False,
                            fast_reader=fast_reader)
             assert t['a'].dtype.kind == 'f'
@@ -1352,25 +1413,27 @@ def test_read_chunks_input_types():
     fpath = 'data/test5.dat'
     t1 = ascii.read(fpath, header_start=1, data_start=3, )
 
-    for fp in (fpath, open(fpath, 'r'), open(fpath, 'r').read()):
-        t_gen = ascii.read(fp, header_start=1, data_start=3,
-                           guess=False, format='fast_basic',
-                           fast_reader={'chunk_size': 400, 'chunk_generator': True})
-        ts = list(t_gen)
-        for t in ts:
-            for col, col1 in zip(t.columns.values(), t1.columns.values()):
-                assert col.name == col1.name
-                assert col.dtype.kind == col1.dtype.kind
+    with open(fpath, 'r') as fd1, open(fpath, 'r') as fd2:
+        for fp in (fpath, fd1, fd2.read()):
+            t_gen = ascii.read(fp, header_start=1, data_start=3,
+                               guess=False, format='fast_basic',
+                               fast_reader={'chunk_size': 400, 'chunk_generator': True})
+            ts = list(t_gen)
+            for t in ts:
+                for col, col1 in zip(t.columns.values(), t1.columns.values()):
+                    assert col.name == col1.name
+                    assert col.dtype.kind == col1.dtype.kind
 
-        assert len(ts) == 4
-        t2 = table.vstack(ts)
-        assert np.all(t1 == t2)
+            assert len(ts) == 4
+            t2 = table.vstack(ts)
+            assert np.all(t1 == t2)
 
-    for fp in (fpath, open(fpath, 'r'), open(fpath, 'r').read()):
-        # Now read the full table in chunks
-        t3 = ascii.read(fp, header_start=1, data_start=3,
-                        fast_reader={'chunk_size': 300})
-        assert np.all(t1 == t3)
+    with open(fpath, 'r') as fd1, open(fpath, 'r') as fd2:
+        for fp in (fpath, fd1, fd2.read()):
+            # Now read the full table in chunks
+            t3 = ascii.read(fp, header_start=1, data_start=3,
+                            fast_reader={'chunk_size': 300})
+            assert np.all(t1 == t3)
 
 
 @pytest.mark.parametrize('masked', [True, False])
@@ -1380,7 +1443,7 @@ def test_read_chunks_formats(masked):
     """
     t1 = simple_table(size=102, cols=10, kinds='fS', masked=masked)
     for i, name in enumerate(t1.colnames):
-        t1.rename_column(name, 'col{}'.format(i + 1))
+        t1.rename_column(name, f'col{i + 1}')
 
     # TO DO commented_header does not currently work due to the special-cased
     # implementation of header parsing.
@@ -1447,3 +1510,143 @@ def test_kwargs_dict_guess(enable):
     for k in get_read_trace():
         if not k.get('status', 'Disabled').startswith('Disabled'):
             assert k.get('kwargs').get('fast_reader').get('enable') is enable
+
+
+def _get_lines(rdb):
+    lines = ['a a_2 a_1 a a']
+    if rdb:
+        lines += ['N N N N N']
+    lines += ['1 2 3 4 5', '10 20 30 40 50']
+
+    if rdb:
+        lines = ['\t'.join(line.split()) for line in lines]
+    return lines
+
+
+@pytest.mark.parametrize('rdb', [False, True])
+@pytest.mark.parametrize('fast_reader', [False, 'force'])
+def test_deduplicate_names_basic(rdb, fast_reader):
+    """Test that duplicate column names are successfully de-duplicated for the
+    basic format.  Skip the case of rdb=True and fast_reader='force' when selecting
+    include_names, since that fails and is tested below.
+    """
+    lines = _get_lines(rdb)
+
+    dat = ascii.read(lines, fast_reader=fast_reader)
+    assert dat.colnames == ['a', 'a_2', 'a_1', 'a_3', 'a_4']
+    assert len(dat) == 2
+
+    dat = ascii.read(lines, fast_reader=fast_reader, include_names=['a', 'a_2', 'a_3'])
+    assert len(dat) == 2
+    assert dat.colnames == ['a', 'a_2', 'a_3']
+    assert np.all(dat['a'] == [1, 10])
+    assert np.all(dat['a_2'] == [2, 20])
+    assert np.all(dat['a_3'] == [4, 40])
+
+    dat = ascii.read(lines, fast_reader=fast_reader,
+                     names=['b1', 'b2', 'b3', 'b4', 'b5'],
+                     include_names=['b1', 'b2', 'a_4', 'b4'])
+    assert len(dat) == 2
+    assert dat.colnames == ['b1', 'b2', 'b4']
+    assert np.all(dat['b1'] == [1, 10])
+    assert np.all(dat['b2'] == [2, 20])
+    assert np.all(dat['b4'] == [4, 40])
+
+    dat = ascii.read(lines, fast_reader=fast_reader,
+                     names=['b1', 'b2', 'b3', 'b4', 'b5'],
+                     exclude_names=['b3', 'b5', 'a_3', 'a_4'])
+    assert len(dat) == 2
+    assert dat.colnames == ['b1', 'b2', 'b4']
+    assert np.all(dat['b1'] == [1, 10])
+    assert np.all(dat['b2'] == [2, 20])
+    assert np.all(dat['b4'] == [4, 40])
+
+
+def test_include_names_rdb_fast():
+    """Test that selecting column names via `include_names` works for the RDB format
+    with fast reader. This is testing the fix for a bug identified in #9939.
+    """
+    lines = _get_lines(True)
+    lines[0] = 'a\ta_2\ta_1\ta_3\ta_4'
+    dat = ascii.read(lines, fast_reader='force', include_names=['a', 'a_2', 'a_3'])
+    assert len(dat) == 2
+    assert dat['a'].dtype == int
+    assert dat['a_2'].dtype == int
+
+
+@pytest.mark.parametrize('fast_reader', [False, 'force'])
+def test_deduplicate_names_with_types(fast_reader):
+    """Test that on selecting column names via `include_names` in the RDB format with
+    different types and duplicate column names type assignment is correctly preserved.
+    """
+    lines = _get_lines(True)
+    lines[1] = 'N\tN\tN\tS\tS'
+
+    dat = ascii.read(lines, fast_reader=fast_reader, include_names=['a', 'a_2', 'a_3'])
+    assert len(dat) == 2
+    assert dat['a_2'].dtype.kind == 'i'
+    assert dat['a_3'].dtype.kind == 'U'
+
+    dat = ascii.read(lines, fast_reader=fast_reader, names=['b1', 'b2', 'b3', 'b4', 'b5'],
+                     include_names=['a1', 'a_2', 'b1', 'b2', 'b4'])
+    assert len(dat) == 2
+    assert dat.colnames == ['b1', 'b2', 'b4']
+    assert dat['b2'].dtype.kind == 'i'
+    assert dat['b4'].dtype.kind == 'U'
+
+
+@pytest.mark.parametrize('rdb', [False, True])
+@pytest.mark.parametrize('fast_reader', [False, 'force'])
+def test_set_invalid_names(rdb, fast_reader):
+    """Test exceptions for invalid (duplicate or `None`) names specified via argument."""
+    lines = _get_lines(rdb)
+    if rdb:
+        fmt = 'rdb'
+    else:
+        fmt = 'basic'
+
+    with pytest.raises(ValueError) as err:
+        ascii.read(lines, fast_reader=fast_reader, format=fmt, guess=rdb,
+                   names=['b1', 'b2', 'b1', 'b4', 'b5'])
+    assert 'Duplicate column names' in str(err.value)
+
+    with pytest.raises(TypeError) as err:
+        ascii.read(lines, fast_reader=fast_reader, format=fmt, guess=rdb,
+                   names=['b1', 'b2', 'b1', None, None])
+    assert 'Cannot have None for column name' in str(err.value)
+
+
+def test_read_masked_bool():
+    txt = """\
+col0 col1
+1       1
+0       2
+True    3
+""      4
+False   5
+"""
+    # Reading without converters returns col0 as a string
+    dat = ascii.read(txt, format='basic')
+    col = dat['col0']
+    assert isinstance(col, MaskedColumn)
+    assert col.dtype.kind == 'U'
+    assert col[0] == "1"
+
+    # Force col0 to be read as bool
+    converters = {'col0': [convert_numpy(bool)]}
+    dat = ascii.read(txt, format='basic', converters=converters)
+    col = dat['col0']
+    assert isinstance(col, MaskedColumn)
+    assert col.dtype.kind == 'b'
+    assert np.all(col.mask == [False, False, False, True, False])
+    assert np.all(col == [True, False, True, False, False])
+
+
+def test_read_converters_wildcard():
+    '''Test converters where the column name is specified with
+    a wildcard.
+    '''
+    converters = {'F*': [ascii.convert_numpy(np.float32)]}
+    t = ascii.read(['Fabc Iabc', '1 2'], converters=converters)
+    assert np.issubdtype(t['Fabc'].dtype, np.float32)
+    assert not np.issubdtype(t['Iabc'].dtype, np.float32)

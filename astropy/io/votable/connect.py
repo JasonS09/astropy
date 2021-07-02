@@ -18,7 +18,7 @@ def is_votable(origin, filepath, fileobj, *args, **kwargs):
 
     Parameters
     ----------
-    origin : str or readable file-like object
+    origin : str or readable file-like
         Path or file object containing a VOTABLE_ xml file.
 
     Returns
@@ -44,7 +44,8 @@ def is_votable(origin, filepath, fileobj, *args, **kwargs):
         return False
 
 
-def read_table_votable(input, table_id=None, use_names_over_ids=False, verify=None):
+def read_table_votable(input, table_id=None, use_names_over_ids=False,
+                       verify=None, **kwargs):
     """
     Read a Table object from an VO table file
 
@@ -76,9 +77,13 @@ def read_table_votable(input, table_id=None, use_names_over_ids=False, verify=No
         mechanisms.  See the `warnings` module in the Python standard library
         for more information. When not provided, uses the configuration setting
         ``astropy.io.votable.verify``, which defaults to ``'ignore'``.
+
+    **kwargs
+        Additional keyword arguments are passed on to
+        :func:`astropy.io.votable.table.parse`.
     """
     if not isinstance(input, (VOTableFile, VOTable)):
-        input = parse(input, table_id=table_id, verify=verify)
+        input = parse(input, table_id=table_id, verify=verify, **kwargs)
 
     # Parse all table objects
     table_id_mapping = dict()
@@ -144,7 +149,7 @@ def write_table_votable(input, output, table_id=None, overwrite=False,
     tabledata_format : str, optional
         The format of table data to write.  Must be one of ``tabledata``
         (text representation), ``binary`` or ``binary2``.  Default is
-        ``tabledata``.  See :ref:`votable-serialization`.
+        ``tabledata``.  See :ref:`astropy:votable-serialization`.
     """
 
     # Only those columns which are instances of BaseColumn or Quantity can be written

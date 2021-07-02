@@ -16,6 +16,7 @@ from astropy import units as u
 from astropy.nddata import support_nddata
 from astropy.modeling.core import CompoundModel
 from astropy.modeling.core import SPECIAL_OPERATORS
+from astropy.modeling.convolution import Convolution
 from .utils import KernelSizeError, has_even_axis, raise_even_kernel_exception
 
 LIBRARY_PATH = os.path.dirname(__file__)
@@ -46,11 +47,56 @@ _convolveNd_c.argtypes = [ndpointer(ctypes.c_double, flags={"C_CONTIGUOUS", "WRI
                           ctypes.c_bool,  # embed_result_within_padded_region
                           ctypes.c_uint]  # n_threads
 
-# Disabling all doctests in this module until a better way of handling warnings
-# in doctests can be determined
-__doctest_skip__ = ['*']
+# np.unique([scipy.fft.next_fast_len(i, real=True) for i in range(10000)])
+_good_sizes = np.array([   0,    1,    2,    3,    4,    5,    6,    8,    9,   10,   12,  # noqa E201
+                          15,   16,   18,   20,   24,   25,   27,   30,   32,   36,   40,
+                          45,   48,   50,   54,   60,   64,   72,   75,   80,   81,   90,
+                          96,  100,  108,  120,  125,  128,  135,  144,  150,  160,  162,
+                         180,  192,  200,  216,  225,  240,  243,  250,  256,  270,  288,
+                         300,  320,  324,  360,  375,  384,  400,  405,  432,  450,  480,
+                         486,  500,  512,  540,  576,  600,  625,  640,  648,  675,  720,
+                         729,  750,  768,  800,  810,  864,  900,  960,  972, 1000, 1024,
+                        1080, 1125, 1152, 1200, 1215, 1250, 1280, 1296, 1350, 1440, 1458,
+                        1500, 1536, 1600, 1620, 1728, 1800, 1875, 1920, 1944, 2000, 2025,
+                        2048, 2160, 2187, 2250, 2304, 2400, 2430, 2500, 2560, 2592, 2700,
+                        2880, 2916, 3000, 3072, 3125, 3200, 3240, 3375, 3456, 3600, 3645,
+                        3750, 3840, 3888, 4000, 4050, 4096, 4320, 4374, 4500, 4608, 4800,
+                        4860, 5000, 5120, 5184, 5400, 5625, 5760, 5832, 6000, 6075, 6144,
+                        6250, 6400, 6480, 6561, 6750, 6912, 7200, 7290, 7500, 7680, 7776,
+                        8000, 8100, 8192, 8640, 8748, 9000, 9216, 9375, 9600, 9720, 10000])
+_good_range = int(np.log10(_good_sizes[-1]))
+
+# Disabling doctests when scipy isn't present.
+__doctest_requires__ = {('convolve_fft',): ['scipy.fft']}
 
 BOUNDARY_OPTIONS = [None, 'fill', 'wrap', 'extend']
+
+
+def _next_fast_lengths(shape):
+    """
+    Find optimal or good sizes to pad an array of ``shape`` to for better
+    performance with `numpy.fft.*fft` and `scipy.fft.*fft`.
+    Calculated directly with `scipy.fft.next_fast_len`, if available; otherwise
+    looked up from list and scaled by powers of 10, if necessary.
+    """
+
+    try:
+        import scipy.fft
+        return np.array([scipy.fft.next_fast_len(j) for j in shape])
+    except ImportError:
+        pass
+
+    newshape = np.empty(len(np.atleast_1d(shape)), dtype=int)
+    for i, j in enumerate(shape):
+        scale = 10 ** max(int(np.ceil(np.log10(j))) - _good_range, 0)
+        for n in _good_sizes:
+            if n * scale >= j:
+                newshape[i] = n * scale
+                break
+        else:
+            raise ValueError(f'No next fast length for {j} found in list of _good_sizes '
+                             f'<= {_good_sizes[-1] * scale}.')
+    return newshape
 
 
 def _copy_input_if_needed(input, dtype=float, order='C', nan_treatment=None,
@@ -113,7 +159,7 @@ def convolve(array, kernel, boundary='fill', fill_value=0.,
 
     Parameters
     ----------
-    array : `~astropy.nddata.NDData` or `numpy.ndarray` or array-like
+    array : `~astropy.nddata.NDData` or array-like
         The array to convolve. This should be a 1, 2, or 3-dimensional array
         or a list or a set of nested lists representing a 1, 2, or
         3-dimensional array.  If an `~astropy.nddata.NDData`, the ``mask`` of
@@ -138,7 +184,7 @@ def convolve(array, kernel, boundary='fill', fill_value=0.,
         The value to use outside the array when using ``boundary='fill'``
     normalize_kernel : bool, optional
         Whether to normalize the kernel to have a sum of one.
-    nan_treatment : 'interpolate', 'fill'
+    nan_treatment : {'interpolate', 'fill'}
         interpolate will result in renormalization of the kernel at each
         position ignoring (pixels that are NaN in the image) in both the image
         and the kernel.
@@ -149,13 +195,13 @@ def convolve(array, kernel, boundary='fill', fill_value=0.,
     preserve_nan : bool
         After performing convolution, should pixels that were originally NaN
         again become NaN?
-    mask : `None` or `numpy.ndarray`
+    mask : None or ndarray
         A "mask" array.  Shape must match ``array``, and anything that is masked
         (i.e., not 0/`False`) will be set to NaN for the convolution.  If
         `None`, no masking will be performed unless ``array`` is a masked array.
         If ``mask`` is not `None` *and* ``array`` is a masked array, a pixel is
         masked of it is masked in either ``mask`` *or* ``array.mask``.
-    normalization_zero_tol: float, optional
+    normalization_zero_tol : float, optional
         The absolute tolerance on whether the kernel is different than zero.
         If the kernel sums to zero to within this precision, it cannot be
         normalized. Default is "1e-8".
@@ -176,8 +222,7 @@ def convolve(array, kernel, boundary='fill', fill_value=0.,
     """
 
     if boundary not in BOUNDARY_OPTIONS:
-        raise ValueError("Invalid boundary option: must be one of {}"
-                         .format(BOUNDARY_OPTIONS))
+        raise ValueError(f"Invalid boundary option: must be one of {BOUNDARY_OPTIONS}")
 
     if nan_treatment not in ('interpolate', 'fill'):
         raise ValueError("nan_treatment must be one of 'interpolate','fill'")
@@ -353,6 +398,10 @@ def convolve(array, kernel, boundary='fill', fill_value=0.,
         result[initially_nan] = np.nan
 
     # Convert result to original data type
+    array_unit = getattr(passed_array, "unit", None)
+    if array_unit is not None:
+        result <<= array_unit
+
     if isinstance(passed_array, Kernel):
         if isinstance(passed_array, Kernel1D):
             new_result = Kernel1D(array=result)
@@ -397,7 +446,10 @@ def convolve_fft(array, kernel, boundary='fill', fill_value=0.,
 
     * It can treat ``NaN`` values as zeros or interpolate over them.
     * ``inf`` values are treated as ``NaN``
-    * (optionally) It pads to the nearest 2^n size to improve FFT speed.
+    * It optionally pads to the nearest faster sizes to improve FFT speed.
+      These sizes are optimized for the numpy and scipy implementations, and
+      ``fftconvolve`` uses them by default as well; when using other external
+      functions (see below), results may vary.
     * Its only valid ``mode`` is 'same' (i.e., the same shape array is returned)
     * It lets you use your own fft, e.g.,
       `pyFFTW <https://pypi.org/project/pyFFTW/>`_ or
@@ -406,7 +458,8 @@ def convolve_fft(array, kernel, boundary='fill', fill_value=0.,
       is threaded, and therefore may yield significant performance benefits on
       multi-core machines at the cost of greater memory requirements.  Specify
       the ``fftn`` and ``ifftn`` keywords to override the default, which is
-      `numpy.fft.fft` and `numpy.fft.ifft`.
+      `numpy.fft.fftn` and `numpy.fft.ifftn`.  The `scipy.fft` functions also
+      offer somewhat better performance and a multi-threaded option.
 
     Parameters
     ----------
@@ -430,26 +483,26 @@ def convolve_fft(array, kernel, boundary='fill', fill_value=0.,
         convolution
     fill_value : float, optional
         The value to use outside the array when using boundary='fill'
-    nan_treatment : 'interpolate', 'fill'
+    nan_treatment : {'interpolate', 'fill'}
         ``interpolate`` will result in renormalization of the kernel at each
         position ignoring (pixels that are NaN in the image) in both the image
         and the kernel.  ``fill`` will replace the NaN pixels with a fixed
         numerical value (default zero, see ``fill_value``) prior to
         convolution.  Note that if the kernel has a sum equal to zero, NaN
         interpolation is not possible and will raise an exception.
-    normalize_kernel : function or boolean, optional
+    normalize_kernel : callable or boolean, optional
         If specified, this is the function to divide kernel by to normalize it.
         e.g., ``normalize_kernel=np.sum`` means that kernel will be modified to be:
         ``kernel = kernel / np.sum(kernel)``.  If True, defaults to
         ``normalize_kernel = np.sum``.
-    normalization_zero_tol: float, optional
+    normalization_zero_tol : float, optional
         The absolute tolerance on whether the kernel is different than zero.
         If the kernel sums to zero to within this precision, it cannot be
         normalized. Default is "1e-8".
     preserve_nan : bool
         After performing convolution, should pixels that were originally NaN
         again become NaN?
-    mask : `None` or `numpy.ndarray`
+    mask : None or ndarray
         A "mask" array.  Shape must match ``array``, and anything that is masked
         (i.e., not 0/`False`) will be set to NaN for the convolution.  If
         `None`, no masking will be performed unless ``array`` is a masked array.
@@ -466,8 +519,9 @@ def convolve_fft(array, kernel, boundary='fill', fill_value=0.,
         Return the ``fft(image)*fft(kernel)`` instead of the convolution (which is
         ``ifft(fft(image)*fft(kernel))``).  Useful for making PSDs.
     fft_pad : bool, optional
-        Default on.  Zero-pad image to the nearest 2^n.  With
-        ``boundary='wrap'``, this will be disabled.
+        Default on.  Zero-pad image to the nearest size supporting more efficient
+        execution of the FFT, generally values factorizable into the first 3-5
+        prime numbers.  With ``boundary='wrap'``, this will be disabled.
     psf_pad : bool, optional
         Zero-pad image to be at least the sum of the image sizes to avoid
         edge-wrapping when smoothing.  This is enabled by default with
@@ -483,20 +537,20 @@ def convolve_fft(array, kernel, boundary='fill', fill_value=0.,
     allow_huge : bool, optional
         Allow huge arrays in the FFT?  If False, will raise an exception if the
         array or kernel size is >1 GB.
-    fftn : functions, optional
+    fftn : callable, optional
         The fft function.  Can be overridden to use your own ffts,
         e.g. an fftw3 wrapper or scipy's fftn, ``fft=scipy.fftpack.fftn``.
-    ifftn : functions, optional
+    ifftn : callable, optional
         The inverse fft function. Can be overridden the same way ``fttn``.
-    complex_dtype : numpy.complex, optional
+    complex_dtype : complex type, optional
         Which complex dtype to use.  `numpy` has a range of options, from 64 to
         256.
 
     Raises
     ------
     ValueError:
-        If the array is bigger than 1 GB after padding, will raise this exception
-        unless ``allow_huge`` is True
+        If the array is bigger than 1 GB after padding, will raise this
+        exception unless ``allow_huge`` is True
 
     See Also
     --------
@@ -514,44 +568,49 @@ def convolve_fft(array, kernel, boundary='fill', fill_value=0.,
     Notes
     -----
         With ``psf_pad=True`` and a large PSF, the resulting data can become
-        very large and consume a lot of memory.  See Issue
-        https://github.com/astropy/astropy/pull/4366 for further detail.
+        large and consume a lot of memory.  See Issue
+        https://github.com/astropy/astropy/pull/4366 and the update in
+        https://github.com/astropy/astropy/pull/11533 for further details.
 
     Examples
     --------
     >>> convolve_fft([1, 0, 3], [1, 1, 1])
-    array([ 1.,  4.,  3.])
+    array([0.33333333, 1.33333333, 1.        ])
 
     >>> convolve_fft([1, np.nan, 3], [1, 1, 1])
-    array([ 1.,  4.,  3.])
+    array([0.5, 2. , 1.5])
 
     >>> convolve_fft([1, 0, 3], [0, 1, 0])
-    array([ 1.,  0.,  3.])
+    array([ 1.00000000e+00, -3.70074342e-17,  3.00000000e+00])
 
     >>> convolve_fft([1, 2, 3], [1])
-    array([ 1.,  2.,  3.])
+    array([1., 2., 3.])
 
     >>> convolve_fft([1, np.nan, 3], [0, 1, 0], nan_treatment='interpolate')
-    ...
-    array([ 1.,  0.,  3.])
+    array([1., 0., 3.])
 
     >>> convolve_fft([1, np.nan, 3], [0, 1, 0], nan_treatment='interpolate',
     ...              min_wt=1e-8)
-    array([ 1.,  nan,  3.])
+    array([ 1., nan,  3.])
 
     >>> convolve_fft([1, np.nan, 3], [1, 1, 1], nan_treatment='interpolate')
-    array([ 1.,  4.,  3.])
+    array([0.5, 2. , 1.5])
 
     >>> convolve_fft([1, np.nan, 3], [1, 1, 1], nan_treatment='interpolate',
     ...               normalize_kernel=True)
-    array([ 1.,  2.,  3.])
+    array([0.5, 2. , 1.5])
 
-    >>> import scipy.fftpack  # optional - requires scipy
+    >>> import scipy.fft  # optional - requires scipy
     >>> convolve_fft([1, np.nan, 3], [1, 1, 1], nan_treatment='interpolate',
     ...               normalize_kernel=True,
-    ...               fftn=scipy.fftpack.fft, ifftn=scipy.fftpack.ifft)
-    array([ 1.,  2.,  3.])
+    ...               fftn=scipy.fft.fftn, ifftn=scipy.fft.ifftn)
+    array([0.5, 2. , 1.5])
 
+    >>> fft_mp = lambda a: scipy.fft.fftn(a, workers=-1)  # use all available cores
+    >>> ifft_mp = lambda a: scipy.fft.ifftn(a, workers=-1)
+    >>> convolve_fft([1, np.nan, 3], [1, 1, 1], nan_treatment='interpolate',
+    ...               normalize_kernel=True, fftn=fft_mp, ifftn=ifft_mp)
+    array([0.5, 2. , 1.5])
     """
     # Checking copied from convolve.py - however, since FFTs have real &
     # complex components, we change the types.  Only the real part will be
@@ -561,11 +620,13 @@ def convolve_fft(array, kernel, boundary='fill', fill_value=0.,
     if isinstance(kernel, Kernel):
         kernel = kernel.array
         if isinstance(array, Kernel):
-            raise TypeError("Can't convolve two kernels with convolve_fft.  "
-                            "Use convolve instead.")
+            raise TypeError("Can't convolve two kernels with convolve_fft.  Use convolve instead.")
 
     if nan_treatment not in ('interpolate', 'fill'):
         raise ValueError("nan_treatment must be one of 'interpolate','fill'")
+
+    # Get array quantity if it exists
+    array_unit = getattr(array, "unit", None)
 
     # Convert array dtype to complex
     # and ensure that list inputs become arrays
@@ -578,18 +639,16 @@ def convolve_fft(array, kernel, boundary='fill', fill_value=0.,
 
     # Check that the number of dimensions is compatible
     if array.ndim != kernel.ndim:
-        raise ValueError("Image and kernel must have same number of "
-                         "dimensions")
+        raise ValueError("Image and kernel must have same number of dimensions")
 
     arrayshape = array.shape
     kernshape = kernel.shape
 
     array_size_B = (np.product(arrayshape, dtype=np.int64) *
-                    np.dtype(complex_dtype).itemsize)*u.byte
-    if array_size_B > 1*u.GB and not allow_huge:
-        raise ValueError("Size Error: Arrays will be {}.  Use "
-                         "allow_huge=True to override this exception."
-                         .format(human_file_size(array_size_B.to_value(u.byte))))
+                    np.dtype(complex_dtype).itemsize) * u.byte
+    if array_size_B > 1 * u.GB and not allow_huge:
+        raise ValueError(f"Size Error: Arrays will be {human_file_size(array_size_B)}.  "
+                         f"Use allow_huge=True to override this exception.")
 
     # NaN and inf catching
     nanmaskarray = np.isnan(array) | np.isinf(array)
@@ -639,9 +698,8 @@ def convolve_fft(array, kernel, boundary='fill', fill_value=0.,
     elif boundary == 'fill':
         # create a boundary region at least as large as the kernel
         if psf_pad is False:
-            warnings.warn("psf_pad was set to {}, which overrides the "
-                          "boundary='fill' setting.".format(psf_pad),
-                          AstropyUserWarning)
+            warnings.warn(f"psf_pad was set to {psf_pad}, which overrides the "
+                          f"boundary='fill' setting.", AstropyUserWarning)
         else:
             psf_pad = True
         if fft_pad is None:
@@ -659,33 +717,25 @@ def convolve_fft(array, kernel, boundary='fill', fill_value=0.,
         raise NotImplementedError("The 'extend' option is not implemented "
                                   "for fft-based convolution")
 
-    # find ideal size (power of 2) for fft.
-    # Can add shapes because they are tuples
-    if fft_pad:  # default=True
-        if psf_pad:  # default=False
-            # add the dimensions and then take the max (bigger)
-            fsize = 2 ** np.ceil(np.log2(
-                np.max(np.array(arrayshape) + np.array(kernshape))))
-        else:
-            # add the shape lists (max of a list of length 4) (smaller)
-            # also makes the shapes square
-            fsize = 2 ** np.ceil(np.log2(np.max(arrayshape + kernshape)))
-        newshape = np.full((array.ndim, ), fsize, dtype=int)
+    # Add shapes elementwise for psf_pad.
+    if psf_pad:  # default=False
+        # add the sizes along each dimension (bigger)
+        newshape = np.array(arrayshape) + np.array(kernshape)
     else:
-        if psf_pad:
-            # just add the biggest dimensions
-            newshape = np.array(arrayshape) + np.array(kernshape)
-        else:
-            newshape = np.array([np.max([imsh, kernsh])
-                                 for imsh, kernsh in zip(arrayshape, kernshape)])
+        # take the larger shape in each dimension (smaller)
+        newshape = np.maximum(arrayshape, kernshape)
+
+    # Find ideal size for fft (was power of 2, now any powers of prime factors 2, 3, 5).
+    if fft_pad:  # default=True
+        # Get optimized sizes from scipy.
+        newshape = _next_fast_lengths(newshape)
 
     # perform a second check after padding
     array_size_C = (np.product(newshape, dtype=np.int64) *
-                    np.dtype(complex_dtype).itemsize)*u.byte
-    if array_size_C > 1*u.GB and not allow_huge:
-        raise ValueError("Size Error: Arrays will be {}.  Use "
-                         "allow_huge=True to override this exception."
-                         .format(human_file_size(array_size_C)))
+                    np.dtype(complex_dtype).itemsize) * u.byte
+    if array_size_C > 1 * u.GB and not allow_huge:
+        raise ValueError(f"Size Error: Arrays will be {human_file_size(array_size_C)}.  "
+                         f"Use allow_huge=True to override this exception.")
 
     # For future reference, this can be used to predict "almost exactly"
     # how much *additional* memory will be used.
@@ -758,6 +808,9 @@ def convolve_fft(array, kernel, boundary='fill', fill_value=0.,
         raise ValueError("Encountered NaNs in convolve.  This is disallowed.")
 
     fftmult *= kernel_scale
+
+    if array_unit is not None:
+        fftmult <<= array_unit
 
     if return_fft:
         return fftmult
@@ -842,21 +895,56 @@ def convolve_models(model, kernel, mode='convolve_fft', **kwargs):
         Keyword representing which function to use for convolution.
             * 'convolve_fft' : use `~astropy.convolution.convolve_fft` function.
             * 'convolve' : use `~astropy.convolution.convolve`.
-    kwargs : dict
+    **kwargs : dict
         Keyword arguments to me passed either to `~astropy.convolution.convolve`
         or `~astropy.convolution.convolve_fft` depending on ``mode``.
 
     Returns
     -------
-    default : CompoundModel
+    default : `~astropy.modeling.core.CompoundModel`
         Convolved model
     """
 
     if mode == 'convolve_fft':
-        SPECIAL_OPERATORS['convolve_fft'] = partial(convolve_fft, **kwargs)
+        operator = SPECIAL_OPERATORS.add('convolve_fft', partial(convolve_fft, **kwargs))
     elif mode == 'convolve':
-        SPECIAL_OPERATORS['convolve'] = partial(convolve, **kwargs)
+        operator = SPECIAL_OPERATORS.add('convolve', partial(convolve, **kwargs))
     else:
         raise ValueError(f'Mode {mode} is not supported.')
 
-    return CompoundModel(mode, model, kernel)
+    return CompoundModel(operator, model, kernel)
+
+
+def convolve_models_fft(model, kernel, bounding_box, resolution, cache=True, **kwargs):
+    """
+    Convolve two models using `~astropy.convolution.convolve_fft`.
+
+    Parameters
+    ----------
+    model : `~astropy.modeling.core.Model`
+        Functional model
+    kernel : `~astropy.modeling.core.Model`
+        Convolution kernel
+    bounding_box : tuple
+        The bounding box which encompasses enough of the support of both
+        the ``model`` and ``kernel`` so that an accurate convolution can be
+        computed.
+    resolution : float
+        The resolution that one wishes to approximate the convolution
+        integral at.
+    cache : optional, bool
+        Default value True. Allow for the storage of the convolution
+        computation for later reuse.
+    **kwargs : dict
+        Keyword arguments to be passed either to `~astropy.convolution.convolve`
+        or `~astropy.convolution.convolve_fft` depending on ``mode``.
+
+    Returns
+    -------
+    default : `~astropy.modeling.core.CompoundModel`
+        Convolved model
+    """
+
+    operator = SPECIAL_OPERATORS.add('convolve_fft', partial(convolve_fft, **kwargs))
+
+    return Convolution(operator, model, kernel, bounding_box, resolution, cache)

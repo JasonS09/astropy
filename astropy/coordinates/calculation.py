@@ -78,8 +78,8 @@ def horoscope(birthday, corrected=True, chinese=False):
     Enter your birthday as an `astropy.time.Time` object and
     receive a mystical horoscope about things to come.
 
-    Parameter
-    ---------
+    Parameters
+    ----------
     birthday : `astropy.time.Time` or str
         Your birthday as a `datetime.datetime` or `astropy.time.Time` object
         or "YYYY-MM-DD"string.
@@ -153,19 +153,19 @@ def horoscope(birthday, corrected=True, chinese=False):
         else:
             zodiac_sign = get_sign(birthday.to_datetime())
         url = f"http://www.astrology.com/us/horoscope/daily-overview.aspx?sign={zodiac_sign}"
-        summ_title_sfx = 'on {}'.format(today.strftime("%Y-%m-%d"))
+        summ_title_sfx = f"on {today.strftime('%Y-%m-%d')}"
 
         res = Request(url, headers=headers)
         with urlopen(res) as f:
             try:
                 doc = BeautifulSoup(f, 'html.parser')
-                item = doc.find('span', {'class': 'date'})
-                desc = item.parent.getText()
+                item = doc.find('div', {'id': 'content'})
+                desc = item.getText()
             except Exception:
                 raise CelestialError(err_msg)
 
     print("*"*79)
-    color_print("Horoscope for {} {}:".format(zodiac_sign.capitalize(), summ_title_sfx),
+    color_print(f"Horoscope for {zodiac_sign.capitalize()} {summ_title_sfx}:",
                 'green')
     print("*"*79)
     for block in textwrap.wrap(desc, 79):

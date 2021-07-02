@@ -14,6 +14,7 @@ import numpy as np
 from .base import DELAYED, ExtensionHDU, BITPIX2DTYPE, DTYPE2BITPIX
 from .image import ImageHDU
 from .table import BinTableHDU
+from astropy.io.fits import conf
 from astropy.io.fits.card import Card
 from astropy.io.fits.column import Column, ColDefs, TDEF_RE
 from astropy.io.fits.column import KEYWORD_NAMES as TABLE_KEYWORD_NAMES
@@ -66,7 +67,7 @@ if COMPRESSION_SUPPORTED:
         if compression.CFITSIO_VERSION >= 3.35:
             CMTYPE_ALIASES['RICE_ONE'] = 'RICE_1'
     except AttributeError:
-        # This generally shouldn't happen unless running setup.py in an
+        # This generally shouldn't happen unless running pip in an
         # environment where an old build of pyfits exists
         CFITSIO_SUPPORTS_GZIPDATA = True
         CFITSIO_SUPPORTS_Q_FORMAT = True
@@ -204,6 +205,12 @@ class CompImageHeader(Header):
         super().append(card=card, useblanks=useblanks, bottom=bottom, end=end)
 
         remapped_keyword = self._remap_keyword(card.keyword)
+
+        # card.keyword strips the HIERARCH if present so this must be added
+        # back to avoid a warning.
+        if str(card).startswith("HIERARCH ") and not remapped_keyword.startswith("HIERARCH "):
+            remapped_keyword = "HIERARCH " + remapped_keyword
+
         card = Card(remapped_keyword, card.value, card.comment)
 
         # Here we disable the use of blank cards, because the call above to
@@ -398,6 +405,8 @@ class CompImageHDU(BinTableHDU):
     responsibility).
     """
 
+    _default_name = "COMPRESSED_IMAGE"
+
     def __init__(self, data=None, header=None, name=None,
                  compression_type=DEFAULT_COMPRESSION_TYPE,
                  tile_size=None,
@@ -414,7 +423,7 @@ class CompImageHDU(BinTableHDU):
         data : array, optional
             Uncompressed image data
 
-        header : Header instance, optional
+        header : `~astropy.io.fits.Header`, optional
             Header to be associated with the image; when reading the HDU from a
             file (data=DELAYED), the header read from the file
 
@@ -666,6 +675,48 @@ class CompImageHDU(BinTableHDU):
         self._orig_bscale = self._bscale
         self._orig_bitpix = self._bitpix
 
+    def _remove_unnecessary_default_extnames(self, header):
+        """Remove default EXTNAME values if they are unnecessary.
+
+        Some data files (eg from CFHT) can have the default EXTNAME and
+        an explicit value.  This method removes the default if a more
+        specific header exists. It also removes any duplicate default
+        values.
+        """
+        if 'EXTNAME' in header:
+            indices = header._keyword_indices['EXTNAME']
+            # Only continue if there is more than one found
+            n_extname = len(indices)
+            if n_extname > 1:
+                extnames_to_remove = [index for index in indices
+                                      if header[index] == self._default_name]
+                if len(extnames_to_remove) == n_extname:
+                    # Keep the first (they are all the same)
+                    extnames_to_remove.pop(0)
+                # Remove them all in reverse order to keep the index unchanged.
+                for index in reversed(sorted(extnames_to_remove)):
+                    del header[index]
+
+    @property
+    def name(self):
+        # Convert the value to a string to be flexible in some pathological
+        # cases (see ticket #96)
+        # Similar to base class but uses .header rather than ._header
+        return str(self.header.get('EXTNAME', self._default_name))
+
+    @name.setter
+    def name(self, value):
+        # This is a copy of the base class but using .header instead
+        # of ._header to ensure that the name stays in sync.
+        if not isinstance(value, str):
+            raise TypeError("'name' attribute must be a string")
+        if not conf.extension_name_case_sensitive:
+            value = value.upper()
+        if 'EXTNAME' in self.header:
+            self.header['EXTNAME'] = value
+        else:
+            self.header['EXTNAME'] = (value, 'extension name')
+
     @classmethod
     def match_header(cls, header):
         card = header.cards[0]
@@ -717,7 +768,7 @@ class CompImageHDU(BinTableHDU):
 
         Parameters
         ----------
-        image_header : Header instance
+        image_header : `~astropy.io.fits.Header`
             header to be associated with the image
 
         name : str, optional
@@ -758,6 +809,9 @@ class CompImageHDU(BinTableHDU):
             DITHER_SEED_CHECKSUM (-1)
         """
 
+        # Clean up EXTNAME duplicates
+        self._remove_unnecessary_default_extnames(self._header)
+
         image_hdu = ImageHDU(data=self.data, header=self._header)
         self._image_header = CompImageHeader(self._header, image_hdu.header)
         self._axes = image_hdu._axes
@@ -785,15 +839,14 @@ class CompImageHDU(BinTableHDU):
 
         # Update the extension name in the table header
         if not name and 'EXTNAME' not in self._header:
-            name = 'COMPRESSED_IMAGE'
-
-        if name:
-            self._header.set('EXTNAME', name,
+            # Do not sync this with the image header since the default
+            # name is specific to the table header.
+            self._header.set('EXTNAME', self._default_name,
                              'name of this binary table extension',
                              after='TFIELDS')
+        elif name:
+            # Force the name into table and image headers.
             self.name = name
-        else:
-            self.name = self._header['EXTNAME']
 
         # Set the compression type in the table header.
         if compression_type:
@@ -1386,7 +1439,7 @@ class CompImageHDU(BinTableHDU):
             if self._bscale != 1:
                 np.multiply(data, self._bscale, data)
             if self._bzero != 0:
-                # We have to explcitly cast self._bzero to prevent numpy from
+                # We have to explicitly cast self._bzero to prevent numpy from
                 # raising an error when doing self.data += self._bzero, and we
                 # do this instead of self.data = self.data + self._bzero to
                 # avoid doubling memory usage.
@@ -1465,6 +1518,11 @@ class CompImageHDU(BinTableHDU):
         # create it from the table header (the _header attribute).
         if hasattr(self, '_image_header'):
             return self._image_header
+
+        # Clean up any possible doubled EXTNAME keywords that use
+        # the default. Do this on the original header to ensure
+        # duplicates are removed cleanly.
+        self._remove_unnecessary_default_extnames(self._header)
 
         # Start with a copy of the table header.
         image_header = self._header.copy()
@@ -1555,8 +1613,8 @@ class CompImageHDU(BinTableHDU):
 
         # Remove the EXTNAME card if the value in the table header
         # is the default value of COMPRESSED_IMAGE.
-        if ('EXTNAME' in self._header and
-                self._header['EXTNAME'] == 'COMPRESSED_IMAGE'):
+        if ('EXTNAME' in image_header and
+                image_header['EXTNAME'] == self._default_name):
             del image_header['EXTNAME']
 
         # Look to see if there are any blank cards in the table
@@ -1653,6 +1711,10 @@ class CompImageHDU(BinTableHDU):
 
             # First delete the original compressed data, if it exists
             del self.compressed_data
+
+            # Make sure that the data is contiguous otherwise CFITSIO
+            # will not write the expected data
+            self.data = np.ascontiguousarray(self.data)
 
             # Compress the data.
             # The current implementation of compress_hdu assumes the empty
@@ -1914,7 +1976,7 @@ class CompImageHDU(BinTableHDU):
         if seed == DITHER_SEED_CHECKSUM:
             # Determine the tile dimensions from the ZTILEn keywords
             naxis = self._header['ZNAXIS']
-            tile_dims = [self._header['ZTILE{}'.format(idx + 1)]
+            tile_dims = [self._header[f'ZTILE{idx + 1}']
                          for idx in range(naxis)]
             tile_dims.reverse()
 

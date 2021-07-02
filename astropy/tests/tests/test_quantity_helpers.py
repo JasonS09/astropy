@@ -1,6 +1,7 @@
-from astropy import units as u
+import pytest
 
-from astropy.tests.helper import assert_quantity_allclose, pytest
+from astropy import units as u
+from astropy.tests.helper import assert_quantity_allclose
 
 
 def test_assert_quantity_allclose():
@@ -36,4 +37,4 @@ def test_assert_quantity_allclose():
 
     with pytest.raises(u.UnitsError) as exc:
         assert_quantity_allclose([1, 2], [1, 2], rtol=0.3 * u.m)
-    assert exc.value.args[0] == "`rtol` should be dimensionless"
+    assert exc.value.args[0] == "'rtol' should be dimensionless"

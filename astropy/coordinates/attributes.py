@@ -1,13 +1,12 @@
 # -*- coding: utf-8 -*-
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 
-
 # Dependencies
 import numpy as np
 
 # Project
 from astropy import units as u
-from astropy.utils import OrderedDescriptor, ShapedLikeNDArray
+from astropy.utils import ShapedLikeNDArray
 
 __all__ = ['Attribute', 'TimeAttribute', 'QuantityAttribute',
            'EarthLocationAttribute', 'CoordinateAttribute',
@@ -15,7 +14,7 @@ __all__ = ['Attribute', 'TimeAttribute', 'QuantityAttribute',
            'DifferentialAttribute']
 
 
-class Attribute(OrderedDescriptor):
+class Attribute:
     """A non-mutable data descriptor to hold a frame attribute.
 
     This class must be used to define frame attributes (e.g. ``equinox`` or
@@ -50,14 +49,15 @@ class Attribute(OrderedDescriptor):
         ``default is None`` and no value was supplied during initialization.
     """
 
-    _class_attribute_ = 'frame_attributes'
-    _name_attribute_ = 'name'
     name = '<unbound>'
 
     def __init__(self, default=None, secondary_attribute=''):
         self.default = default
         self.secondary_attribute = secondary_attribute
         super().__init__()
+
+    def __set_name__(self, owner, name):
+        self.name = name
 
     def convert_input(self, value):
         """
@@ -79,7 +79,7 @@ class Attribute(OrderedDescriptor):
 
         Returns
         -------
-        output_value
+        output_value : object
             The ``value`` converted to the correct type (or just ``value`` if
             ``converted`` is False)
         converted : bool
@@ -89,6 +89,7 @@ class Attribute(OrderedDescriptor):
         ------
         ValueError
             If the input is not valid for this attribute.
+
         """
         return value, False
 
@@ -102,8 +103,8 @@ class Attribute(OrderedDescriptor):
 
         out, converted = self.convert_input(out)
         if instance is not None:
-            instance_shape = getattr(instance, 'shape', None)
-            if instance_shape is not None and (getattr(out, 'size', 1) > 1 and
+            instance_shape = getattr(instance, 'shape', None)  # None if instance (frame) has no data!
+            if instance_shape is not None and (getattr(out, 'shape', ()) and
                                                out.shape != instance_shape):
                 # If the shapes do not match, try broadcasting.
                 try:
@@ -180,8 +181,7 @@ class TimeAttribute(Attribute):
                 out = Time(value)
             except Exception as err:
                 raise ValueError(
-                    'Invalid time input {}={!r}\n{}'.format(self.name,
-                                                            value, err))
+                    f'Invalid time input {self.name}={value!r}\n{err}')
             converted = True
 
         # Set attribute as read-only for arrays (not allowed by numpy
@@ -202,7 +202,7 @@ class CartesianRepresentationAttribute(Attribute):
     secondary_attribute : str
         Name of a secondary instance attribute which supplies the value if
         ``default is None`` and no value was supplied during initialization.
-    unit : unit object or None
+    unit : unit-like or None
         Name of a unit that the input will be converted into. If None, no
         unit-checking or conversion is performed
     """
@@ -223,9 +223,10 @@ class CartesianRepresentationAttribute(Attribute):
 
         Returns
         -------
-        out, converted : correctly-typed object, boolean
-            Tuple consisting of the correctly-typed object and a boolean which
-            indicates if conversion was actually performed.
+        out : object
+            The correctly-typed object.
+        converted : boolean
+            A boolean which indicates if conversion was actually performed.
 
         Raises
         ------
@@ -266,17 +267,17 @@ class QuantityAttribute(Attribute):
 
     Parameters
     ----------
-    default : value or Quantity or None
+    default : number or `~astropy.units.Quantity` or None, optional
         Default value for the attribute if the user does not supply one. If a
         Quantity, it must be consistent with ``unit``, or if a value, ``unit``
         cannot be None.
-    secondary_attribute : str
+    secondary_attribute : str, optional
         Name of a secondary instance attribute which supplies the value if
         ``default is None`` and no value was supplied during initialization.
-    unit : unit object or None
+    unit : unit-like or None, optional
         Name of a unit that the input will be converted into. If None, no
         unit-checking or conversion is performed
-    shape : tuple or None
+    shape : tuple or None, optional
         If given, specifies the shape the attribute must be
     """
 
@@ -321,20 +322,24 @@ class QuantityAttribute(Attribute):
         if value is None:
             return None, False
 
-        if np.all(value == 0) and self.unit is not None:
-            return u.Quantity(np.zeros(self.shape), self.unit), True
-        else:
-            if not hasattr(value, 'unit') and self.unit != u.dimensionless_unscaled:
-                raise TypeError('Tried to set a QuantityAttribute with '
-                                'something that does not have a unit.')
-            oldvalue = value
-            value = u.Quantity(oldvalue, self.unit, copy=False)
-            if self.shape is not None and value.shape != self.shape:
-                raise ValueError('The provided value has shape "{}", but '
-                                 'should have shape "{}"'.format(value.shape,
-                                                                 self.shape))
-            converted = oldvalue is not value
-            return value, converted
+        if (not hasattr(value, 'unit') and self.unit != u.dimensionless_unscaled
+                and np.any(value != 0)):
+            raise TypeError('Tried to set a QuantityAttribute with '
+                            'something that does not have a unit.')
+
+        oldvalue = value
+        value = u.Quantity(oldvalue, self.unit, copy=False)
+        if self.shape is not None and value.shape != self.shape:
+            if value.shape == () and oldvalue == 0:
+                # Allow a single 0 to fill whatever shape is needed.
+                value = np.broadcast_to(value, self.shape, subok=True)
+            else:
+                raise ValueError(
+                    f'The provided value has shape "{value.shape}", but '
+                    f'should have shape "{self.shape}"')
+
+        converted = oldvalue is not value
+        return value, converted
 
 
 class EarthLocationAttribute(Attribute):
@@ -387,19 +392,22 @@ class EarthLocationAttribute(Attribute):
                 raise ValueError('"{}" was passed into an '
                                  'EarthLocationAttribute, but it does not have '
                                  '"transform_to" method'.format(value))
-            itrsobj = value.transform_to(ITRS)
+            itrsobj = value.transform_to(ITRS())
             return itrsobj.earth_location, True
 
 
 class CoordinateAttribute(Attribute):
     """
-    A frame attribute which is a coordinate object. It can be given as a
-    low-level frame class *or* a `~astropy.coordinates.SkyCoord`, but will
-    always be converted to the low-level frame class when accessed.
+    A frame attribute which is a coordinate object.  It can be given as a
+    `~astropy.coordinates.SkyCoord` or a low-level frame instance.  If a
+    low-level frame instance is provided, it will always be upgraded to be a
+    `~astropy.coordinates.SkyCoord` to ensure consistent transformation
+    behavior.  The coordinate object will always be returned as a low-level
+    frame instance when accessed.
 
     Parameters
     ----------
-    frame : a coordinate frame class
+    frame : `~astropy.coordinates.BaseCoordinateFrame` class
         The type of frame this attribute can be
     default : object
         Default value for the attribute if not provided
@@ -433,19 +441,16 @@ class CoordinateAttribute(Attribute):
         ValueError
             If the input is not valid for this attribute.
         """
+        from astropy.coordinates import SkyCoord
+
         if value is None:
             return None, False
         elif isinstance(value, self._frame):
             return value, False
         else:
-            if not hasattr(value, 'transform_to'):
-                raise ValueError('"{}" was passed into a '
-                                 'CoordinateAttribute, but it does not have '
-                                 '"transform_to" method'.format(value))
+            value = SkyCoord(value)  # always make the value a SkyCoord
             transformedobj = value.transform_to(self._frame)
-            if hasattr(transformedobj, 'frame'):
-                transformedobj = transformedobj.frame
-            return transformedobj, True
+            return transformedobj.frame, True
 
 
 class DifferentialAttribute(Attribute):

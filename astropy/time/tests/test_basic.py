@@ -8,30 +8,27 @@ from copy import deepcopy
 from decimal import Decimal, localcontext
 
 import numpy as np
+import pytest
 from numpy.testing import assert_allclose
+import erfa
+from erfa import ErfaWarning
 
-from astropy.tests.helper import catch_warnings, pytest
-from astropy.utils.exceptions import AstropyDeprecationWarning, ErfaWarning
+from astropy.utils.exceptions import AstropyDeprecationWarning
 from astropy.utils import isiterable, iers
 from astropy.time import (Time, TimeDelta, ScaleValueError, STANDARD_TIME_SCALES,
-                          TimeString, TimezoneInfo)
+                          TimeString, TimezoneInfo, TIME_FORMATS)
 from astropy.coordinates import EarthLocation
 from astropy import units as u
-from astropy import _erfa as erfa
 from astropy.table import Column, Table
+from astropy.utils.compat.optional_deps import HAS_PYTZ  # noqa
 
-try:
-    import pytz
-    HAS_PYTZ = True
-except ImportError:
-    HAS_PYTZ = False
 
-allclose_jd = functools.partial(np.allclose, rtol=2. ** -52, atol=0)
-allclose_jd2 = functools.partial(np.allclose, rtol=2. ** -52,
-                                 atol=2. ** -52)  # 20 ps atol
-allclose_sec = functools.partial(np.allclose, rtol=2. ** -52,
-                                 atol=2. ** -52 * 24 * 3600)  # 20 ps atol
-allclose_year = functools.partial(np.allclose, rtol=2. ** -52,
+allclose_jd = functools.partial(np.allclose, rtol=np.finfo(float).eps, atol=0)
+allclose_jd2 = functools.partial(np.allclose, rtol=np.finfo(float).eps,
+                                 atol=np.finfo(float).eps)  # 20 ps atol
+allclose_sec = functools.partial(np.allclose, rtol=np.finfo(float).eps,
+                                 atol=np.finfo(float).eps * 24 * 3600)
+allclose_year = functools.partial(np.allclose, rtol=np.finfo(float).eps,
                                   atol=0.)  # 14 microsec at current epoch
 
 
@@ -53,7 +50,7 @@ class TestBasic:
         assert (repr(t) == "<Time object: scale='utc' format='iso' "
                 "value=['1999-01-01 00:00:00.123' '2010-01-01 00:00:00.000']>")
         assert allclose_jd(t.jd1, np.array([2451180., 2455198.]))
-        assert allclose_jd2(t.jd2, np.array([-0.5+1.4288980208333335e-06,
+        assert allclose_jd2(t.jd2, np.array([-0.5 + 1.4288980208333335e-06,
                                              -0.50000000e+00]))
 
         # Set scale to TAI
@@ -61,8 +58,8 @@ class TestBasic:
         assert (repr(t) == "<Time object: scale='tai' format='iso' "
                 "value=['1999-01-01 00:00:32.123' '2010-01-01 00:00:34.000']>")
         assert allclose_jd(t.jd1, np.array([2451180., 2455198.]))
-        assert allclose_jd2(t.jd2, np.array([-0.5+0.00037179926839122024,
-                                             -0.5+0.00039351851851851852]))
+        assert allclose_jd2(t.jd2, np.array([-0.5 + 0.00037179926839122024,
+                                             -0.5 + 0.00039351851851851852]))
 
         # Get a new ``Time`` object which is referenced to the TT scale
         # (internal JD1 and JD1 are now with respect to TT scale)"""
@@ -90,7 +87,7 @@ class TestBasic:
         val2 = 0.
         t3 = Time(val, val2, format='jd')
         assert t3.isscalar is False and t3.shape == val.shape
-        val2 = (np.arange(5.)/10.).reshape(5, 1)
+        val2 = (np.arange(5.) / 10.).reshape(5, 1)
         # now see if broadcasting to two-dimensional works
         t4 = Time(val, val2, format='jd')
         assert t4.isscalar is False
@@ -174,8 +171,15 @@ class TestBasic:
         assert np.all(t3._delta_tdb_tt == t._delta_tdb_tt[4:6])
         t4 = Time(mjd, format='mjd', scale='utc',
                   location=(np.arange(len(mjd)), np.arange(len(mjd))))
-        t5 = t4[3]
-        assert t5.location == t4.location[3]
+        t5a = t4[3]
+        assert t5a.location == t4.location[3]
+        assert t5a.location.shape == ()
+        t5b = t4[3:4]
+        assert t5b.location.shape == (1,)
+        # Check that indexing a size-1 array returns a scalar location as well;
+        # see gh-10113.
+        t5c = t5b[0]
+        assert t5c.location.shape == ()
         t6 = t4[4:6]
         assert np.all(t6.location == t4.location[4:6])
         # check it is a view
@@ -262,15 +266,33 @@ class TestBasic:
         lat = 19.48125
         lon = -155.933222
         t = Time('2006-01-15 21:24:37.5', format='iso', scale='utc',
-                 precision=6, location=(lon, lat))
+                 precision=7, location=(lon, lat))
         t.delta_ut1_utc = 0.3341  # Explicitly set one part of the xform
-        assert t.utc.iso == '2006-01-15 21:24:37.500000'
-        assert t.ut1.iso == '2006-01-15 21:24:37.834100'
-        assert t.tai.iso == '2006-01-15 21:25:10.500000'
-        assert t.tt.iso == '2006-01-15 21:25:42.684000'
-        assert t.tcg.iso == '2006-01-15 21:25:43.322690'
-        assert t.tdb.iso == '2006-01-15 21:25:42.684373'
-        assert t.tcb.iso == '2006-01-15 21:25:56.893952'
+        assert t.utc.iso == '2006-01-15 21:24:37.5000000'
+        assert t.ut1.iso == '2006-01-15 21:24:37.8341000'
+        assert t.tai.iso == '2006-01-15 21:25:10.5000000'
+        assert t.tt.iso == '2006-01-15 21:25:42.6840000'
+        assert t.tcg.iso == '2006-01-15 21:25:43.3226905'
+        assert t.tdb.iso == '2006-01-15 21:25:42.6843728'
+        assert t.tcb.iso == '2006-01-15 21:25:56.8939523'
+
+    def test_transforms_no_location(self):
+        """Location should default to geocenter (relevant for TDB, TCB)."""
+        t = Time('2006-01-15 21:24:37.5', format='iso', scale='utc',
+                 precision=7)
+        t.delta_ut1_utc = 0.3341  # Explicitly set one part of the xform
+        assert t.utc.iso == '2006-01-15 21:24:37.5000000'
+        assert t.ut1.iso == '2006-01-15 21:24:37.8341000'
+        assert t.tai.iso == '2006-01-15 21:25:10.5000000'
+        assert t.tt.iso == '2006-01-15 21:25:42.6840000'
+        assert t.tcg.iso == '2006-01-15 21:25:43.3226905'
+        assert t.tdb.iso == '2006-01-15 21:25:42.6843725'
+        assert t.tcb.iso == '2006-01-15 21:25:56.8939519'
+        # Check we get the same result
+        t2 = Time('2006-01-15 21:24:37.5', format='iso', scale='utc',
+                  location=(0*u.m, 0*u.m, 0*u.m))
+        assert t == t2
+        assert t.tdb == t2.tdb
 
     def test_location(self):
         """Check that location creates an EarthLocation object, and that
@@ -299,11 +321,11 @@ class TestBasic:
 
         lat = 19.48125
         lon = -155.933222
-        t = Time(['2006-01-15 21:24:37.5']*2, format='iso', scale='utc',
+        t = Time(['2006-01-15 21:24:37.5'] * 2, format='iso', scale='utc',
                  precision=6, location=(lon, lat))
         assert np.all(t.utc.iso == '2006-01-15 21:24:37.500000')
         assert np.all(t.tdb.iso[0] == '2006-01-15 21:25:42.684373')
-        t2 = Time(['2006-01-15 21:24:37.5']*2, format='iso', scale='utc',
+        t2 = Time(['2006-01-15 21:24:37.5'] * 2, format='iso', scale='utc',
                   precision=6, location=(np.array([lon, 0]),
                                          np.array([lat, 0])))
         assert np.all(t2.utc.iso == '2006-01-15 21:24:37.500000')
@@ -314,7 +336,7 @@ class TestBasic:
                  precision=6, location=(np.array([lon, 0]),
                                         np.array([lat, 0])))
         with pytest.raises(ValueError):  # 3 times, but two locations
-            Time(['2006-01-15 21:24:37.5']*3, format='iso', scale='utc',
+            Time(['2006-01-15 21:24:37.5'] * 3, format='iso', scale='utc',
                  precision=6, location=(np.array([lon, 0]),
                                         np.array([lat, 0])))
         # multidimensional
@@ -378,7 +400,7 @@ class TestBasic:
         dt = datetime.datetime(2000, 1, 2, 3, 4, 5, 123456)
         Time(dt, format='datetime', scale='tai')
         Time([dt, dt], format='datetime', scale='tai')
-        dt64 = np.datetime64('2012-06-18T02:00:05.453000000', format='datetime64')
+        dt64 = np.datetime64('2012-06-18T02:00:05.453000000')
         Time(dt64, format='datetime64', scale='tai')
         Time([dt64, dt64], format='datetime64', scale='tai')
 
@@ -389,27 +411,27 @@ class TestBasic:
         ScalevalueError
         """
         t = Time('2006-01-15 21:24:37.5', scale='local')
-        assert_allclose(t.jd, 2453751.3921006946, atol=0.001/3600./24., rtol=0.)
-        assert_allclose(t.mjd, 53750.892100694444, atol=0.001/3600./24., rtol=0.)
-        assert_allclose(t.decimalyear, 2006.0408002758752, atol=0.001/3600./24./365., rtol=0.)
+        assert_allclose(t.jd, 2453751.3921006946, atol=0.001 / 3600. / 24., rtol=0.)
+        assert_allclose(t.mjd, 53750.892100694444, atol=0.001 / 3600. / 24., rtol=0.)
+        assert_allclose(t.decimalyear, 2006.0408002758752, atol=0.001 / 3600. / 24. / 365., rtol=0.)
         assert t.datetime == datetime.datetime(2006, 1, 15, 21, 24, 37, 500000)
         assert t.isot == '2006-01-15T21:24:37.500'
         assert t.yday == '2006:015:21:24:37.500'
         assert t.fits == '2006-01-15T21:24:37.500'
-        assert_allclose(t.byear, 2006.04217888831, atol=0.001/3600./24./365., rtol=0.)
-        assert_allclose(t.jyear, 2006.0407723496082, atol=0.001/3600./24./365., rtol=0.)
+        assert_allclose(t.byear, 2006.04217888831, atol=0.001 / 3600. / 24. / 365., rtol=0.)
+        assert_allclose(t.jyear, 2006.0407723496082, atol=0.001 / 3600. / 24. / 365., rtol=0.)
         assert t.byear_str == 'B2006.042'
         assert t.jyear_str == 'J2006.041'
 
         # epochTimeFormats
         with pytest.raises(ScaleValueError):
-            t2 = t.gps
+            t.gps
         with pytest.raises(ScaleValueError):
-            t2 = t.unix
+            t.unix
         with pytest.raises(ScaleValueError):
-            t2 = t.cxcsec
+            t.cxcsec
         with pytest.raises(ScaleValueError):
-            t2 = t.plot_date
+            t.plot_date
 
     def test_datetime(self):
         """
@@ -432,7 +454,7 @@ class TestBasic:
         assert t.datetime == datetime.datetime(2000, 1, 1, 1, 1, 1, 123457)
 
         # broadcasting
-        dt3 = (dt + (dt2-dt)*np.arange(12)).reshape(4, 3)
+        dt3 = (dt + (dt2-dt) * np.arange(12)).reshape(4, 3)
         t3 = Time(dt3, scale='utc')
         assert t3.shape == (4, 3)
         assert t3[2, 1].value == dt3[2, 1]
@@ -466,7 +488,7 @@ class TestBasic:
         assert t.datetime64 == np.datetime64('2000-01-01T01:01:01.123456789')
 
         # broadcasting
-        dt3 = (dt64 + (dt64_2-dt64)*np.arange(12)).reshape(4, 3)
+        dt3 = (dt64 + (dt64_2-dt64) * np.arange(12)).reshape(4, 3)
         t3 = Time(dt3, scale='utc', format='datetime64')
         assert t3.shape == (4, 3)
         assert t3[2, 1].value == dt3[2, 1]
@@ -543,7 +565,7 @@ class TestBasic:
             if month == 6:
                 yyyy_mm_dd_plus1 = f'{year:04d}-07-01'
             else:
-                yyyy_mm_dd_plus1 = '{:04d}-01-01'.format(year+1)
+                yyyy_mm_dd_plus1 = f'{year + 1:04d}-01-01'
 
             with pytest.warns(ErfaWarning):
                 t1 = Time(yyyy_mm_dd + ' 23:59:61.0', scale='utc')
@@ -595,7 +617,7 @@ class TestBasic:
         # throw error when deriving local scale time
         # from non local time scale
         with pytest.raises(ValueError):
-            t6 = Time(t1, scale='local')
+            Time(t1, scale='local')
 
 
 class TestVal2:
@@ -633,7 +655,7 @@ class TestVal2:
         val = (2458000 + np.arange(3))[:, None]
         val2 = np.linspace(0, 1, 4, endpoint=False)
         t = Time(val=val, val2=val2, format="jd", scale="tai")
-        t_b = Time(val=val+0*val2, val2=0*val+val2, format="jd", scale="tai")
+        t_b = Time(val=val + 0 * val2, val2=0 * val + val2, format="jd", scale="tai")
         t_i = Time(val=57990, val2=0.3, format="jd", scale="tai")
         t_b[1, 2] = t_i
         t[1, 2] = t_i
@@ -646,7 +668,7 @@ class TestVal2:
         val = (2458000 + np.arange(3))
         val2 = np.arange(1)
         t = Time(val=val, val2=val2, format="jd", scale="tai")
-        t_b = Time(val=val+0*val2, val2=0*val+val2, format="jd", scale="tai")
+        t_b = Time(val=val + 0 * val2, val2=0 * val + val2, format="jd", scale="tai")
         t_i = Time(val=57990, val2=0.3, format="jd", scale="tai")
         t_b[1] = t_i
         t[1] = t_i
@@ -765,7 +787,7 @@ class TestSubFormat:
         for inputs in (("2000-01-02(TAI)", "tai"),
                        ("1999-01-01T00:00:00.123(ET(NIST))", "tt"),
                        ("2014-12-12T01:00:44.1(UTC)", "utc")):
-            with catch_warnings(AstropyDeprecationWarning):
+            with pytest.warns(AstropyDeprecationWarning):
                 t = Time(inputs[0])
             assert t.scale == inputs[1]
 
@@ -775,24 +797,24 @@ class TestSubFormat:
             assert t == t2
 
         # Explicit check that conversions still work despite warning
-        with catch_warnings(AstropyDeprecationWarning):
+        with pytest.warns(AstropyDeprecationWarning):
             t = Time('1999-01-01T00:00:00.123456789(UTC)')
         t = t.tai
         assert t.isot == '1999-01-01T00:00:32.123'
 
-        with catch_warnings(AstropyDeprecationWarning):
+        with pytest.warns(AstropyDeprecationWarning):
             t = Time('1999-01-01T00:00:32.123456789(TAI)')
         t = t.utc
         assert t.isot == '1999-01-01T00:00:00.123'
 
         # Check scale consistency
-        with catch_warnings(AstropyDeprecationWarning):
+        with pytest.warns(AstropyDeprecationWarning):
             t = Time('1999-01-01T00:00:32.123456789(TAI)', scale="tai")
         assert t.scale == "tai"
-        with catch_warnings(AstropyDeprecationWarning):
+        with pytest.warns(AstropyDeprecationWarning):
             t = Time('1999-01-01T00:00:32.123456789(ET)', scale="tt")
         assert t.scale == "tt"
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError), pytest.warns(AstropyDeprecationWarning):
             t = Time('1999-01-01T00:00:32.123456789(TAI)', scale="utc")
 
     def test_scale_default(self):
@@ -835,12 +857,6 @@ class TestSubFormat:
         assert allclose_sec(t.cxcsec, t_cxcsec)
         assert allclose_sec(t.tt.cxcsec, t_cxcsec)
 
-        # Value from:
-        #   d = datetime.datetime(2000, 1, 1)
-        #   matplotlib.pylab.dates.date2num(d)
-        t = Time('2000-01-01 00:00:00', scale='utc')
-        assert np.allclose(t.plot_date, 730120.0, atol=1e-5, rtol=0)
-
         # Round trip through epoch time
         for scale in ('utc', 'tt'):
             t = Time('2000:001', scale=scale)
@@ -856,6 +872,29 @@ class TestSubFormat:
         t = Time('2004-09-16T23:59:59', scale='utc')
         assert allclose_sec(t.unix, 1095379199.0)
 
+    def test_plot_date(self):
+        """Test the plot_date format.
+
+        Depending on the situation with matplotlib, this can give different
+        results because the plot date epoch time changed in matplotlib 3.3. This
+        test tries to use the matplotlib date2num function to make the test
+        independent of version, but if matplotlib isn't available then the code
+        (and test) use the pre-3.3 epoch.
+        """
+        try:
+            from matplotlib.dates import date2num
+        except ImportError:
+            # No matplotlib, in which case this uses the epoch 0000-12-31
+            # as per matplotlib < 3.3.
+            # Value from:
+            #   matplotlib.dates.set_epoch('0000-12-31')
+            #   val = matplotlib.dates.date2num('2000-01-01')
+            val = 730120.0
+        else:
+            val = date2num(datetime.datetime(2000, 1, 1))
+        t = Time('2000-01-01 00:00:00', scale='utc')
+        assert np.allclose(t.plot_date, val, atol=1e-5, rtol=0)
+
 
 class TestNumericalSubFormat:
     def test_explicit_example(self):
@@ -867,7 +906,10 @@ class TestNumericalSubFormat:
         assert t.to_value('mjd', subfmt='str') == '54321.000000000001'
         assert t.to_value('mjd', 'bytes') == b'54321.000000000001'
         expected_long = np.longdouble(54321.) + np.longdouble(1e-12)
-        assert t.to_value('mjd', subfmt='long') == expected_long
+        # Check we're the same to within the double holding jd2
+        # (which is less precise than longdouble on arm64).
+        assert np.allclose(t.to_value('mjd', subfmt='long'),
+                           expected_long, rtol=0, atol=np.finfo(float).eps)
         t.out_subfmt = 'str'
         assert t.value == '54321.000000000001'
         assert t.to_value('mjd') == 54321.  # Lost precision!
@@ -875,9 +917,12 @@ class TestNumericalSubFormat:
         assert t.to_value('mjd', subfmt='bytes') == b'54321.000000000001'
         assert t.to_value('mjd', subfmt='float') == 54321.  # Lost precision!
         t.out_subfmt = 'long'
-        assert t.value == expected_long
-        assert t.to_value('mjd', subfmt=None) == expected_long
-        assert t.mjd == expected_long
+        assert np.allclose(t.value, expected_long,
+                           rtol=0., atol=np.finfo(float).eps)
+        assert np.allclose(t.to_value('mjd', subfmt=None), expected_long,
+                           rtol=0., atol=np.finfo(float).eps)
+        assert np.allclose(t.mjd, expected_long,
+                           rtol=0., atol=np.finfo(float).eps)
         assert t.to_value('mjd', subfmt='str') == '54321.000000000001'
         assert t.to_value('mjd', subfmt='float') == 54321.  # Lost precision!
 
@@ -885,19 +930,40 @@ class TestNumericalSubFormat:
                         reason="long double is the same as float")
     def test_explicit_longdouble(self):
         i = 54321
-        f = 2.**(-np.finfo(np.longdouble).nmant) * 65536
+        # Create a different long double (which will give a different jd2
+        # even when long doubles are more precise than Time, as on arm64).
+        f = max(2.**(-np.finfo(np.longdouble).nmant) * 65536,
+                np.finfo(float).eps)
         mjd_long = np.longdouble(i) + np.longdouble(f)
         assert mjd_long != i, "longdouble failure!"
         t = Time(mjd_long, format='mjd')
         expected = Time(i, f, format='mjd')
-        assert t == expected
-        t_float = Time(i+f, format='mjd')
+        assert abs(t - expected) <= 20. * u.ps
+        t_float = Time(i + f, format='mjd')
         assert t_float == Time(i, format='mjd')
         assert t_float != t
         assert t.value == 54321.  # Lost precision!
-        assert t.to_value('mjd', subfmt='long') == mjd_long
+        assert np.allclose(t.to_value('mjd', subfmt='long'), mjd_long,
+                           rtol=0., atol=np.finfo(float).eps)
         t2 = Time(mjd_long, format='mjd', out_subfmt='long')
-        assert t2.value == mjd_long
+        assert np.allclose(t2.value, mjd_long,
+                           rtol=0., atol=np.finfo(float).eps)
+
+    @pytest.mark.skipif(np.finfo(np.longdouble).eps >= np.finfo(float).eps,
+                        reason="long double is the same as float")
+    def test_explicit_longdouble_one_val(self):
+        """Ensure either val1 or val2 being longdouble is possible.
+
+        Regression test for issue gh-10033.
+        """
+        i = 54321
+        f = max(2.**(-np.finfo(np.longdouble).nmant) * 65536,
+                np.finfo(float).eps)
+        t1 = Time(i, f, format='mjd')
+        t2 = Time(np.longdouble(i), f, format='mjd')
+        t3 = Time(i, np.longdouble(f), format='mjd')
+        t4 = Time(np.longdouble(i), np.longdouble(f), format='mjd')
+        assert t1 == t2 == t3 == t4
 
     @pytest.mark.skipif(np.finfo(np.longdouble).eps >= np.finfo(float).eps,
                         reason="long double is the same as float")
@@ -905,18 +971,22 @@ class TestNumericalSubFormat:
     def test_longdouble_for_other_types(self, fmt):
         t_fmt = getattr(Time(58000, format="mjd"), fmt)  # Get regular float
         t_fmt_long = np.longdouble(t_fmt)
-        t_fmt_long2 = t_fmt_long * (np.finfo(np.longdouble).eps * 2 + 1)
+        # Create a different long double (ensuring it will give a different jd2
+        # even when long doubles are more precise than Time, as on arm64).
+        atol = np.finfo(float).eps * (1. if fmt == 'mjd' else 24. * 3600.)
+        t_fmt_long2 = t_fmt_long + max(
+            t_fmt_long * np.finfo(np.longdouble).eps * 2, atol)
         assert t_fmt_long != t_fmt_long2, "longdouble weird!"
         tm = Time(t_fmt_long, format=fmt)
         tm2 = Time(t_fmt_long2, format=fmt)
         assert tm != tm2
         tm_long2 = tm2.to_value(fmt, subfmt='long')
-        assert tm_long2 == t_fmt_long2
+        assert np.allclose(tm_long2, t_fmt_long2, rtol=0., atol=atol)
 
     def test_subformat_input(self):
         s = '54321.01234567890123456789'
         i, f = s.split('.')  # Note, OK only for fraction < 0.5
-        t = Time(float(i), float('.'+f), format='mjd')
+        t = Time(float(i), float('.' + f), format='mjd')
         t_str = Time(s, format='mjd')
         t_bytes = Time(s.encode('ascii'), format='mjd')
         t_decimal = Time(Decimal(s), format='mjd')
@@ -1027,14 +1097,45 @@ class TestNumericalSubFormat:
         with pytest.raises(ValueError, match='not among selected'):
             Time(58000., format='mjd', in_subfmt='long')
 
-    def test_wrong_out_subfmt(self):
+    def test_wrong_subfmt(self):
         t = Time(58000., format='mjd')
         with pytest.raises(ValueError, match='must match one'):
             t.to_value('mjd', subfmt='parrot')
 
-        t.out_subfmt = 'parrot'
-        with pytest.raises(ValueError):
-            t.value
+        with pytest.raises(ValueError, match='must match one'):
+            t.out_subfmt = 'parrot'
+
+        with pytest.raises(ValueError, match='must match one'):
+            t.in_subfmt = 'parrot'
+
+    def test_not_allowed_subfmt(self):
+        """Test case where format has no defined subfmts"""
+        t = Time('J2000')
+        match = 'subformat not allowed for format jyear_str'
+        with pytest.raises(ValueError, match=match):
+            t.to_value('jyear_str', subfmt='parrot')
+
+        with pytest.raises(ValueError, match=match):
+            t.out_subfmt = 'parrot'
+
+        with pytest.raises(ValueError, match=match):
+            Time('J2000', out_subfmt='parrot')
+
+        with pytest.raises(ValueError, match=match):
+            t.in_subfmt = 'parrot'
+
+        with pytest.raises(ValueError, match=match):
+            Time('J2000', format='jyear_str', in_subfmt='parrot')
+
+    def test_switch_to_format_with_no_out_subfmt(self):
+        t = Time('2001-01-01', out_subfmt='date_hm')
+        assert t.out_subfmt == 'date_hm'
+
+        # Now do an in-place switch to format 'jyear_str' that has no subfmts
+        # where out_subfmt is changed to '*'.
+        t.format = 'jyear_str'
+        assert t.out_subfmt == '*'
+        assert t.value == 'J2001.001'
 
 
 class TestSofaErrors:
@@ -1053,10 +1154,9 @@ class TestSofaErrors:
             djm0, djm = erfa.cal2jd(iy, im, id)
 
         iy[0] = 2000
-        with catch_warnings() as w:
+        with pytest.warns(ErfaWarning, match=r'bad day    \(JD computed\)') as w:
             djm0, djm = erfa.cal2jd(iy, im, id)
         assert len(w) == 1
-        assert 'bad day    (JD computed)' in str(w[0].message)
 
         assert allclose_jd(djm0, [2400000.5])
         assert allclose_jd(djm, [53574.])
@@ -1210,13 +1310,31 @@ def test_fits_year10000():
     assert t.fits == '+10000-01-01T00:00:00.000'
     t = Time(5373484.5 - 365., format='jd', scale='tai')
     assert t.fits == '9999-01-01T00:00:00.000'
-    t = Time(5373484.5, -1./24./3600., format='jd', scale='tai')
+    t = Time(5373484.5, -1. / 24. / 3600., format='jd', scale='tai')
     assert t.fits == '9999-12-31T23:59:59.000'
 
 
 def test_dir():
     t = Time('2000:001', format='yday', scale='tai')
     assert 'utc' in dir(t)
+
+
+def test_time_from_epoch_jds():
+    """Test that jd1/jd2 in a TimeFromEpoch format is always well-formed:
+    jd1 is an integral value and abs(jd2) <= 0.5.
+    """
+    # From 1999:001 00:00 to 1999:002 12:00 by a non-round step. This will
+    # catch jd2 == 0 and a case of abs(jd2) == 0.5.
+    cxcsecs = np.linspace(0, 86400 * 1.5, 49)
+    for cxcsec in cxcsecs:
+        t = Time(cxcsec, format='cxcsec')
+        assert np.round(t.jd1) == t.jd1
+        assert np.abs(t.jd2) <= 0.5
+
+    t = Time(cxcsecs, format='cxcsec')
+    assert np.all(np.round(t.jd1) == t.jd1)
+    assert np.all(np.abs(t.jd2) <= 0.5)
+    assert np.any(np.abs(t.jd2) == 0.5)  # At least one exactly 0.5
 
 
 def test_bool():
@@ -1258,7 +1376,11 @@ def test_TimeFormat_scale():
 
 
 @pytest.mark.remote_data
-def test_scale_conversion():
+def test_scale_conversion(monkeypatch):
+    # Check that if we have internet, and downloading is allowed, we
+    # can get conversion to UT1 for the present, since we will download
+    # IERS_A in IERS_Auto.
+    monkeypatch.setattr('astropy.utils.iers.conf.auto_download', True)
     Time(Time.now().cxcsec, format='cxcsec', scale='ut1')
 
 
@@ -1317,6 +1439,13 @@ def test_set_format_basic():
         # Internal jd1 and jd2 are preserved
         assert t._time.jd1 is t0._time.jd1
         assert t._time.jd2 is t0._time.jd2
+
+
+def test_unix_tai_format():
+    t = Time('2020-01-01', scale='utc')
+    assert allclose_sec(t.unix_tai - t.unix, 37.0)
+    t = Time('1970-01-01', scale='utc')
+    assert allclose_sec(t.unix_tai - t.unix, 8 + 8.2e-05)
 
 
 def test_set_format_shares_subfmt():
@@ -1391,7 +1520,7 @@ def test_isiterable():
 
 
 def test_to_datetime():
-    tz = TimezoneInfo(utc_offset=-10*u.hour, tzname='US/Hawaii')
+    tz = TimezoneInfo(utc_offset=-10 * u.hour, tzname='US/Hawaii')
     # The above lines produces a `datetime.tzinfo` object similar to:
     #     tzinfo = pytz.timezone('US/Hawaii')
     time = Time('2010-09-03 00:00:00')
@@ -1416,7 +1545,7 @@ def test_to_datetime():
 
 @pytest.mark.skipif('not HAS_PYTZ')
 def test_to_datetime_pytz():
-
+    import pytz
     tz = pytz.timezone('US/Hawaii')
     time = Time('2010-09-03 00:00:00')
     tz_aware_datetime = time.to_datetime(tz)
@@ -1962,13 +2091,13 @@ def test_get_time_fmt_exception_messages():
 
     with pytest.raises(ValueError) as err:
         Time('200', format='iso')
-    assert ('Input values did not match the format class iso:' + os.linesep +
-            'ValueError: Time 200 does not match iso format') == str(err.value)
+    assert ('Input values did not match the format class iso:' + os.linesep
+            + 'ValueError: Time 200 does not match iso format') == str(err.value)
 
     with pytest.raises(ValueError) as err:
         Time(200, format='iso')
-    assert ('Input values did not match the format class iso:' + os.linesep +
-            'TypeError: Input values for iso class must be strings') == str(err.value)
+    assert ('Input values did not match the format class iso:' + os.linesep
+            + 'TypeError: Input values for iso class must be strings') == str(err.value)
 
 
 def test_ymdhms_defaults():
@@ -2100,5 +2229,91 @@ def test_ymdhms_output():
 # and can ensure that strange broadcasting anomalies can't happen.
 # This form of construction uses from_jd=True.
 def test_broadcasting_writeable():
-    t = Time('J2015') + np.linspace(-1, 1, 10)*u.day
+    t = Time('J2015') + np.linspace(-1, 1, 10) * u.day
     t[2] = Time(58000, format="mjd")
+
+
+def test_format_subformat_compatibility():
+    """Test that changing format with out_subfmt defined is not a problem.
+    See #9812, #9810."""
+    t = Time('2019-12-20', out_subfmt='date_??')
+    assert t.mjd == 58837.0
+    assert t.yday == '2019:354:00:00'  # Preserves out_subfmt
+
+    t2 = t.replicate(format='mjd')
+    assert t2.out_subfmt == '*'  # Changes to default
+
+    t2 = t.copy(format='mjd')
+    assert t2.out_subfmt == '*'
+
+    t2 = Time(t, format='mjd')
+    assert t2.out_subfmt == '*'
+
+    t2 = t.copy(format='yday')
+    assert t2.out_subfmt == 'date_??'
+    assert t2.value == '2019:354:00:00'
+
+    t.format = 'yday'
+    assert t.value == '2019:354:00:00'
+    assert t.out_subfmt == 'date_??'
+
+    t = Time('2019-12-20', out_subfmt='date')
+    assert t.mjd == 58837.0
+    assert t.yday == '2019:354'
+
+
+@pytest.mark.parametrize('fmt_name,fmt_class', TIME_FORMATS.items())
+def test_to_value_with_subfmt_for_every_format(fmt_name, fmt_class):
+    """From a starting Time value, test that every valid combination of
+    to_value(format, subfmt) works.  See #9812, #9361.
+    """
+    t = Time('2000-01-01')
+    subfmts = list(subfmt[0] for subfmt in fmt_class.subfmts) + [None, '*']
+    for subfmt in subfmts:
+        t.to_value(fmt_name, subfmt)
+
+
+@pytest.mark.parametrize('location', [None, (45, 45)])
+def test_location_init(location):
+    """Test fix in #9969 for issue #9962 where the location attribute is
+    lost when initializing Time from an existing Time instance of list of
+    Time instances.
+    """
+    tm = Time('J2010', location=location)
+
+    # Init from a scalar Time
+    tm2 = Time(tm)
+    assert np.all(tm.location == tm2.location)
+    assert type(tm.location) is type(tm2.location)  # noqa
+
+    # From a list of Times
+    tm2 = Time([tm, tm])
+    if location is None:
+        assert tm2.location is None
+    else:
+        for loc in tm2.location:
+            assert loc == tm.location
+    assert type(tm.location) is type(tm2.location)  # noqa
+
+    # Effectively the same as a list of Times, but just to be sure that
+    # Table mixin inititialization is working as expected.
+    tm2 = Table([[tm, tm]])['col0']
+    if location is None:
+        assert tm2.location is None
+    else:
+        for loc in tm2.location:
+            assert loc == tm.location
+    assert type(tm.location) is type(tm2.location)  # noqa
+
+
+def test_location_init_fail():
+    """Test fix in #9969 for issue #9962 where the location attribute is
+    lost when initializing Time from an existing Time instance of list of
+    Time instances.  Make sure exception is correct.
+    """
+    tm = Time('J2010', location=(45, 45))
+    tm2 = Time('J2010')
+
+    with pytest.raises(ValueError,
+                       match='cannot concatenate times unless all locations'):
+        Time([tm, tm2])

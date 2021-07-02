@@ -58,7 +58,7 @@ def quantity_support(format='latex_inline'):
         elif n == 2:
             return 'π'
         elif n % 2 == 0:
-            return '{}π'.format(n / 2)
+            return f'{n / 2}π'
         else:
             return f'{n}π/2'
 
@@ -98,7 +98,7 @@ def quantity_support(format='latex_inline'):
         def convert(val, unit, axis):
             if isinstance(val, u.Quantity):
                 return val.to_value(unit)
-            elif isinstance(val, list) and isinstance(val[0], u.Quantity):
+            elif isinstance(val, list) and val and isinstance(val[0], u.Quantity):
                 return [v.to_value(unit) for v in val]
             else:
                 return val

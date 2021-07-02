@@ -14,18 +14,26 @@ parameters used in Astropy or affiliated packages without delving into the
 source code to make those changes.
 
 .. note::
-    The configuration system got a major overhaul in ``astropy`` 0.4 as
-    part of APE3. See :ref:`config-0-4-transition` for information
-    about updating code to use the new API.
+    * Before version 4.3 the configuration file was created by default
+      when importing ``astropy``. Its existence was required, which is
+      no longer the case.
+    * The configuration system got a major overhaul in ``astropy`` 0.4 as
+      part of APE3. See :ref:`config-0-4-transition` for information
+      about updating code to use the new API.
 
 
 Getting Started
 ===============
 
 The Astropy configuration options are most conveniently set by modifying the
-configuration file. It will be automatically generated with all of the
-default values commented out the first time you import Astropy. You
-can find the exact location by doing::
+configuration file. Since Astropy 4.3 you need to create this file, whereas
+before it was created automatically when importing Astropy. To create the file
+with all of the default values commented out::
+
+    >>> from astropy.config import create_config_file
+    >>> create_config_file('astropy')
+
+You can find the exact location of this file by doing::
 
     >>> from astropy.config import get_config_dir
     >>> get_config_dir()
@@ -38,6 +46,9 @@ Note that ``XDG_CONFIG_HOME`` comes from a Linux-centric specification (see
 `here <https://wiki.archlinux.org/index.php/XDG_Base_Directory_support>`_ for
 more details), but Astropy will use this on any OS as a more general means to
 know where user-specific configurations should be written.
+
+.. note::
+    See :ref:`astropy_config_file` for the content of this configuration file.
 
 Once you have found the configuration file, open it with your favorite editor.
 It should have all of the sections you might want, with descriptions and the
@@ -83,8 +94,14 @@ configuration file as described above. Values can also, however, be
 modified in an active Python session by setting any of the properties
 on a ``conf`` object.
 
-For example, if there is a part of your configuration file that looks
-like:
+Example
+^^^^^^^
+
+..
+  EXAMPLE START
+  Changing the Persistent State of Configuration Values at Runtime
+
+If there is a part of your configuration file that looks like:
 
 .. code-block:: ini
 
@@ -110,12 +127,23 @@ You should be able to modify the values at runtime this way::
     >>> conf.remote_timeout
     4.5
 
+..
+  EXAMPLE END
+
 Reloading Configuration
 -----------------------
 
 Instead of modifying the variables in Python, you can also modify the
-configuration files and then reload them. For example, if you modify the
-configuration file to say:
+configuration files and then reload them.
+
+Example
+^^^^^^^
+
+..
+  EXAMPLE START
+  Modifying and Reloading Configuration Files
+
+If you modify the configuration file to say:
 
 .. code-block:: ini
 
@@ -147,6 +175,7 @@ once by calling ``reload`` with no parameters::
 Or if you want to reload all Astropy configuration at once, use the
 `~astropy.config.reload_config` function::
 
+    >>> from astropy import config
     >>> config.reload_config('astropy')
 
 You can also reset a configuration parameter back to its default value. Note
@@ -157,21 +186,53 @@ do with the configuration file on disk::
     >>> conf.dataurl
     'http://data.astropy.org/'
 
+..
+  EXAMPLE END
+
+Exploring Configuration
+-----------------------
+
+To see what configuration parameters are defined for a given ``conf``::
+
+    >>> from astropy.utils.iers import conf
+    >>> [key for key in conf]
+    ['auto_download',
+     'auto_max_age',
+     ...,
+     'ietf_leap_second_auto_url']
+    >>> conf.auto_max_age
+    30.0
+
+You can also iterate through ``conf`` in a dictionary-like fashion::
+
+    >>> [key for key in conf.keys()]
+    ['auto_download',
+     'auto_max_age',
+     ...,
+     'ietf_leap_second_auto_url']
+    >>> [cfgitem for cfgitem in conf.values()]
+    [<ConfigItem: name='auto_download' value=True at ...>,
+     <ConfigItem: name='auto_max_age' value=30.0 at ...>,
+     ...,
+     <ConfigItem: name='ietf_leap_second_auto_url' value=...>]
+    >>> for (key, cfgitem) in conf.items():
+    ...     if key == 'auto_max_age':
+    ...         print(f'{cfgitem.description} Value is {cfgitem()}')
+    Maximum age (days) of predictive data before auto-downloading. Default is 30. Value is 30.0
+
 Upgrading ``astropy``
 ---------------------
 
 Each time you upgrade to a new major version of ``astropy``, the
-configuration parameters may have changed.
+configuration parameters may have changed. If you want to create a new
+configuration file, you can run::
 
-If you never edited your configuration file, there is nothing for you
-to do. It will automatically be replaced with a configuration file
-template for the newly installed version of ``astropy``.
+    >>> from astropy.config import create_config_file
+    >>> create_config_file('astropy', overwrite=True)
 
-If you did customize your configuration file, it will not be touched.
-Instead, a new configuration file template will be installed alongside
-it with the version number in the filename, for example
-``astropy.0.4.cfg``. You can compare this file to your
-``astropy.cfg`` file to see what needs to be changed or updated.
+Note that this will overwrite the existing file, so if you modified it you
+may want to report your changes in the new file. Another possibility is to
+have a look at the :ref:`astropy_config` to see what has changed.
 
 .. _config-developer:
 
@@ -353,19 +414,18 @@ Or, if the option needs to be available as a function parameter::
         return (conf.some_setting if val is None else val) + 2
 
 
-
-Customising Config in Affiliated Packages
+Customizing Config in Affiliated Packages
 =========================================
 
-The `astropy.config` package can be used by other pacakges. By default creating
+The `astropy.config` package can be used by other packages. By default creating
 a config object in another package will lead to a configuration file taking the
-name of that package in the astropy config directory. i.e.
-``<astropy_config>/packagename.cfg``.
+name of that package in the ``astropy`` config directory (i.e.,
+``<astropy_config>/packagename.cfg``).
 
 
 It is possible to configure this behavior so that the a custom configuration
-directory is created for your package, for example
-``~/.packagename/packagename.cfg``. To do this create a ``packagename.config``
+directory is created for your package, for example,
+``~/.packagename/packagename.cfg``. To do this, create a ``packagename.config``
 subpackage and put the following into the ``__init__.py`` file::
 
   import astropy.config as astropyconfig
@@ -387,6 +447,7 @@ See Also
 .. toctree::
    :maxdepth: 2
 
+   astropy_config
    config_0_4_transition
 
 :doc:`/logging` (overview of `astropy.logger`)

@@ -2,7 +2,7 @@
 Astropy
 =======
 
-|Travis Status| |CircleCI Status| |Coverage Status| |PyPI Status| |Documentation Status|
+|Actions Status| |CircleCI Status| |Azure Status| |Coverage Status| |PyPI Status| |Documentation Status| |Zenodo|
 
 The Astropy Project (http://astropy.org/) is a community effort to develop a
 single core package for Astronomy in Python and foster interoperability between
@@ -10,11 +10,11 @@ Python astronomy packages. This repository contains the core package which is
 intended to contain much of the core functionality and some common tools needed
 for performing astronomy and astrophysics with Python.
 
-Releases are `registered on PyPI <http://pypi.python.org/pypi/astropy>`_,
+Releases are `registered on PyPI <https://pypi.org/project/astropy>`_,
 and development is occurring at the
 `project's GitHub page <http://github.com/astropy/astropy>`_.
 
-For installation instructions, see the `online documentation <http://docs.astropy.org/>`_
+For installation instructions, see the `online documentation <https://docs.astropy.org/>`_
 or  `docs/install.rst <docs/install.rst>`_ in this source distribution.
 
 Contributing Code, Documentation, or Feedback
@@ -48,34 +48,32 @@ License
 Astropy is licensed under a 3-clause BSD style license - see the
 `LICENSE.rst <LICENSE.rst>`_ file.
 
-Notes for Package Managers
---------------------------
+.. |Actions Status| image:: https://github.com/astropy/astropy/workflows/CI/badge.svg
+    :target: https://github.com/astropy/astropy/actions
+    :alt: Astropy's GitHub Actions CI Status
 
-For system packagers: Please install `astropy` with the command::
-
-    $ python setup.py --offline install
-
-This will prevent the astropy_helpers bootstrap script from attempting to
-reach out to PyPI.
-
-.. |Travis Status| image:: https://travis-ci.org/astropy/astropy.svg
-    :target: https://travis-ci.org/astropy/astropy
-    :alt: Astropy's Travis CI Status
-
-.. |CircleCI Status| image:: https://circleci.com/gh/astropy/astropy.svg?style=svg
+.. |CircleCI Status| image::  https://img.shields.io/circleci/build/github/astropy/astropy/main?logo=circleci&label=CircleCI
     :target: https://circleci.com/gh/astropy/astropy
     :alt: Astropy's CircleCI Status
 
-.. |Coverage Status| image:: https://codecov.io/gh/astropy/astropy/branch/master/graph/badge.svg
+.. |Azure Status| image:: https://dev.azure.com/astropy-project/astropy/_apis/build/status/astropy.astropy?repoName=astropy%2Fastropy&branchName=main
+    :target: https://dev.azure.com/astropy-project/astropy
+    :alt: Astropy's Azure Pipelines Status
+
+.. |Coverage Status| image:: https://codecov.io/gh/astropy/astropy/branch/main/graph/badge.svg
     :target: https://codecov.io/gh/astropy/astropy
     :alt: Astropy's Coverage Status
 
 .. |PyPI Status| image:: https://img.shields.io/pypi/v/astropy.svg
-    :target: https://pypi.python.org/pypi/astropy
+    :target: https://pypi.org/project/astropy
     :alt: Astropy's PyPI Status
 
-.. |Documentation Status| image:: https://readthedocs.org/projects/astropy/badge/?version=stable
-    :target: http://docs.astropy.org/en/stable/?badge=stable
+.. |Zenodo| image:: https://zenodo.org/badge/DOI/10.5281/zenodo.4670728.svg
+   :target: https://doi.org/10.5281/zenodo.4670728
+   :alt: Zenodo DOI
+
+.. |Documentation Status| image:: https://img.shields.io/readthedocs/astropy/latest.svg?logo=read%20the%20docs&logoColor=white&label=Docs&version=stable
+    :target: https://docs.astropy.org/en/stable/?badge=stable
     :alt: Documentation Status
 
 .. |NumFOCUS| image:: https://img.shields.io/badge/powered%20by-NumFOCUS-orange.svg?style=flat&colorA=E1523D&colorB=007D8A
@@ -84,3 +82,21 @@ reach out to PyPI.
 
 .. |Donate| image:: https://img.shields.io/badge/Donate-to%20Astropy-brightgreen.svg
     :target: https://numfocus.salsalabs.org/donate-to-astropy/index.html
+
+
+If you locally cloned this repo before 7 Apr 2021
+-------------------------------------------------
+
+The primary branch for this repo has been transitioned from ``master`` to
+``main``.  If you have a local clone of this repository and want to keep your
+local branch in sync with this repo, you'll need to do the following in your
+local clone from your terminal::
+
+   git fetch --all --prune
+   # you can stop here if you don't use your local "master"/"main" branch
+   git branch -m master main
+   git branch -u origin/main main
+
+If you are using a GUI to manage your repos you'll have to find the equivalent
+commands as it's different for different programs. Alternatively, you can just
+delete your local clone and re-clone!

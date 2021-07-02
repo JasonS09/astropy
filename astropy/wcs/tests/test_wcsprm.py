@@ -6,11 +6,11 @@ import gc
 import locale
 import re
 
+from packaging.version import Version
 import pytest
 import numpy as np
 from numpy.testing import assert_array_equal, assert_array_almost_equal
 
-from astropy.tests.helper import raises, catch_warnings
 from astropy.io import fits
 from astropy.wcs import wcs
 from astropy.wcs import _wcs
@@ -33,16 +33,16 @@ def test_alt():
     assert w.alt == " "
 
 
-@raises(ValueError)
 def test_alt_invalid1():
     w = _wcs.Wcsprm()
-    w.alt = "$"
+    with pytest.raises(ValueError):
+        w.alt = "$"
 
 
-@raises(ValueError)
 def test_alt_invalid2():
     w = _wcs.Wcsprm()
-    w.alt = "  "
+    with pytest.raises(ValueError):
+        w.alt = "  "
 
 
 def test_axis_types():
@@ -60,27 +60,27 @@ def test_cd():
     assert w.has_cd() is False
 
 
-@raises(AttributeError)
 def test_cd_missing():
     w = _wcs.Wcsprm()
     assert w.has_cd() is False
-    w.cd
+    with pytest.raises(AttributeError):
+        w.cd
 
 
-@raises(AttributeError)
 def test_cd_missing2():
     w = _wcs.Wcsprm()
     w.cd = [[1, 0], [0, 1]]
     assert w.has_cd() is True
     del w.cd
     assert w.has_cd() is False
-    w.cd
+    with pytest.raises(AttributeError):
+        w.cd
 
 
-@raises(ValueError)
 def test_cd_invalid():
     w = _wcs.Wcsprm()
-    w.cd = [1, 0, 0, 1]
+    with pytest.raises(ValueError):
+        w.cd = [1, 0, 0, 1]
 
 
 def test_cdfix():
@@ -95,10 +95,10 @@ def test_cdelt():
     assert_array_equal(w.cdelt, [42, 54])
 
 
-@raises(TypeError)
 def test_cdelt_delete():
     w = _wcs.Wcsprm()
-    del w.cdelt
+    with pytest.raises(TypeError):
+        del w.cdelt
 
 
 def test_cel_offset():
@@ -127,10 +127,10 @@ def test_cname():
     assert list(w.cname) == ['foo', 'bar']
 
 
-@raises(TypeError)
 def test_cname_invalid():
     w = _wcs.Wcsprm()
-    w.cname = [42, 54]
+    with pytest.raises(TypeError):
+        w.cname = [42, 54]
 
 
 def test_colax():
@@ -162,10 +162,10 @@ def test_colnum():
         del w.colnum
 
 
-@raises(TypeError)
 def test_colnum_invalid():
     w = _wcs.Wcsprm()
-    w.colnum = 'foo'
+    with pytest.raises(TypeError):
+        w.colnum = 'foo'
 
 
 def test_crder():
@@ -188,21 +188,21 @@ def test_crota():
     assert w.has_crota() is False
 
 
-@raises(AttributeError)
 def test_crota_missing():
     w = _wcs.Wcsprm()
     assert w.has_crota() is False
-    w.crota
+    with pytest.raises(AttributeError):
+        w.crota
 
 
-@raises(AttributeError)
 def test_crota_missing2():
     w = _wcs.Wcsprm()
     w.crota = [1, 0]
     assert w.has_crota() is True
     del w.crota
     assert w.has_crota() is False
-    w.crota
+    with pytest.raises(AttributeError):
+        w.crota
 
 
 def test_crpix():
@@ -309,15 +309,14 @@ def test_cunit():
 
 def test_cunit_invalid():
     w = _wcs.Wcsprm()
-    with catch_warnings() as warns:
+    with pytest.warns(u.UnitsWarning, match='foo') as warns:
         w.cunit[0] = 'foo'
     assert len(warns) == 1
-    assert 'foo' in str(warns[0].message)
 
 
 def test_cunit_invalid2():
     w = _wcs.Wcsprm()
-    with catch_warnings() as warns:
+    with pytest.warns(u.UnitsWarning) as warns:
         w.cunit = ['foo', 'bar']
     assert len(warns) == 2
     assert 'foo' in str(warns[0].message)
@@ -410,9 +409,17 @@ def test_fix():
         'unitfix': 'No change',
         'celfix': 'No change',
         'obsfix': 'No change'}
+
     version = wcs._wcs.__version__
-    if version[0] <= "5":
+    if Version(version) <= Version('5'):
         del fix_ref['obsfix']
+
+    if Version(version) >= Version('7.1'):
+        w.dateref = '1858-11-17'
+
+    if Version('7.4') <= Version(version) < Version('7.6'):
+        fix_ref['datfix'] = 'Success'
+
     assert w.fix() == fix_ref
 
 
@@ -428,9 +435,16 @@ def test_fix2():
         'unitfix': 'No change',
         'celfix': 'No change'}
     version = wcs._wcs.__version__
-    if version[0] <= "5":
+    if Version(version) <= Version("5"):
         del fix_ref['obsfix']
         fix_ref['datfix'] = "Changed '31/12/99' to '1999-12-31'"
+
+    if Version(version) >= Version('7.3'):
+        fix_ref['datfix'] = "Set DATEREF to '1858-11-17' from MJDREF.\n" + fix_ref['datfix']
+
+    elif Version(version) >= Version('7.1'):
+        fix_ref['datfix'] = "Set DATE-REF to '1858-11-17' from MJD-REF.\n" + fix_ref['datfix']
+
     assert w.fix() == fix_ref
     assert w.dateobs == '1999-12-31'
     assert w.mjdobs == 51543.0
@@ -446,11 +460,19 @@ def test_fix3():
         'datfix': "Invalid DATE-OBS format '31/12/F9'",
         'spcfix': 'No change',
         'unitfix': 'No change',
-        'celfix': 'No change'}
+        'celfix': 'No change'
+    }
+
     version = wcs._wcs.__version__
-    if version[0] <= "5":
+    if Version(version) <= Version("5"):
         del fix_ref['obsfix']
         fix_ref['datfix'] = "Invalid parameter value: invalid date '31/12/F9'"
+
+    if Version(version) >= Version('7.3'):
+        fix_ref['datfix'] = "Set DATEREF to '1858-11-17' from MJDREF.\n" + fix_ref['datfix']
+    elif Version(version) >= Version('7.1'):
+        fix_ref['datfix'] = "Set DATE-REF to '1858-11-17' from MJD-REF.\n" + fix_ref['datfix']
+
     assert w.fix() == fix_ref
     assert w.dateobs == '31/12/F9'
     assert np.isnan(w.mjdobs)
@@ -480,16 +502,16 @@ def test_get_pv():
     assert len(w.get_pv()) == 0
 
 
-@raises(AssertionError)
 def test_imgpix_matrix():
     w = _wcs.Wcsprm()
-    w.imgpix_matrix
+    with pytest.raises(AssertionError):
+        w.imgpix_matrix
 
 
-@raises(AttributeError)
 def test_imgpix_matrix2():
     w = _wcs.Wcsprm()
-    w.imgpix_matrix = None
+    with pytest.raises(AttributeError):
+        w.imgpix_matrix = None
 
 
 def test_isunity():
@@ -502,10 +524,10 @@ def test_lat():
     assert w.lat == -1
 
 
-@raises(AttributeError)
 def test_lat_set():
     w = _wcs.Wcsprm()
-    w.lat = 0
+    with pytest.raises(AttributeError):
+        w.lat = 0
 
 
 def test_latpole():
@@ -523,10 +545,10 @@ def test_lattyp():
     assert w.lattyp == "    "
 
 
-@raises(AttributeError)
 def test_lattyp_set():
     w = _wcs.Wcsprm()
-    w.lattyp = 0
+    with pytest.raises(AttributeError):
+        w.lattyp = 0
 
 
 def test_lng():
@@ -534,10 +556,10 @@ def test_lng():
     assert w.lng == -1
 
 
-@raises(AttributeError)
 def test_lng_set():
     w = _wcs.Wcsprm()
-    w.lng = 0
+    with pytest.raises(AttributeError):
+        w.lng = 0
 
 
 def test_lngtyp():
@@ -545,10 +567,10 @@ def test_lngtyp():
     assert w.lngtyp == "    "
 
 
-@raises(AttributeError)
 def test_lngtyp_set():
     w = _wcs.Wcsprm()
-    w.lngtyp = 0
+    with pytest.raises(AttributeError):
+        w.lngtyp = 0
 
 
 def test_lonpole():
@@ -597,10 +619,10 @@ def test_naxis():
     assert w.naxis == 2
 
 
-@raises(AttributeError)
 def test_naxis_set():
     w = _wcs.Wcsprm()
-    w.naxis = 4
+    with pytest.raises(AttributeError):
+        w.naxis = 4
 
 
 def test_obsgeo():
@@ -624,12 +646,12 @@ def test_pc():
     w.pc = w.pc
 
 
-@raises(AttributeError)
 def test_pc_missing():
     w = _wcs.Wcsprm()
     w.cd = [[1, 0], [0, 1]]
     assert not w.has_pc()
-    w.pc
+    with pytest.raises(AttributeError):
+        w.pc
 
 
 def test_phi0():
@@ -641,16 +663,16 @@ def test_phi0():
     assert np.isnan(w.phi0)
 
 
-@raises(AssertionError)
 def test_piximg_matrix():
     w = _wcs.Wcsprm()
-    w.piximg_matrix
+    with pytest.raises(AssertionError):
+        w.piximg_matrix
 
 
-@raises(AttributeError)
 def test_piximg_matrix2():
     w = _wcs.Wcsprm()
-    w.piximg_matrix = None
+    with pytest.raises(AttributeError):
+        w.piximg_matrix = None
 
 
 def test_print_contents():
@@ -721,10 +743,10 @@ def test_spec():
     assert w.spec == -1
 
 
-@raises(AttributeError)
 def test_spec_set():
     w = _wcs.Wcsprm()
-    w.spec = 0
+    with pytest.raises(AttributeError):
+        w.spec = 0
 
 
 def test_specsys():
@@ -829,11 +851,11 @@ def test_get_pc():
         raise AssertionError()
 
 
-@raises(_wcs.SingularMatrixError)
 def test_detailed_err():
     w = _wcs.Wcsprm()
     w.pc = [[0, 0], [0, 0]]
-    w.set()
+    with pytest.raises(_wcs.SingularMatrixError):
+        w.set()
 
 
 def test_header_parse():
@@ -860,10 +882,10 @@ def test_locale():
             "on this system")
 
 
-@raises(UnicodeEncodeError)
 def test_unicode():
     w = _wcs.Wcsprm()
-    w.alt = "‰"
+    with pytest.raises(UnicodeEncodeError):
+        w.alt = "‰"
 
 
 def test_sub_segfault():
@@ -1104,6 +1126,12 @@ def test_datebeg():
         'spcfix': 'No change',
         'unitfix': 'No change',
         'celfix': 'No change'}
+
+    if Version(wcs._wcs.__version__) >= Version('7.3'):
+        fix_ref['datfix'] = "Set DATEREF to '1858-11-17' from MJDREF.\n" + fix_ref['datfix']
+    elif Version(wcs._wcs.__version__) >= Version('7.1'):
+        fix_ref['datfix'] = "Set DATE-REF to '1858-11-17' from MJD-REF.\n" + fix_ref['datfix']
+
     assert w.fix() == fix_ref
 
 
@@ -1139,14 +1167,14 @@ def test_num_keys(key):
         setattr(w, key, "foo")
 
 
-array_keys = ['czphs', 'cperi', 'mjdref']
-
-
-@pytest.mark.parametrize('key', array_keys)
+@pytest.mark.parametrize('key', ['czphs', 'cperi', 'mjdref'])
 def test_array_keys(key):
     w = _wcs.Wcsprm()
     attr = getattr(w, key)
-    assert np.all(np.isnan(attr))
+    if key == 'mjdref' and Version(_wcs.__version__) >= Version('7.1'):
+        assert np.allclose(attr, [0, 0])
+    else:
+        assert np.all(np.isnan(attr))
     assert attr.dtype == float
     setattr(w, key, [1., 2.])
     assert_array_equal(getattr(w, key), [1., 2.])

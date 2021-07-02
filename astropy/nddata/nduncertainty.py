@@ -1,8 +1,5 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 
-
-from .nddata_base import NDDataBase
-
 import numpy as np
 from abc import ABCMeta, abstractmethod
 from copy import deepcopy
@@ -44,7 +41,7 @@ class NDUncertainty(metaclass=ABCMeta):
         to a plain `numpy.ndarray`.
         Default is ``None``.
 
-    unit : `~astropy.units.Unit` or str, optional
+    unit : unit-like, optional
         Unit for the uncertainty ``array``. Strings that can be converted to a
         `~astropy.units.Unit` are allowed.
         Default is ``None``.
@@ -294,7 +291,7 @@ class NDUncertainty(metaclass=ABCMeta):
         other_nddata : `NDData` instance
             The second operand in the arithmetic operation.
 
-        result_data : `~astropy.units.Quantity` or `numpy.ndarray`
+        result_data : `~astropy.units.Quantity` or ndarray
             The result of the arithmetic operations on the data.
 
         correlation : `numpy.ndarray` or number
@@ -477,7 +474,7 @@ class _VariancePropagationMixin:
         result_data : `~astropy.nddata.NDData` instance
             The results of the operation on the data.
 
-        correlation : float or `numpy.ndarray`-like
+        correlation : float or array-like
             Correlation of the uncertainties.
 
         subtract : bool, optional
@@ -505,10 +502,10 @@ class _VariancePropagationMixin:
         if other_uncert.array is not None:
             # Formula: sigma**2 = dB
             if (other_uncert.unit is not None and
-                result_unit_sq != to_variance(other_uncert.unit)):
+                    result_unit_sq != to_variance(other_uncert.unit)):
                 # If the other uncertainty has a unit and this unit differs
                 # from the unit of the result convert it to the results unit
-                other = to_variance(other_uncert.array *
+                other = to_variance(other_uncert.array <<
                                     other_uncert.unit).to(result_unit_sq).value
             else:
                 other = to_variance(other_uncert.array)
@@ -521,7 +518,7 @@ class _VariancePropagationMixin:
             if self.unit is not None and to_variance(self.unit) != self.parent_nddata.unit**2:
                 # If the uncertainty has a different unit than the result we
                 # need to convert it to the results unit.
-                this = to_variance(self.array * self.unit).to(result_unit_sq).value
+                this = to_variance(self.array << self.unit).to(result_unit_sq).value
             else:
                 this = to_variance(self.array)
         else:
@@ -560,7 +557,7 @@ class _VariancePropagationMixin:
         result_data : `~astropy.nddata.NDData` instance
             The results of the operation on the data.
 
-        correlation : float or `numpy.ndarray`-like
+        correlation : float or array-like
             Correlation of the uncertainties.
 
         divide : bool, optional
@@ -591,7 +588,7 @@ class _VariancePropagationMixin:
             if (other_uncert.unit and
                 to_variance(1 * other_uncert.unit) !=
                     ((1 * other_uncert.parent_nddata.unit)**2).unit):
-                d_b = to_variance(other_uncert.array * other_uncert.unit).to(
+                d_b = to_variance(other_uncert.array << other_uncert.unit).to(
                     (1 * other_uncert.parent_nddata.unit)**2).value
             else:
                 d_b = to_variance(other_uncert.array)
@@ -605,7 +602,7 @@ class _VariancePropagationMixin:
             if (self.unit and
                 to_variance(1 * self.unit) !=
                     ((1 * self.parent_nddata.unit)**2).unit):
-                d_a = to_variance(self.array * self.unit).to(
+                d_a = to_variance(self.array << self.unit).to(
                     (1 * self.parent_nddata.unit)**2).value
             else:
                 d_a = to_variance(self.array)

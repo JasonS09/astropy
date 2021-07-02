@@ -4,14 +4,14 @@
 import numpy as np
 from numpy.testing import assert_array_equal
 
-from asdf import yamlutil
+from asdf.versioning import AsdfVersion
 
 import astropy.units as u
 from astropy import modeling
 from .basic import TransformType
 from . import _parameter_to_value
 
-__all__ = ['ShiftType', 'ScaleType', 'PolynomialType', 'Linear1DType']
+__all__ = ['ShiftType', 'ScaleType', 'Linear1DType']
 
 
 class ShiftType(TransformType):
@@ -31,8 +31,7 @@ class ShiftType(TransformType):
     @classmethod
     def to_tree_transform(cls, model, ctx):
         offset = model.offset
-        node = {'offset': _parameter_to_value(offset)}
-        return yamlutil.custom_tree_to_tagged_tree(node, ctx)
+        return {'offset': _parameter_to_value(offset)}
 
     @classmethod
     def assert_equal(cls, a, b):
@@ -60,8 +59,7 @@ class ScaleType(TransformType):
     @classmethod
     def to_tree_transform(cls, model, ctx):
         factor = model.factor
-        node = {'factor': _parameter_to_value(factor)}
-        return yamlutil.custom_tree_to_tagged_tree(node, ctx)
+        return {'factor': _parameter_to_value(factor)}
 
     @classmethod
     def assert_equal(cls, a, b):
@@ -85,8 +83,7 @@ class MultiplyType(TransformType):
     @classmethod
     def to_tree_transform(cls, model, ctx):
         factor = model.factor
-        node = {'factor': _parameter_to_value(factor)}
-        return yamlutil.custom_tree_to_tagged_tree(node, ctx)
+        return {'factor': _parameter_to_value(factor)}
 
     @classmethod
     def assert_equal(cls, a, b):
@@ -97,7 +94,9 @@ class MultiplyType(TransformType):
         assert_array_equal(a.factor, b.factor)
 
 
-class PolynomialType(TransformType):
+class PolynomialTypeBase(TransformType):
+    DOMAIN_WINDOW_MIN_VERSION = AsdfVersion("1.2.0")
+
     name = "transform/polynomial"
     types = ['astropy.modeling.models.Polynomial1D',
              'astropy.modeling.models.Polynomial2D']
@@ -108,9 +107,15 @@ class PolynomialType(TransformType):
         n_dim = coefficients.ndim
 
         if n_dim == 1:
-            model = modeling.models.Polynomial1D(coefficients.size - 1)
+            domain = node.get('domain', None)
+            window = node.get('window', None)
+
+            model = modeling.models.Polynomial1D(coefficients.size - 1,
+                                                 domain=domain, window=window)
             model.parameters = coefficients
         elif n_dim == 2:
+            x_domain, y_domain = tuple(node.get('domain', (None, None)))
+            x_window, y_window = tuple(node.get('window', (None, None)))
             shape = coefficients.shape
             degree = shape[0] - 1
             if shape[0] != shape[1]:
@@ -120,9 +125,14 @@ class PolynomialType(TransformType):
             for i in range(shape[0]):
                 for j in range(shape[0]):
                     if i + j < degree + 1:
-                        name = 'c' + str(i) + '_' +str(j)
+                        name = 'c' + str(i) + '_' + str(j)
                         coeffs[name] = coefficients[i, j]
-            model = modeling.models.Polynomial2D(degree, **coeffs)
+            model = modeling.models.Polynomial2D(degree,
+                                                 x_domain=x_domain,
+                                                 y_domain=y_domain,
+                                                 x_window=x_window,
+                                                 y_window=y_window,
+                                                 **coeffs)
         else:
             raise NotImplementedError(
                 "Asdf currently only supports 1D or 2D polynomial transform.")
@@ -141,7 +151,25 @@ class PolynomialType(TransformType):
                         name = 'c' + str(i) + '_' + str(j)
                         coefficients[i, j] = getattr(model, name).value
         node = {'coefficients': coefficients}
-        return yamlutil.custom_tree_to_tagged_tree(node, ctx)
+        typeindex = cls.types.index(model.__class__)
+        ndim = (typeindex % 2) + 1
+
+        if cls.version >= PolynomialTypeBase.DOMAIN_WINDOW_MIN_VERSION:
+            # Schema versions prior to 1.2 included an unrelated "domain"
+            # property.  We can't serialize the new domain values with those
+            # versions because they don't validate.
+            if ndim == 1:
+                if model.domain is not None:
+                    node['domain'] = model.domain
+                if model.window is not None:
+                    node['window'] = model.window
+            else:
+                if model.x_domain or model.y_domain is not None:
+                    node['domain'] = (model.x_domain, model.y_domain)
+                if model.x_window or model.y_window is not None:
+                    node['window'] = (model.x_window, model.y_window)
+
+        return node
 
     @classmethod
     def assert_equal(cls, a, b):
@@ -150,6 +178,30 @@ class PolynomialType(TransformType):
         assert (isinstance(a, (modeling.models.Polynomial1D, modeling.models.Polynomial2D)) and
                 isinstance(b, (modeling.models.Polynomial1D, modeling.models.Polynomial2D)))
         assert_array_equal(a.parameters, b.parameters)
+
+        if cls.version > PolynomialTypeBase.DOMAIN_WINDOW_MIN_VERSION:
+            # Schema versions prior to 1.2 are known not to serialize
+            # domain or window.
+            if isinstance(a, modeling.models.Polynomial1D):
+                assert a.domain == b.domain
+                assert a.window == b.window
+            else:
+                assert a.x_domain == b.x_domain
+                assert a.x_window == b.x_window
+                assert a.y_domain == b.y_domain
+                assert a.y_window == b.y_window
+
+
+class PolynomialType1_0(PolynomialTypeBase):
+    version = "1.0.0"
+
+
+class PolynomialType1_1(PolynomialTypeBase):
+    version = "1.1.0"
+
+
+class PolynomialType1_2(PolynomialTypeBase):
+    version = "1.2.0"
 
 
 class OrthoPolynomialType(TransformType):
@@ -176,18 +228,28 @@ class OrthoPolynomialType(TransformType):
         n_dim = coefficients.ndim
         poly_type = node['polynomial_type']
         if n_dim == 1:
-            model = cls.types[cls.typemap[poly_type]](coefficients.size - 1)
+            domain = node.get('domain', None)
+            window = node.get('window', None)
+            model = cls.types[cls.typemap[poly_type]](coefficients.size - 1,
+                                                      domain=domain, window=window)
             model.parameters = coefficients
         elif n_dim == 2:
+            x_domain, y_domain = tuple(node.get('domain', (None, None)))
+            x_window, y_window = tuple(node.get('window', (None, None)))
             coeffs = {}
             shape = coefficients.shape
             x_degree = shape[0] - 1
-            y_degree = shape[1] -1
+            y_degree = shape[1] - 1
             for i in range(x_degree + 1):
                 for j in range(y_degree + 1):
                     name = f'c{i}_{j}'
                     coeffs[name] = coefficients[i, j]
-            model = cls.types[cls.typemap[poly_type]+1](x_degree, y_degree, **coeffs)
+            model = cls.types[cls.typemap[poly_type]+1](x_degree, y_degree,
+                                                        x_domain=x_domain,
+                                                        y_domain=y_domain,
+                                                        x_window=x_window,
+                                                        y_window=y_window,
+                                                        **coeffs)
         else:
             raise NotImplementedError(
                 "Asdf currently only supports 1D or 2D polynomial transforms.")
@@ -207,19 +269,29 @@ class OrthoPolynomialType(TransformType):
                     name = f'c{i}_{j}'
                     coefficients[i, j] = getattr(model, name).value
         node = {'polynomial_type': poly_type, 'coefficients': coefficients}
-        return yamlutil.custom_tree_to_tagged_tree(node, ctx)
+        if ndim == 1:
+            if model.domain is not None:
+                node['domain'] = model.domain
+            if model.window is not None:
+                node['window'] = model.window
+        else:
+            if model.x_domain or model.y_domain is not None:
+                node['domain'] = (model.x_domain, model.y_domain)
+            if model.x_window or model.y_window is not None:
+                node['window'] = (model.x_window, model.y_window)
+        return node
 
     @classmethod
     def assert_equal(cls, a, b):
         # TODO: If models become comparable themselves, remove this.
         # There should be a more elegant way of doing this
         TransformType.assert_equal(a, b)
-        assert  ((isinstance(a, (modeling.models.Legendre1D,   modeling.models.Legendre2D))    and
-                  isinstance(b, (modeling.models.Legendre1D,   modeling.models.Legendre2D)))   or
-                 (isinstance(a, (modeling.models.Chebyshev1D,  modeling.models.Chebyshev2D))   and
-                  isinstance(b, (modeling.models.Chebyshev1D,  modeling.models.Chebyshev2D)))  or
-                 (isinstance(a, (modeling.models.Hermite1D,    modeling.models.Hermite2D))     and
-                  isinstance(b, (modeling.models.Hermite1D,    modeling.models.Hermite2D))))
+        assert ((isinstance(a, (modeling.models.Legendre1D,   modeling.models.Legendre2D)) and
+                 isinstance(b, (modeling.models.Legendre1D,   modeling.models.Legendre2D))) or
+                (isinstance(a, (modeling.models.Chebyshev1D,  modeling.models.Chebyshev2D)) and
+                 isinstance(b, (modeling.models.Chebyshev1D,  modeling.models.Chebyshev2D))) or
+                (isinstance(a, (modeling.models.Hermite1D,    modeling.models.Hermite2D)) and
+                 isinstance(b, (modeling.models.Hermite1D,    modeling.models.Hermite2D))))
         assert_array_equal(a.parameters, b.parameters)
 
 
@@ -237,11 +309,10 @@ class Linear1DType(TransformType):
 
     @classmethod
     def to_tree_transform(cls, model, ctx):
-        node = {
+        return {
             'slope': _parameter_to_value(model.slope),
             'intercept': _parameter_to_value(model.intercept),
         }
-        return yamlutil.custom_tree_to_tagged_tree(node, ctx)
 
     @classmethod
     def assert_equal(cls, a, b):

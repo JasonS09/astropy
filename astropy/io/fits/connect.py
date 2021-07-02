@@ -4,26 +4,23 @@
 import os
 import re
 import warnings
+from copy import deepcopy
+
+import numpy as np
 
 from astropy.io import registry as io_registry
 from astropy import units as u
 from astropy.table import Table, serialize, meta, Column, MaskedColumn
-from astropy.table.table import has_info_class
 from astropy.time import Time
-from astropy.utils.data_info import MixinInfo, serialize_context_as
+from astropy.utils.data_info import serialize_context_as
 from astropy.utils.exceptions import (AstropyUserWarning,
                                       AstropyDeprecationWarning)
-from . import HDUList, TableHDU, BinTableHDU, GroupsHDU
+from . import HDUList, TableHDU, BinTableHDU, GroupsHDU, append as fits_append
 from .column import KEYWORD_NAMES, _fortran_to_python_format
 from .convenience import table_to_hdu
-from .hdu.hdulist import fitsopen as fits_open
+from .hdu.hdulist import fitsopen as fits_open, FITS_SIGNATURE
 from .util import first
 
-
-# FITS file signature as per RFC 4047
-FITS_SIGNATURE = (b"\x53\x49\x4d\x50\x4c\x45\x20\x20\x3d\x20\x20\x20\x20\x20"
-                  b"\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20"
-                  b"\x20\x54")
 
 # Keywords to remove for all tables that are read in
 REMOVE_KEYWORDS = ['XTENSION', 'BITPIX', 'NAXIS', 'NAXIS1', 'NAXIS2',
@@ -43,7 +40,7 @@ def is_fits(origin, filepath, fileobj, *args, **kwargs):
 
     Parameters
     ----------
-    origin : str or readable file-like object
+    origin : str or readable file-like
         Path or file object containing a potential FITS file.
 
     Returns
@@ -93,6 +90,7 @@ def _decode_mixins(tbl):
     del tbl.meta['comments'][i0:i1 + 1]
     if not tbl.meta['comments']:
         del tbl.meta['comments']
+
     info = meta.get_header_from_yaml(lines)
 
     # Add serialized column information to table meta for use in constructing mixins
@@ -126,7 +124,7 @@ def read_table_fits(input, hdu=None, astropy_native=False, memmap=False,
 
     Parameters
     ----------
-    input : str or file-like object or compatible `astropy.io.fits` HDU object
+    input : str or file-like or compatible `astropy.io.fits` HDU object
         If a string, the filename to read the table from. If a file object, or
         a compatible HDU object, the object to extract the table from. The
         following `astropy.io.fits` HDU objects can be used as input:
@@ -217,25 +215,30 @@ def read_table_fits(input, hdu=None, astropy_native=False, memmap=False,
         finally:
             hdulist.close()
 
-    # Check if table is masked
-    masked = any(col.null is not None for col in table.columns)
-
-    # TODO: in future, it may make more sense to do this column-by-column,
-    # rather than via the structured array.
-
     # In the loop below we access the data using data[col.name] rather than
     # col.array to make sure that the data is scaled correctly if needed.
     data = table.data
 
     columns = []
     for col in data.columns:
+        # Check if column is masked. Here, we make a guess based on the
+        # presence of FITS mask values. For integer columns, this is simply
+        # the null header, for float and complex, the presence of NaN, and for
+        # string, empty strings.
+        masked = mask = False
+        if col.null is not None:
+            mask = data[col.name] == col.null
+            # Return a MaskedColumn even if no elements are masked so
+            # we roundtrip better.
+            masked = True
+        elif issubclass(col.dtype.type, np.inexact):
+            mask = np.isnan(data[col.name])
+        elif issubclass(col.dtype.type, np.character):
+            mask = col.array == b''
 
-        # Set column data
-        if masked:
-            column = MaskedColumn(data=data[col.name], name=col.name, copy=False)
-            if col.null is not None:
-                column.set_fill_value(col.null)
-                column.mask[column.data == col.null] = True
+        if masked or np.any(mask):
+            column = MaskedColumn(data=data[col.name], name=col.name,
+                                  mask=mask, copy=False)
         else:
             column = Column(data=data[col.name], name=col.name, copy=False)
 
@@ -250,7 +253,7 @@ def read_table_fits(input, hdu=None, astropy_native=False, memmap=False,
         columns.append(column)
 
     # Create Table object
-    t = Table(columns, masked=masked, copy=False)
+    t = Table(columns, copy=False)
 
     # TODO: deal properly with unsigned integers
 
@@ -307,30 +310,6 @@ def _encode_mixins(tbl):
                         for attr in ('description', 'meta'))
                     for col in tbl.itercols())
 
-    # If PyYAML is not available then check to see if there are any mixin cols
-    # that *require* YAML serialization.  FITS already has support for Time,
-    # Quantity, so if those are the only mixins the proceed without doing the
-    # YAML bit, for backward compatibility (i.e. not requiring YAML to write
-    # Time or Quantity).  In this case other mixin column meta (e.g.
-    # description or meta) will be silently dropped, consistent with astropy <=
-    # 2.0 behavior.
-    try:
-        import yaml  # noqa
-    except ImportError:
-        for col in tbl.itercols():
-            if (has_info_class(col, MixinInfo) and
-                    col.__class__ not in (u.Quantity, Time)):
-                raise TypeError("cannot write type {} column '{}' "
-                                "to FITS without PyYAML installed."
-                                .format(col.__class__.__name__, col.info.name))
-        else:
-            if info_lost:
-                warnings.warn("table contains column(s) with defined 'format',"
-                              " 'description', or 'meta' info attributes. These"
-                              " will be dropped unless you install PyYAML.",
-                              AstropyUserWarning)
-            return tbl
-
     # Convert the table to one with no mixins, only Column objects.  This adds
     # meta data which is extracted with meta.get_yaml_from_table.  This ignores
     # Time-subclass columns and leave them in the table so that the downstream
@@ -345,6 +324,13 @@ def _encode_mixins(tbl):
     # still go through the serialized columns machinery.
     if encode_tbl is tbl and not info_lost:
         return tbl
+
+    # Copy the meta dict if it was not copied by represent_mixins_as_columns.
+    # We will modify .meta['comments'] below and we do not want to see these
+    # comments in the input table.
+    if encode_tbl is tbl:
+        meta_copy = deepcopy(tbl.meta)
+        encode_tbl = Table(tbl.columns, meta=meta_copy, copy=False)
 
     # Get the YAML serialization of information describing the table columns.
     # This is re-using ECSV code that combined existing table.meta with with
@@ -384,7 +370,7 @@ def _encode_mixins(tbl):
     return encode_tbl
 
 
-def write_table_fits(input, output, overwrite=False):
+def write_table_fits(input, output, overwrite=False, append=False):
     """
     Write a Table object to a FITS file
 
@@ -396,6 +382,8 @@ def write_table_fits(input, output, overwrite=False):
         The filename to write the table to.
     overwrite : bool
         Whether to overwrite any existing file without warning.
+    append : bool
+        Whether to append the table to an existing file
     """
 
     # Encode any mixin columns into standard Columns.
@@ -407,10 +395,14 @@ def write_table_fits(input, output, overwrite=False):
     if isinstance(output, str) and os.path.exists(output):
         if overwrite:
             os.remove(output)
-        else:
+        elif not append:
             raise OSError(f"File exists: {output}")
 
-    table_hdu.writeto(output)
+    if append:
+        # verify=False stops it reading and checking the existing file.
+        fits_append(output, table_hdu.data, table_hdu.header, verify=False)
+    else:
+        table_hdu.writeto(output)
 
 
 io_registry.register_reader('fits', Table, read_table_fits)

@@ -217,7 +217,7 @@ class CoordinateHelper:
 
         Parameters
         ----------
-        formatter : str or Formatter
+        formatter : str or `~matplotlib.ticker.Formatter`
             The format or formatter to use.
         """
         if isinstance(formatter, Formatter):
@@ -1021,7 +1021,7 @@ class CoordinateHelper:
             Transparency of grid lines: 0 (transparent) to 1 (opaque).
         grid_linewidth : float, optional
             Width of grid lines in points.
-        grid_linestyle : string, optional
+        grid_linestyle : str, optional
             The style of the grid lines (accepts any valid Matplotlib line
             style).
         """

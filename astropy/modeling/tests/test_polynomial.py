@@ -1,7 +1,7 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 
 """Tests for polynomial models."""
-
+# pylint: disable=invalid-name
 import os
 import warnings
 
@@ -23,13 +23,7 @@ from astropy.modeling.functional_models import Linear1D
 from astropy.modeling.mappings import Identity
 from astropy.utils.data import get_pkg_data_filename
 from astropy.utils.exceptions import AstropyUserWarning
-
-try:
-    from scipy import optimize  # pylint: disable=W0611 # noqa
-    HAS_SCIPY = True
-except ImportError:
-    HAS_SCIPY = False
-
+from astropy.utils.compat.optional_deps import HAS_SCIPY  # noqa
 
 linear1d = {
     Chebyshev1D: {
@@ -102,9 +96,9 @@ class TestFitting:
         self.M = 100
         self.x1 = np.linspace(1, 10, 100)
         self.y2, self.x2 = np.mgrid[:100, :83]
-        rsn = np.random.RandomState(0)
-        self.n1 = rsn.randn(self.x1.size) * .1
-        self.n2 = rsn.randn(self.x2.size)
+        rsn = np.random.default_rng(0)
+        self.n1 = rsn.standard_normal(self.x1.size) * .1
+        self.n2 = rsn.standard_normal(self.x2.size)
         self.n2.shape = self.x2.shape
         self.linear_fitter = fitting.LinearLSQFitter()
         self.non_linear_fitter = fitting.LevMarLSQFitter()

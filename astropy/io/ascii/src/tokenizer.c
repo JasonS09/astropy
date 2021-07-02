@@ -17,6 +17,7 @@ tokenizer_t *create_tokenizer(char delimiter, char comment, char quotechar, char
     tokenizer->comment = comment;
     tokenizer->quotechar = quotechar;
     tokenizer->expchar = expchar;
+    tokenizer->newline = '\n';
     tokenizer->output_cols = NULL;
     tokenizer->col_ptrs = NULL;
     tokenizer->output_len = NULL;
@@ -37,6 +38,11 @@ tokenizer_t *create_tokenizer(char delimiter, char comment, char quotechar, char
     // This is a bit of a hack -- buf holds an empty string to represent
     // empty field values
     tokenizer->buf = calloc(2, sizeof(char));
+
+    // By default both \n and \r are accepted as newline, unless one of
+    // them has also been specified as field delimiter
+    if (tokenizer->delimiter == '\n')
+        tokenizer->newline = '\r';
 
     return tokenizer;
 }
@@ -266,7 +272,7 @@ int skip_lines(tokenizer_t *self, int offset, int header)
 
         c = self->source[self->source_pos];
 
-        if (c == '\r' || c == '\n')
+        if ((c == '\r' || c == '\n') && c != self->delimiter)
         {
             if (c == '\r' && self->source_pos < self->source_len - 1 &&
                 self->source[self->source_pos + 1] == '\n')
@@ -283,13 +289,13 @@ int skip_lines(tokenizer_t *self, int offset, int header)
         }
         else if ((c != ' ' && c != '\t') || !self->strip_whitespace_lines)
         {
-                // comment line
+                // Comment line
                 if (!signif_chars && self->comment != 0 && c == self->comment)
                     comment = 1;
                 else if (comment && !header)
                     push_comment(self, c);
 
-                // significant character encountered
+                // Significant character encountered
                 ++signif_chars;
         }
         else if (comment && !header)
@@ -306,18 +312,17 @@ int skip_lines(tokenizer_t *self, int offset, int header)
 
 int tokenize(tokenizer_t *self, int end, int header, int num_cols)
 {
-    char c; // input character
-    int col = 0; // current column ignoring possibly excluded columns
-    tokenizer_state old_state = START_LINE; // last state the tokenizer was in before CR mode
-    int parse_newline = 0; // explicit flag to treat current char as a newline
+    char c; // Input character
+    int col = 0; // Current column ignoring possibly excluded columns
+    tokenizer_state old_state = START_LINE; // Last state the tokenizer was in before CR mode
     int i = 0;
     int whitespace = 1;
-    delete_data(self); // clear old reading data
+    delete_data(self); // Clear old reading data
     self->num_rows = 0;
     self->comment_lines_len = INITIAL_COMMENT_LEN;
 
     if (header)
-        self->num_cols = 1; // store header output in one column
+        self->num_cols = 1; // Store header output in one column
     else
         self->num_cols = num_cols;
 
@@ -337,61 +342,52 @@ int tokenize(tokenizer_t *self, int end, int header, int num_cols)
     }
 
     if (end == 0)
-        RETURN(NO_ERROR); // don't read if end == 0
+        RETURN(NO_ERROR); // Don't read if end == 0
 
     self->state = START_LINE;
 
     // Loop until all of self->source has been read
     while (self->source_pos < self->source_len + 1)
     {
-        if (self->source_pos == self->source_len || parse_newline)
-            c = '\n';
+        if (self->source_pos == self->source_len)
+            c = self->newline;
         else
             c = self->source[self->source_pos];
 
-        if (c == '\r')
+        if (c == '\r' && c != self->delimiter && c != self->newline)
             c = '\n';
-
-        parse_newline = 0;
 
         switch (self->state)
         {
         case START_LINE:
-            if (c == '\n')
+            if (c == self->newline)
                 break;
             else if ((c == ' ' || c == '\t') && self->strip_whitespace_lines)
                 break;
             else if (self->comment != 0 && c == self->comment)
             {
-                // comment line; ignore
+                // Comment line; ignore
                 self->state = COMMENT;
                 break;
             }
-            // initialize variables for the beginning of line parsing
+            // Initialize variables for the beginning of line parsing
             col = 0;
             BEGIN_FIELD();
-            // parse in mode START_FIELD
+            // Parse in mode START_FIELD
 
         case START_FIELD:
-            // strip whitespace before field begins
+            // Strip whitespace before field begins
             if ((c == ' ' || c == '\t') && self->strip_whitespace_fields)
                 break;
             else if (!self->strip_whitespace_lines && self->comment != 0 &&
                      c == self->comment)
             {
-                // comment line, not caught earlier because of no stripping
+                // Comment line, not caught earlier because of no stripping
                 self->state = COMMENT;
                 break;
             }
-            else if (c == self->delimiter) // field ends before it begins
-            {
-                if (col >= self->num_cols)
-                    RETURN(TOO_MANY_COLS);
-                END_FIELD();
-                BEGIN_FIELD();
-                break;
-            }
-            else if (c == '\n')
+            // Handle newline characters first
+            else if (c == self->newline)
             {
                 if (self->strip_whitespace_lines)
                 {
@@ -424,7 +420,7 @@ int tokenize(tokenizer_t *self, int end, int header, int num_cols)
                         --self->source_pos;
                     }
 
-                    // backtracked to line beginning
+                    // Backtracked to line beginning
                     if (self->source_pos == -1
                         || self->source[self->source_pos] == '\n'
                         || self->source[self->source_pos] == '\r')
@@ -436,20 +432,19 @@ int tokenize(tokenizer_t *self, int end, int header, int num_cols)
                         ++self->source_pos;
 
                         if (self->source_pos == tmp)
-                            // no whitespace, just an empty field
+                            // No whitespace, just an empty field
                             ;
-
                         else
                             while (self->source_pos < tmp)
                             {
-                                // append whitespace characters
+                                // Append whitespace characters
                                 PUSH(self->source[self->source_pos]);
                                 ++self->source_pos;
                             }
 
                         if (col >= self->num_cols)
                             RETURN(TOO_MANY_COLS);
-                        END_FIELD(); // whitespace counts as a field
+                        END_FIELD(); // Whitespace counts as a field
                     }
                 }
 
@@ -457,33 +452,38 @@ int tokenize(tokenizer_t *self, int end, int header, int num_cols)
                 self->state = START_LINE;
                 break;
             }
-            else if (c == self->quotechar) // start parsing quoted field
+
+            // Before proceeding with a new field check column does not exceed
+            // number defined in header or from auto-detect to avoid segfaults
+            // such as https://github.com/astropy/astropy/issues/9922
+            else if (col >= self->num_cols)
+                RETURN(TOO_MANY_COLS);
+            else if (c == self->delimiter) // Field ends before it begins
+            {
+                END_FIELD();
+                BEGIN_FIELD();
+                break;
+            }
+            else if (c == self->quotechar) // Start parsing quoted field
             {
                 self->state = START_QUOTED_FIELD;
                 break;
             }
-            else
-            {
-                if (col >= self->num_cols)
-                    RETURN(TOO_MANY_COLS);
-                // Valid field character, parse again in FIELD mode
+            else // Valid field character, parse again in FIELD mode
                 self->state = FIELD;
-            }
 
         case FIELD:
             if (self->comment != 0 && c == self->comment && whitespace && col == 0)
-            {
                 // No whitespace stripping, but the comment char is found
                 // before any data, e.g. '  # a b c'
                 self->state = COMMENT;
-            }
-            else if (c == self->delimiter)
+            else if (c == self->delimiter && self->source_pos < self->source_len)
             {
                 // End of field, look for new field
                 END_FIELD();
                 BEGIN_FIELD();
             }
-            else if (c == '\n')
+            else if (c == self->newline)
             {
                 // Line ending, stop parsing both field and line
                 END_FIELD();
@@ -493,7 +493,7 @@ int tokenize(tokenizer_t *self, int end, int header, int num_cols)
             else
             {
                 if (c != ' ' && c != '\t')
-                    whitespace = 0; // field is not all whitespace
+                    whitespace = 0; // Field is not all whitespace
                 PUSH(c);
             }
             break;
@@ -501,7 +501,7 @@ int tokenize(tokenizer_t *self, int end, int header, int num_cols)
         case START_QUOTED_FIELD:
             if ((c == ' ' || c == '\t') && self->strip_whitespace_fields)
             {
-                // ignore initial whitespace
+                // Ignore initial whitespace
                 break;
             }
             else if (c == self->quotechar)
@@ -532,7 +532,7 @@ int tokenize(tokenizer_t *self, int end, int header, int num_cols)
             // Ignore initial whitespace if strip_whitespace_lines and
             // newlines regardless
             else if (((c == ' ' || c == '\t') && self->strip_whitespace_lines)
-                     || c == '\n')
+                     || c == self->newline)
                 break;
             else if (c == self->quotechar)
             {
@@ -562,7 +562,7 @@ int tokenize(tokenizer_t *self, int end, int header, int num_cols)
                 // Parse rest of field normally, e.g. "ab"c
                 self->state = FIELD;
             }
-            else if (c == '\n')
+            else if (c == self->newline)
                 self->state = QUOTED_FIELD_NEWLINE;
             else
             {
@@ -577,7 +577,7 @@ int tokenize(tokenizer_t *self, int end, int header, int num_cols)
             break;
 
         case COMMENT:
-            if (c == '\n')
+            if (c == self->newline)
             {
                 self->state = START_LINE;
                 if (!header)
@@ -585,7 +585,7 @@ int tokenize(tokenizer_t *self, int end, int header, int num_cols)
             }
             else if (!header)
                 push_comment(self, c);
-            break; // keep looping until we find a newline
+            break; // Keep looping until we find a newline
 
         }
 
@@ -593,18 +593,6 @@ int tokenize(tokenizer_t *self, int end, int header, int num_cols)
     }
 
     RETURN(0);
-}
-
-
-// Lower-case a single C locale character
-static inline int ascii_tolower(int c)
-{
-    if (c >= 'A' || c <= 'Z')
-    {
-        return c + ('a' - 'A');
-    }
-
-    return c;
 }
 
 
@@ -649,7 +637,7 @@ double str_to_double(tokenizer_t *self, char *str)
     {
         val = xstrtod(str, &tmp, '.', self->expchar, ',', 1);
 
-        if (*tmp)
+        if (errno == EINVAL || tmp == str || *tmp != '\0')
         {
             goto conversion_error;
         }
@@ -716,9 +704,9 @@ conversion_error:
         }
         val *= INFINITY;
     }
-
-    if (tmp == str || *tmp != '\0')
+    else
     {
+       // Original (tmp == str || *tmp != '\0') case, no NaN or inf found
         self->code = CONVERSION_ERROR;
         val = 0;
     }
@@ -843,6 +831,15 @@ double xstrtod(const char *str, char **endptr, char decimal,
     {
     case '-': negative = 1; // Fall through to increment position
     case '+': p++;
+    }
+
+    // No numerical value following sign - make no conversion and return zero,
+    // resetting endptr to beginning of str (consistent with strtod behaviour)
+    // E.g. -1.e0 and -.0e1 are valid, -.e0 is not!
+    if (!(isdigit(*p) || (*p == decimal && isdigit(*(p + 1)))))
+    {
+        if (endptr) *endptr = (char *) str;
+        return 0e0;
     }
 
     number = 0.;
@@ -1003,7 +1000,7 @@ double xstrtod(const char *str, char **endptr, char decimal,
         else if (exponent < 0)
             number /= e[-exponent];
 
-        if (number == HUGE_VAL || number == -HUGE_VAL)
+        if (number >= HUGE_VAL || number <= -HUGE_VAL)
             errno = ERANGE;
     }
 

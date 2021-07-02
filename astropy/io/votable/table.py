@@ -37,8 +37,9 @@ def parse(source, columns=None, invalid='exception', verify=None,
 
     Parameters
     ----------
-    source : str or readable file-like object
-        Path or file object containing a VOTABLE_ xml file.
+    source : path-like or file-like
+        Path or file-like object containing a VOTABLE_ xml file.
+        If file, must be readable.
 
     columns : sequence of str, optional
         List of field names to include in the output.  The default is
@@ -93,15 +94,14 @@ def parse(source, columns=None, invalid='exception', verify=None,
         ``vounit``.  A custom formatter may be provided by passing a
         `~astropy.units.UnitBase` instance.  If `None` (default),
         the unit format to use will be the one specified by the
-        VOTable specification (which is ``cds`` up to version 1.2 of
-        VOTable, and (probably) ``vounit`` in future versions of the
-        spec).
+        VOTable specification (which is ``cds`` up to version 1.3 of
+        VOTable, and ``vounit`` in more recent versions of the spec).
 
-    datatype_mapping : dict of str to str, optional
-        A mapping of datatype names to valid VOTable datatype names.
-        For example, if the file being read contains the datatype
-        "unsignedInt" (an invalid datatype in VOTable), include the
-        mapping ``{"unsignedInt": "long"}``.
+    datatype_mapping : dict, optional
+        A mapping of datatype names (`str`) to valid VOTable datatype names
+        (str). For example, if the file being read contains the datatype
+        "unsignedInt" (an invalid datatype in VOTable), include the mapping
+        ``{"unsignedInt": "long"}``.
 
     Returns
     -------
@@ -141,7 +141,7 @@ def parse(source, columns=None, invalid='exception', verify=None,
     if isinstance(verify, bool):
         verify = 'exception' if verify else 'warn'
     elif verify not in VERIFY_OPTIONS:
-        raise ValueError('verify should be one of {}'.format('/'.join(VERIFY_OPTIONS)))
+        raise ValueError(f"verify should be one of {'/'.join(VERIFY_OPTIONS)}")
 
     if datatype_mapping is None:
         datatype_mapping = {}
@@ -195,7 +195,7 @@ def writeto(table, file, tabledata_format=None):
     ----------
     table : `~astropy.io.votable.tree.VOTableFile` or `~astropy.table.Table` instance.
 
-    file : str or writable file-like object
+    file : str or writable file-like
         Path or file object to write to
 
     tabledata_format : str, optional
@@ -203,7 +203,7 @@ def writeto(table, file, tabledata_format=None):
         one of ``tabledata`` (text representation), ``binary`` or
         ``binary2``.  By default, use the format that was specified in
         each ``table`` object as it was created or read in.  See
-        :ref:`votable-serialization`.
+        :ref:`astropy:astropy:votable-serialization`.
     """
     from astropy.table import Table
     if isinstance(table, Table):
@@ -222,13 +222,15 @@ def validate(source, output=None, xmllint=False, filename=None):
 
     Parameters
     ----------
-    source : str or readable file-like object
-        Path to a VOTABLE_ xml file or pathlib.path
+    source : path-like or file-like
+        Path to a VOTABLE_ xml file or `~pathlib.Path`
         object having Path to a VOTABLE_ xml file.
+        If file-like object, must be readable.
 
-    output : writable file-like object, optional
+    output : file-like, optional
         Where to output the report.  Defaults to ``sys.stdout``.
         If `None`, the output will be returned as a string.
+        Must be writable.
 
     xmllint : bool, optional
         When `True`, also send the file to ``xmllint`` for schema and
@@ -307,7 +309,7 @@ def validate(source, output=None, xmllint=False, filename=None):
                 else:
                     color = 'red'
                 color_print(
-                    '{:d}: '.format(w['nline']), '',
+                    f"{w['nline']:d}: ", '',
                     warning or 'EXC', color,
                     ': ', '',
                     textwrap.fill(
@@ -370,8 +372,9 @@ def is_votable(source):
 
     Parameters
     ----------
-    source : str or readable file-like object
+    source : path-like or file-like
         Path or file object containing a VOTABLE_ xml file.
+        If file, must be readable.
 
     Returns
     -------

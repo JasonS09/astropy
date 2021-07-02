@@ -1,5 +1,3 @@
-.. include:: references.txt
-
 .. We call EarthLocation.of_site here first to force the downloading
 .. of sites.json so that future doctest output isn't cluttered with
 .. "Downloading ... [done]". This can be removed once we have a better
@@ -14,7 +12,7 @@ Using and Designing Coordinate Frames
 *************************************
 
 In `astropy.coordinates`, as outlined in the
-:ref:`astropy-coordinates-overview`, subclasses of |baseframe| ("frame
+:ref:`astropy-coordinates-overview`, subclasses of |BaseFrame| ("frame
 classes") define particular coordinate frames. They can (but do not
 *have* to) contain representation objects storing the actual coordinate
 data. The actual coordinate transformations are defined as functions
@@ -49,7 +47,7 @@ their default values) are available as the class method
 ``get_frame_attr_names``::
 
     >>> FK5.get_frame_attr_names()
-    OrderedDict([('equinox', <Time object: scale='tt' format='jyear_str' value=J2000.000>)])
+    {'equinox': <Time object: scale='tt' format='jyear_str' value=J2000.000>}
 
 You can access any of the attributes on a frame by using standard Python
 attribute access. Note that for cases like ``equinox``, which are time
@@ -70,11 +68,11 @@ Frames with Data
 
 The second use for frame objects is to store actual realized coordinate
 data for frames like those described above. In this use, it is similar
-to the |skycoord| class, and in fact, the |skycoord| class internally
+to the |SkyCoord| class, and in fact, the |SkyCoord| class internally
 uses the frame classes as its implementation. However, the frame
 classes have fewer "convenience" features, thereby streamlining the
 implementation of frame classes. As such, they are created
-similarly to |skycoord| objects. One suggested way is to use
+similarly to |SkyCoord| objects. One suggested way is to use
 with keywords appropriate for the frame (e.g., ``ra`` and ``dec`` for
 equatorial systems)::
 
@@ -109,7 +107,7 @@ frame to the attribute name on the representation class::
     >>> icrs.representation_type
     <class 'astropy.coordinates.representation.SphericalRepresentation'>
     >>> icrs.representation_component_names
-    OrderedDict([('ra', 'lon'), ('dec', 'lat'), ('distance', 'distance')])
+    {'ra': 'lon', 'dec': 'lat', 'distance': 'distance'}
 
 You can get the data in a different representation if needed::
 
@@ -119,16 +117,15 @@ You can get the data in a different representation if needed::
 
 .. note::
 
-    In previous versions of Astropy, both the frame attribute and the argument
-    to frame classes that are now named ``representation_type`` used to be
-    simply ``representation``. The name of this attribute/argument is confusing
-    as it points to the representation *class*, not the object containing the
-    underlying frame data (which is accessed via the frame attribute ``.data``).
-    To clarify, we have renamed ``representation`` to ``representation_type``.
-    In this version 3.0, we have only changed the references to this attribute
-    in the documentation. In the next major version, we will issue a deprecation
-    warning. In two major versions, we will remove the ``.representation``
-    attribute and ``representation=`` argument.
+    Before v3.0, both the frame attribute and the argument to frame classes
+    that are now named ``representation_type`` used to be simply
+    ``representation``. The name of this attribute/argument was confusing as it
+    points to the representation *class*, not the object containing the
+    underlying frame data (which is accessed via the frame attribute
+    ``.data``). To clarify, we have renamed ``representation`` to
+    ``representation_type``. In the current version we will issue a deprecation
+    warning if the old names are used. In v5.0 we will remove the
+    ``.representation`` attribute and ``representation=`` argument.
 
 The representation of the coordinate object can also be changed directly, as
 shown below. This does *nothing* to the object internal data which stores the
@@ -218,7 +215,7 @@ Similar broadcasting happens if you transform to another frame. For example::
     >>> lcoo = coo.transform_to(lf)  # this can load finals2000A.all # doctest: +REMOTE_DATA +IGNORE_OUTPUT
     >>> lcoo  # doctest: +REMOTE_DATA +FLOAT_CMP
     <AltAz Coordinate (obstime=['2012-03-21T00:00:00.000' '2012-06-21T00:00:00.000'], location=(3980608.9024681724, -102.47522910648239, 4966861.273100675) m, pressure=0.0 hPa, temperature=0.0 deg_C, relative_humidity=0.0, obswl=1.0 micron): (az, alt) in deg
-        [( 94.71264944, 89.21424252), (307.69488825, 37.98077771)]>
+        [( 94.71264993, 89.21424259), (307.69488825, 37.98077772)]>
 
 Above, the shapes — ``()`` for ``coo`` and ``(2,)`` for ``lf`` — were
 broadcast against each other. If you wish to determine the positions for a
@@ -240,11 +237,11 @@ set of coordinates, you will need to make sure that the shapes allow this::
     <AltAz Coordinate (obstime=[['2012-03-21T00:00:00.000' '2012-03-21T00:00:00.000'
       '2012-03-21T00:00:00.000']
      ['2012-06-21T00:00:00.000' '2012-06-21T00:00:00.000'
-      '2012-06-21T00:00:00.000']], location=(3980608.9024681724, -102.47522910648239, 4966861.273100675) m, pressure=0.0 hPa, temperature=0.0 deg_C, relative_humidity=0.0, obswl=1.0 micron): (az, alt) in deg
-        [[( 93.09845202, 89.21613119), (126.85789652, 25.46600543),
-          ( 51.37993229, 37.18532521)],
-         [(307.71713699, 37.99437658), (231.37407871, 26.36768329),
-          ( 85.42187335, 89.69297997)]]>
+      '2012-06-21T00:00:00.000']], location=(3980608.90246817, -102.47522911, 4966861.27310068) m, pressure=0.0 hPa, temperature=0.0 deg_C, relative_humidity=0.0, obswl=1.0 micron): (az, alt) in deg
+        [[( 93.09845183, 89.21613128), (126.85789664, 25.4660055 ),
+          ( 51.37993234, 37.18532527)],
+         [(307.71713698, 37.99437658), (231.3740787 , 26.36768329),
+          ( 85.42187236, 89.69297998)]]>
 
 .. Note::
    Frames without data have a ``shape`` that is determined by their frame
@@ -252,17 +249,48 @@ set of coordinates, you will need to make sure that the shapes allow this::
    any non-scalar attributes are broadcast to have matching shapes
    (as can be seen for ``obstime`` in the last line above).
 
+Coordinate values in a array-valued frame object can be modified in-place
+(added in astropy 4.1). This requires that the new values be set from an
+another frame object that is equivalent in all ways except for the actual
+coordinate data values. In this way, no frame transformations are required and
+the item setting operation is extremely robust.
+
+To modify an array of coordinates use the same syntax for a numpy array::
+
+  >>> coo1 = ICRS([1, 2] * u.deg, [3, 4] * u.deg)
+  >>> coo2 = ICRS(10 * u.deg, 20 * u.deg)
+  >>> coo1[0] = coo2
+  >>> coo1
+  <ICRS Coordinate: (ra, dec) in deg
+      [(10., 20.), ( 2.,  4.)]>
+
+This method is relatively slow because it requires setting from an
+existing frame object and it performs extensive validation to ensure
+that the operation is valid. For some applications it may be necessary to
+take a different lower-level approach which is described in the section
+:ref:`astropy-coordinates-fast-in-place`.
+
+.. warning::
+
+  You may be tempted to try an apparently obvious way of modifying a frame
+  object in place by updating the component attributes directly, for example
+  ``coo1.ra[1] = 40 * u.deg``. However, while this will *appear* to give a correct
+  result it does not actually modify the underlying representation data. This
+  is related to the current implementation of performance-based caching.
+  The current cache implementation is similarly unable to handle in-place changes
+  to the representation (``.data``) or frame attributes such as ``.obstime``.
+
 Transforming between Frames
 ===========================
 
 To transform a frame object with data into another frame, use the
 ``transform_to`` method of an object, and provide it the frame you wish to
-transform to. This frame can either be a frame *class*, in which case
-the default attributes will be used, or a frame object (with or without
-data)::
+transform to.  This frame should be a frame object (with or without coordinate
+data).  If you wish to use all default frame attributes, you can instantiate
+the frame class with no arguments (i.e., empty parentheses)::
 
     >>> cooi = ICRS(1.5*u.deg, 2.5*u.deg)
-    >>> cooi.transform_to(FK5)  # doctest: +FLOAT_CMP
+    >>> cooi.transform_to(FK5())  # doctest: +FLOAT_CMP
     <FK5 Coordinate (equinox=J2000.000): (ra, dec) in deg
         (1.50000661, 2.50000238)>
     >>> cooi.transform_to(FK5(equinox='J1975'))  # doctest: +FLOAT_CMP
@@ -291,9 +319,17 @@ docstring of `~astropy.coordinates.BaseCoordinateFrame`.
 All frame classes must specify a default representation for the coordinate
 positions by, at minimum, defining a ``default_representation`` class attribute
 (see :ref:`astropy-coordinates-representations` for more information about the
-supported ``Representation`` objects). For example, to create a new frame that,
-by default, expects to receive its coordinate data in spherical coordinates, we
-would create a subclass as follows::
+supported ``Representation`` objects).
+
+Examples
+--------
+
+..
+  EXAMPLE START
+  Defining a New Frame Class that Connects to astropy.coordinates
+
+To create a new frame that, by default, expects to receive its coordinate data
+in spherical coordinates, we would create a subclass as follows::
 
     >>> from astropy.coordinates import BaseCoordinateFrame
     >>> import astropy.coordinates.representation as r
@@ -319,6 +355,9 @@ coordinate frame, and (4) this frame does not support velocity data. We can
 address each of these points by seeing some other ways of customizing frame
 subclasses.
 
+..
+  EXAMPLE END
+
 Customizing Frame Component Names
 ---------------------------------
 
@@ -334,8 +373,8 @@ frame class: ``frame_specific_representation_info``. This attribute must be a
 dictionary, and the keys should be either ``Representation`` or ``Differential``
 classes (see below for a discussion about customizing behavior for velocity
 components, which is done with the ``Differential`` classes). Using our example
-frame implemented above, we can customize it to use the names "R" and "D" instead
-of "lon" and "lat"::
+frame implemented above, we can customize it to use the names "R" and "D"
+instead of "lon" and "lat"::
 
     >>> from astropy.coordinates import RepresentationMapping
     >>> class MyFrame2(BaseCoordinateFrame):
@@ -401,8 +440,8 @@ attributes are defined by creating class attributes that are instances of
 etc.). If attributes are defined using these classes, there is often no need to
 define an ``__init__`` function, as the initializer in
 `~astropy.coordinates.BaseCoordinateFrame` will probably behave in the way you
-want. Let us now modify the above toy frame class implementation to add two frame
-attributes::
+want. Let us now modify the above toy frame class implementation to add two
+frame attributes::
 
     >>> from astropy.coordinates import TimeAttribute, QuantityAttribute
     >>> class MyFrame4(BaseCoordinateFrame):
@@ -471,8 +510,15 @@ do this you can define a method named ``_astropy_repr_in_frame``. This method
 should be defined on the object that is set to the frame attribute itself,
 **not** the `~astropy.coordinates.Attribute` descriptor.
 
-For example, you could have an object ``Spam`` which you have as an attribute
-of your frame::
+Example
+^^^^^^^
+
+..
+  EXAMPLE START
+  Customizing Display of Attributes in Coordinate Frames
+
+As an example of method ``_astropy_repr_in_frame``, say you have an
+object ``Spam`` which you have as an attribute of your frame::
 
   >>> class Spam:
   ...     def _astropy_repr_in_frame(self):
@@ -490,6 +536,8 @@ When it is displayed by the frame it will use the result of
   >>> Egg()
   <Egg Frame (can=<A can of Spam>)>
 
+..
+  EXAMPLE END
 
 Defining Transformations between Frames
 ---------------------------------------
@@ -655,7 +703,7 @@ Final Notes
 
 You can also define arbitrary methods for any added functionality you
 want your frame to have that is unique to that frame. These methods will
-be available in any |skycoord| that is created using your user-defined
+be available in any |SkyCoord| that is created using your user-defined
 frame.
 
 For examples of defining frame classes, the first place to look is

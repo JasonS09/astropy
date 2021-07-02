@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
-
+from contextlib import ExitStack
 
 import pytest
 import numpy as np
@@ -9,10 +9,11 @@ from numpy import testing as npt
 from astropy import units as u
 from astropy.time import Time
 from astropy.tests.helper import assert_quantity_allclose as assert_allclose
+from astropy.utils.compat import NUMPY_LT_1_19
 
 from astropy.coordinates import (Angle, ICRS, FK4, FK5, Galactic, SkyCoord,
-                CartesianRepresentation)
-from astropy.coordinates.angle_utilities import dms_to_degrees, hms_to_hours
+                                 CartesianRepresentation)
+from astropy.coordinates.angle_formats import dms_to_degrees, hms_to_hours
 
 
 def test_angle_arrays():
@@ -41,10 +42,16 @@ def test_angle_arrays():
     npt.assert_almost_equal(a6.value, 945.0)
     assert a6.unit is u.degree
 
-    with pytest.raises(TypeError):
+    with ExitStack() as stack:
+        stack.enter_context(pytest.raises(TypeError))
         # Arrays where the elements are Angle objects are not supported -- it's
         # really tricky to do correctly, if at all, due to the possibility of
         # nesting.
+        if not NUMPY_LT_1_19:
+            stack.enter_context(
+                pytest.warns(DeprecationWarning,
+                             match='automatic object dtype is deprecated'))
+
         a7 = Angle([a1, a2, a3], unit=u.degree)
 
     a8 = Angle(["04:02:02", "03:02:01", "06:02:01"], unit=u.degree)
@@ -143,7 +150,7 @@ def test_array_coordinates_transformations(arrshape, distance):
 
     print(raarr, decarr, distance)
     c = ICRS(ra=raarr*u.deg, dec=decarr*u.deg, distance=distance)
-    g = c.transform_to(Galactic)
+    g = c.transform_to(Galactic())
 
     assert g.l.shape == arrshape
 
@@ -154,7 +161,7 @@ def test_array_coordinates_transformations(arrshape, distance):
         assert g.distance.unit == c.distance.unit
 
     # now make sure round-tripping works through FK5
-    c2 = c.transform_to(FK5).transform_to(ICRS)
+    c2 = c.transform_to(FK5()).transform_to(ICRS())
     npt.assert_array_almost_equal(c.ra.radian, c2.ra.radian)
     npt.assert_array_almost_equal(c.dec.radian, c2.dec.radian)
 
@@ -164,7 +171,7 @@ def test_array_coordinates_transformations(arrshape, distance):
         assert c2.distance.unit == c.distance.unit
 
     # also make sure it's possible to get to FK4, which uses a direct transform function.
-    fk4 = c.transform_to(FK4)
+    fk4 = c.transform_to(FK4())
 
     npt.assert_array_almost_equal(fk4.ra.degree, 10.0004, decimal=4)
     npt.assert_array_almost_equal(fk4.dec.degree, 40.9953, decimal=4)
@@ -174,7 +181,7 @@ def test_array_coordinates_transformations(arrshape, distance):
         assert fk4.distance.unit == c.distance.unit
 
     # now check the reverse transforms run
-    cfk4 = fk4.transform_to(ICRS)
+    cfk4 = fk4.transform_to(ICRS())
     assert cfk4.ra.shape == arrshape
 
 
@@ -262,7 +269,7 @@ def test_array_eq():
     c3 = ICRS([1, 3]*u.deg, [3, 4]*u.deg)
     c4 = ICRS([1, 2]*u.deg, [3, 4.2]*u.deg)
 
-    assert c1 == c1
-    assert c1 != c2
-    assert c1 != c3
-    assert c1 != c4
+    assert np.all(c1 == c1)
+    assert np.any(c1 != c2)
+    assert np.any(c1 != c3)
+    assert np.any(c1 != c4)

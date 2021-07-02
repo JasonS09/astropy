@@ -57,9 +57,9 @@ def _expand_dims(data, axis):
 
     Parameters
     ----------
-    data : array_like
+    data : array-like
         Input array.
-    axis : int or tuple of ints
+    axis : int or tuple of int
         Position in the expanded axes where the new axis (or axes) is
         placed.  A tuple of axes is now supported.  Out of range axes as
         described above are now forbidden and raise an `AxisError`.
@@ -87,7 +87,6 @@ def _expand_dims(data, axis):
     return data.reshape(shape)
 
 
-# TODO Note scipy dependency
 @deprecated_renamed_argument('conf', 'confidence_level', '4.0')
 def binom_conf_interval(k, n, confidence_level=0.68269, interval='wilson'):
     r"""Binomial proportion confidence interval given k successes,
@@ -100,9 +99,10 @@ def binom_conf_interval(k, n, confidence_level=0.68269, interval='wilson'):
     n : int or numpy.ndarray
         Number of trials (``n`` > 0).  If both ``k`` and ``n`` are arrays,
         they must have the same shape.
-    confidence_level : float in [0, 1], optional
+    confidence_level : float, optional
         Desired probability content of interval. Default is 0.68269,
         corresponding to 1 sigma in a 1-dimensional Gaussian distribution.
+        Confidence level must be in range [0, 1].
     interval : {'wilson', 'jeffreys', 'flat', 'wald'}, optional
         Formula used for confidence interval. See notes for details.  The
         ``'wilson'`` and ``'jeffreys'`` intervals generally give similar
@@ -114,17 +114,17 @@ def binom_conf_interval(k, n, confidence_level=0.68269, interval='wilson'):
 
     Returns
     -------
-    conf_interval : numpy.ndarray
+    conf_interval : ndarray
         ``conf_interval[0]`` and ``conf_interval[1]`` correspond to the lower
         and upper limits, respectively, for each element in ``k``, ``n``.
 
     Notes
     -----
     In situations where a probability of success is not known, it can
-    be estimated from a number of trials (N) and number of
+    be estimated from a number of trials (n) and number of
     observed successes (k). For example, this is done in Monte
     Carlo experiments designed to estimate a detection efficiency. It
-    is simple to take the sample proportion of successes (k/N)
+    is simple to take the sample proportion of successes (k/n)
     as a reasonable best estimate of the true probability
     :math:`\epsilon`. However, deriving an accurate confidence
     interval on :math:`\epsilon` is non-trivial. There are several
@@ -136,11 +136,11 @@ def binom_conf_interval(k, n, confidence_level=0.68269, interval='wilson'):
 
     .. math::
 
-        CI_{\rm Wilson} = \frac{k + \kappa^2/2}{N + \kappa^2}
+        CI_{\rm Wilson} = \frac{k + \kappa^2/2}{n + \kappa^2}
         \pm \frac{\kappa n^{1/2}}{n + \kappa^2}
         ((\hat{\epsilon}(1 - \hat{\epsilon}) + \kappa^2/(4n))^{1/2}
 
-    where :math:`\hat{\epsilon} = k / N` and :math:`\kappa` is the
+    where :math:`\hat{\epsilon} = k / n` and :math:`\kappa` is the
     number of standard deviations corresponding to the desired
     confidence interval for a *normal* distribution (for example,
     1.0 for a confidence interval of 68.269%). For a
@@ -163,12 +163,12 @@ def binom_conf_interval(k, n, confidence_level=0.68269, interval='wilson'):
     The justification for this prior is that it is invariant under
     reparameterizations of the binomial proportion.
     The posterior density function is also a Beta distribution: Beta(k
-    + 1/2, N - k + 1/2). The interval is then chosen so that it is
+    + 1/2, n - k + 1/2). The interval is then chosen so that it is
     *equal-tailed*: Each tail (outside the interval) contains
     :math:`\alpha`/2 of the posterior probability, and the interval
     itself contains 1 - :math:`\alpha`. This interval must be
     calculated numerically. Additionally, when k = 0 the lower limit
-    is set to 0 and when k = N the upper limit is set to 1, so that in
+    is set to 0 and when k = n the upper limit is set to 1, so that in
     these cases, there is only one tail containing :math:`\alpha`/2
     and the interval itself contains 1 - :math:`\alpha`/2 rather than
     the nominal 1 - :math:`\alpha`.
@@ -177,7 +177,7 @@ def binom_conf_interval(k, n, confidence_level=0.68269, interval='wilson'):
     but uses a flat (uniform) prior on the binomial proportion
     over the range 0 to 1 rather than the reparametrization-invariant
     Jeffreys prior.  The posterior density function is a Beta distribution:
-    Beta(k + 1, N - k + 1).  The same comments about the nature of the
+    Beta(k + 1, n - k + 1).  The same comments about the nature of the
     interval (equal-tailed, etc.) also apply to this option.
 
     **4. The Wald Interval.** This interval is given by
@@ -185,15 +185,17 @@ def binom_conf_interval(k, n, confidence_level=0.68269, interval='wilson'):
     .. math::
 
        CI_{\rm Wald} = \hat{\epsilon} \pm
-       \kappa \sqrt{\frac{\hat{\epsilon}(1-\hat{\epsilon})}{N}}
+       \kappa \sqrt{\frac{\hat{\epsilon}(1-\hat{\epsilon})}{n}}
 
     The Wald interval gives acceptable results in some limiting
-    cases. Particularly, when N is very large, and the true proportion
+    cases. Particularly, when n is very large, and the true proportion
     :math:`\epsilon` is not "too close" to 0 or 1. However, as the
     later is not verifiable when trying to estimate :math:`\epsilon`,
     this is not very helpful. Its use is not recommended, but it is
     provided here for comparison purposes due to its prevalence in
     everyday practical statistics.
+
+    This function requires ``scipy`` for all interval types.
 
     References
     ----------
@@ -216,39 +218,39 @@ def binom_conf_interval(k, n, confidence_level=0.68269, interval='wilson'):
     --------
     Integer inputs return an array with shape (2,):
 
-    >>> binom_conf_interval(4, 5, interval='wilson')
+    >>> binom_conf_interval(4, 5, interval='wilson')  # doctest: +FLOAT_CMP
     array([0.57921724, 0.92078259])
 
     Arrays of arbitrary dimension are supported. The Wilson and Jeffreys
-    intervals give similar results, even for small k, N:
+    intervals give similar results, even for small k, n:
 
-    >>> binom_conf_interval([0, 1, 2, 5], 5, interval='wilson')
-    array([[0.        , 0.07921741, 0.21597328, 0.83333304],
-           [0.16666696, 0.42078276, 0.61736012, 1.        ]])
+    >>> binom_conf_interval([1, 2], 5, interval='wilson')  # doctest: +FLOAT_CMP
+    array([[0.07921741, 0.21597328],
+           [0.42078276, 0.61736012]])
 
-    >>> binom_conf_interval([0, 1, 2, 5], 5, interval='jeffreys')
-    array([[0.        , 0.0842525 , 0.21789949, 0.82788246],
-           [0.17211754, 0.42218001, 0.61753691, 1.        ]])
+    >>> binom_conf_interval([1, 2,], 5, interval='jeffreys')  # doctest: +FLOAT_CMP
+    array([[0.0842525 , 0.21789949],
+           [0.42218001, 0.61753691]])
 
-    >>> binom_conf_interval([0, 1, 2, 5], 5, interval='flat')
-    array([[0.        , 0.12139799, 0.24309021, 0.73577037],
-           [0.26422963, 0.45401727, 0.61535699, 1.        ]])
+    >>> binom_conf_interval([1, 2], 5, interval='flat')  # doctest: +FLOAT_CMP
+    array([[0.12139799, 0.24309021],
+           [0.45401727, 0.61535699]])
 
-    In contrast, the Wald interval gives poor results for small k, N.
-    For k = 0 or k = N, the interval always has zero length.
+    In contrast, the Wald interval gives poor results for small k, n.
+    For k = 0 or k = n, the interval always has zero length.
 
-    >>> binom_conf_interval([0, 1, 2, 5], 5, interval='wald')
-    array([[0.        , 0.02111437, 0.18091075, 1.        ],
-           [0.        , 0.37888563, 0.61908925, 1.        ]])
+    >>> binom_conf_interval([1, 2], 5, interval='wald')  # doctest: +FLOAT_CMP
+    array([[0.02111437, 0.18091075],
+           [0.37888563, 0.61908925]])
 
     For confidence intervals approaching 1, the Wald interval for
-    0 < k < N can give intervals that extend outside [0, 1]:
+    0 < k < n can give intervals that extend outside [0, 1]:
 
-    >>> binom_conf_interval([0, 1, 2, 5], 5, interval='wald', confidence_level=0.99)
-    array([[ 0.        , -0.26077835, -0.16433593,  1.        ],
-           [ 0.        ,  0.66077835,  0.96433593,  1.        ]])
+    >>> binom_conf_interval([1, 2], 5, interval='wald', confidence_level=0.99)  # doctest: +FLOAT_CMP
+    array([[-0.26077835, -0.16433593],
+           [ 0.66077835,  0.96433593]])
 
-    """
+    """  # noqa
     if confidence_level < 0. or confidence_level > 1.:
         raise ValueError('confidence_level must be between 0. and 1.')
     alpha = 1. - confidence_level
@@ -313,7 +315,6 @@ def binom_conf_interval(k, n, confidence_level=0.68269, interval='wilson'):
     return conf_interval
 
 
-# TODO Note scipy dependency (needed in binom_conf_interval)
 @deprecated_renamed_argument('conf', 'confidence_level', '4.0')
 def binned_binom_proportion(x, success, bins=10, range=None,
                             confidence_level=0.68269, interval='wilson'):
@@ -328,12 +329,12 @@ def binned_binom_proportion(x, success, bins=10, range=None,
 
     Parameters
     ----------
-    x : list_like
+    x : sequence
         Values.
-    success : list_like (bool)
+    success : sequence of bool
         Success (`True`) or failure (`False`) corresponding to each value
         in ``x``.  Must be same length as ``x``.
-    bins : int or sequence of scalars, optional
+    bins : int or sequence of scalar, optional
         If bins is an int, it defines the number of equal-width bins
         in the given range (10, by default). If bins is a sequence, it
         defines the bin edges, including the rightmost edge, allowing
@@ -342,7 +343,8 @@ def binned_binom_proportion(x, success, bins=10, range=None,
         The lower and upper range of the bins. If `None` (default),
         the range is set to ``(x.min(), x.max())``. Values outside the
         range are ignored.
-    confidence_level : float in [0, 1], optional
+    confidence_level : float, optional
+        Must be in range [0, 1].
         Desired probability content in the confidence
         interval ``(p - perr[0], p + perr[1])`` in each bin. Default is
         0.68269.
@@ -358,17 +360,21 @@ def binned_binom_proportion(x, success, bins=10, range=None,
 
     Returns
     -------
-    bin_ctr : numpy.ndarray
+    bin_ctr : ndarray
         Central value of bins. Bins without any entries are not returned.
-    bin_halfwidth : numpy.ndarray
+    bin_halfwidth : ndarray
         Half-width of each bin such that ``bin_ctr - bin_halfwidth`` and
         ``bin_ctr + bins_halfwidth`` give the left and right side of each bin,
         respectively.
-    p : numpy.ndarray
+    p : ndarray
         Efficiency in each bin.
-    perr : numpy.ndarray
+    perr : ndarray
         2-d array of shape (2, len(p)) representing the upper and lower
         uncertainty on p in each bin.
+
+    Notes
+    -----
+    This function requires ``scipy`` for all interval types.
 
     See Also
     --------
@@ -492,14 +498,11 @@ def binned_binom_proportion(x, success, bins=10, range=None,
 
 def _check_poisson_conf_inputs(sigma, background, confidence_level, name):
     if sigma != 1:
-        raise ValueError("Only sigma=1 supported for interval {}"
-                         .format(name))
+        raise ValueError(f"Only sigma=1 supported for interval {name}")
     if background != 0:
-        raise ValueError("background not supported for interval {}"
-                         .format(name))
+        raise ValueError(f"background not supported for interval {name}")
     if confidence_level is not None:
-        raise ValueError("confidence_level not supported for interval {}"
-                         .format(name))
+        raise ValueError(f"confidence_level not supported for interval {name}")
 
 
 @deprecated_renamed_argument('conflevel', 'confidence_level', '4.0')
@@ -525,10 +528,9 @@ def poisson_conf_interval(n, interval='root-n', sigma=1, background=0,
         Confidence level between 0 and 1; only supported for the
         'kraft-burrows-nousek' mode.
 
-
     Returns
     -------
-    conf_interval : numpy.ndarray
+    conf_interval : ndarray
         ``conf_interval[0]`` and ``conf_interval[1]`` correspond to the lower
         and upper limits, respectively, for each element in ``n``.
 
@@ -544,7 +546,7 @@ def poisson_conf_interval(n, interval='root-n', sigma=1, background=0,
     <http://www.pp.rhul.ac.uk/~cowan/atlas/ErrorBars.pdf>`_  several
     possibilities but concludes that no single representation is
     suitable for all cases.  The suggestion has also been `floated
-    <http://adsabs.harvard.edu/abs/2012EPJP..127...24A>`_ that error
+    <https://ui.adsabs.harvard.edu/abs/2012EPJP..127...24A>`_ that error
     bars should be attached to theoretical predictions instead of
     observed data, which this function will not help with (but it's
     easy; then you really should use the square root of the theoretical
@@ -578,9 +580,9 @@ def poisson_conf_interval(n, interval='root-n', sigma=1, background=0,
 
     **4. 'sherpagehrels'** This rule is used by default in the fitting
     package 'sherpa'. The `documentation
-    <http://cxc.harvard.edu/sherpa4.4/statistics/#chigehrels>`_ claims
+    <https://cxc.harvard.edu/sherpa4.4/statistics/#chigehrels>`_ claims
     it is based on a numerical approximation published in `Gehrels
-    (1986) <http://adsabs.harvard.edu/abs/1986ApJ...303..336G>`_ but it
+    (1986) <https://ui.adsabs.harvard.edu/abs/1986ApJ...303..336G>`_ but it
     does not actually appear there.  It is symmetrical, and while the
     upper limits are within about 1% of those given by
     'frequentist-confidence', the lower limits can be badly wrong. The
@@ -603,7 +605,7 @@ def poisson_conf_interval(n, interval='root-n', sigma=1, background=0,
     :math:`\alpha` is the one-tailed probability of the normal
     distribution (at the point given by the parameter 'sigma'). See
     `Maxwell (2011)
-    <http://adsabs.harvard.edu/abs/2011arXiv1102.0822M>`_ for further
+    <https://ui.adsabs.harvard.edu/abs/2011arXiv1102.0822M>`_ for further
     details.
 
     **6. 'kraft-burrows-nousek'** This is a Bayesian approach which allows
@@ -630,18 +632,22 @@ def poisson_conf_interval(n, interval='root-n', sigma=1, background=0,
        = \left( \sum^N_{n=0} \frac{e^{-B}B^n}{n!}  \right)^{-1}
 
     See `Kraft, Burrows, and Nousek (1991)
-    <http://adsabs.harvard.edu/abs/1991ApJ...374..344K>`_ for further
+    <https://ui.adsabs.harvard.edu/abs/1991ApJ...374..344K>`_ for further
     details.
 
     These formulas implement a positive, uniform prior.
     `Kraft, Burrows, and Nousek (1991)
-    <http://adsabs.harvard.edu/abs/1991ApJ...374..344K>`_ discuss this
+    <https://ui.adsabs.harvard.edu/abs/1991ApJ...374..344K>`_ discuss this
     choice in more detail and show that the problem is relatively
     insensitive to the choice of prior.
 
     This function has an optional dependency: Either `Scipy
     <https://www.scipy.org/>`_ or `mpmath <http://mpmath.org/>`_  need
     to be available (Scipy works only for N < 100).
+    This code is very intense numerically, which makes it much slower than
+    the other methods, in particular for large count numbers (above 1000
+    even with ``mpmath``). Fortunately, some of the other methods or a
+    Gaussian approximation usually work well in this regime.
 
     Examples
     --------
@@ -703,7 +709,7 @@ def poisson_conf_interval(n, interval='root-n', sigma=1, background=0,
     ...     interval='kraft-burrows-nousek').T  # doctest: +FLOAT_CMP
     array([[ 3.47894005, 16.113329533]])
 
-    """
+    """  # noqa
 
     if not np.isscalar(n):
         n = np.asanyarray(n)
@@ -741,6 +747,14 @@ def poisson_conf_interval(n, interval='root-n', sigma=1, background=0,
         else:
             conf_interval[0, n == 0] = 0
     elif interval == 'kraft-burrows-nousek':
+        # Deprecation warning in Python 3.9 when N is float, so we force int,
+        # see https://github.com/astropy/astropy/issues/10832
+        if np.isscalar(n):
+            if not isinstance(n, int):
+                raise TypeError('Number of counts must be integer.')
+        elif not issubclass(n.dtype.type, np.integer):
+            raise TypeError('Number of counts must be integer.')
+
         if confidence_level is None:
             raise ValueError('Set confidence_level for method {}. (sigma is '
                              'ignored.)'.format(interval))
@@ -754,8 +768,7 @@ def poisson_conf_interval(n, interval='root-n', sigma=1, background=0,
                                      cache=True)(n, background, confidence_level)
         conf_interval = np.vstack(conf_interval)
     else:
-        raise ValueError("Invalid method for Poisson confidence intervals: "
-                         "{}".format(interval))
+        raise ValueError(f"Invalid method for Poisson confidence intervals: {interval}")
     return conf_interval
 
 
@@ -769,7 +782,7 @@ def median_absolute_deviation(data, axis=None, func=None, ignore_nan=False):
     ----------
     data : array-like
         Input array or object that can be converted to an array.
-    axis : `None`, int, or tuple of ints, optional
+    axis : None, int, or tuple of int, optional
         The axis or axes along which the MADs are computed.  The default
         (`None`) is to compute the MAD of the flattened array.
     func : callable, optional
@@ -795,11 +808,11 @@ def median_absolute_deviation(data, axis=None, func=None, ignore_nan=False):
 
         >>> import numpy as np
         >>> from astropy.stats import median_absolute_deviation
-        >>> rand = np.random.RandomState(12345)
+        >>> rand = np.random.default_rng(12345)
         >>> from numpy.random import randn
-        >>> mad = median_absolute_deviation(rand.randn(1000))
+        >>> mad = median_absolute_deviation(rand.standard_normal(1000))
         >>> print(mad)    # doctest: +FLOAT_CMP
-        0.65244241428454486
+        0.6829504282771885
 
     See Also
     --------
@@ -867,7 +880,7 @@ def mad_std(data, axis=None, func=None, ignore_nan=False):
     ----------
     data : array-like
         Data array or object that can be converted to an array.
-    axis : `None`, int, or tuple of ints, optional
+    axis : None, int, or tuple of int, optional
         The axis or axes along which the robust standard deviations are
         computed.  The default (`None`) is to compute the robust
         standard deviation of the flattened array.
@@ -891,10 +904,10 @@ def mad_std(data, axis=None, func=None, ignore_nan=False):
     --------
     >>> import numpy as np
     >>> from astropy.stats import mad_std
-    >>> rand = np.random.RandomState(12345)
+    >>> rand = np.random.default_rng(12345)
     >>> madstd = mad_std(rand.normal(5, 2, (100, 100)))
     >>> print(madstd)    # doctest: +FLOAT_CMP
-    2.0232764659422626
+    1.984147963351707
 
     See Also
     --------
@@ -961,7 +974,7 @@ def bootstrap(data, bootnum=100, samples=None, bootfunc=None):
 
     Parameters
     ----------
-    data : numpy.ndarray
+    data : ndarray
         N-D array. The bootstrap resampling will be performed on the first
         index, so the first index should access the relevant information
         to be bootstrapped.
@@ -977,7 +990,7 @@ def bootstrap(data, bootnum=100, samples=None, bootfunc=None):
 
     Returns
     -------
-    boot : numpy.ndarray
+    boot : ndarray
 
         If bootfunc is None, then each row is a bootstrap resample of the data.
         If bootfunc is specified, then the columns will correspond to the
@@ -1067,17 +1080,17 @@ def _scipy_kraft_burrows_nousek(N, B, CL):
     '''Upper limit on a poisson count rate
 
     The implementation is based on Kraft, Burrows and Nousek
-    `ApJ 374, 344 (1991) <http://adsabs.harvard.edu/abs/1991ApJ...374..344K>`_.
+    `ApJ 374, 344 (1991) <https://ui.adsabs.harvard.edu/abs/1991ApJ...374..344K>`_.
     The XMM-Newton upper limit server uses the same formalism.
 
     Parameters
     ----------
-    N : int
+    N : int or np.int32/np.int64
         Total observed count number
-    B : float
+    B : float or np.float32/np.float64
         Background count rate (assumed to be known with negligible error
         from a large background area).
-    CL : float
+    CL : float or np.float32/np.float64
        Confidence level (number between 0 and 1)
 
     Returns
@@ -1086,28 +1099,22 @@ def _scipy_kraft_burrows_nousek(N, B, CL):
 
     Notes
     -----
-    Requires `scipy`. This implementation will cause Overflow Errors for about
-    N > 100 (the exact limit depends on details of how scipy was compiled).
-    See `~astropy.stats.mpmath_poisson_upper_limit` for an implementation that
-    is slower, but can deal with arbitrarily high numbers since it is based on
-    the `mpmath <http://mpmath.org/>`_ library.
+    Requires :mod:`~scipy`. This implementation will cause Overflow Errors for
+    about N > 100 (the exact limit depends on details of how scipy was
+    compiled). See `~astropy.stats.mpmath_poisson_upper_limit` for an
+    implementation that is slower, but can deal with arbitrarily high numbers
+    since it is based on the `mpmath <http://mpmath.org/>`_ library.
     '''
 
     from scipy.optimize import brentq
     from scipy.integrate import quad
+    from scipy.special import factorial
 
     from math import exp
 
     def eqn8(N, B):
         n = np.arange(N + 1, dtype=np.float64)
-        # Create an array containing the factorials. scipy.special.factorial
-        # requires SciPy 0.14 (#5064) therefore this is calculated by using
-        # numpy.cumprod. This could be replaced by factorial again as soon as
-        # older SciPy are not supported anymore but the cumprod alternative
-        # might also be a bit faster.
-        factorial_n = np.ones(n.shape, dtype=np.float64)
-        np.cumprod(n[1:], out=factorial_n[1:])
-        return 1. / (exp(-B) * np.sum(np.power(B, n) / factorial_n))
+        return 1. / (exp(-B) * np.sum(np.power(B, n) / factorial(n)))
 
     # The parameters of eqn8 do not vary between calls so we can calculate the
     # result once and reuse it. The same is True for the factorial of N.
@@ -1152,17 +1159,17 @@ def _mpmath_kraft_burrows_nousek(N, B, CL):
     '''Upper limit on a poisson count rate
 
     The implementation is based on Kraft, Burrows and Nousek in
-    `ApJ 374, 344 (1991) <http://adsabs.harvard.edu/abs/1991ApJ...374..344K>`_.
+    `ApJ 374, 344 (1991) <https://ui.adsabs.harvard.edu/abs/1991ApJ...374..344K>`_.
     The XMM-Newton upper limit server used the same formalism.
 
     Parameters
     ----------
-    N : int
+    N : int or np.int32/np.int64
         Total observed count number
-    B : float
+    B : float or np.float32/np.float64
         Background count rate (assumed to be known with negligible error
         from a large background area).
-    CL : float
+    CL : float or np.float32/np.float64
        Confidence level (number between 0 and 1)
 
     Returns
@@ -1178,9 +1185,12 @@ def _mpmath_kraft_burrows_nousek(N, B, CL):
     '''
     from mpmath import mpf, factorial, findroot, fsum, power, exp, quad
 
-    N = mpf(N)
-    B = mpf(B)
-    CL = mpf(CL)
+    # We convert these values to float. Because for some reason,
+    # mpmath.mpf cannot convert from numpy.int64
+    N = mpf(float(N))
+    B = mpf(float(B))
+    CL = mpf(float(CL))
+    tol = 1e-4
 
     def eqn8(N, B):
         sumterms = [power(B, n) / factorial(n) for n in range(int(N) + 1)]
@@ -1208,19 +1218,33 @@ def _mpmath_kraft_burrows_nousek(N, B, CL):
         eqn7(S_min) here.
         '''
         y_S_max = eqn7(S_max, N, B)
-        if eqn7(0, N, B) >= y_S_max:
+        # If B > N, then N-B, the "most probable" values is < 0
+        # and thus s_min is certainly 0.
+        # Note: For small N, s_max is also close to 0 and root finding
+        # might find the wrong root, thus it is important to handle this
+        # case here and return the analytical answer (s_min = 0).
+        if (B >= N) or (eqn7(0, N, B) >= y_S_max):
             return 0.
         else:
             def eqn7ysmax(x):
                 return eqn7(x, N, B) - y_S_max
-            return findroot(eqn7ysmax, (N - B) / 2.)
+            return findroot(eqn7ysmax, [0., N - B], solver='ridder',
+                            tol=tol)
 
     def func(s):
         s_min = find_s_min(s, N, B)
         out = eqn9_left(s_min, s, N, B)
         return out - CL
 
-    S_max = findroot(func, N - B, tol=1e-4)
+    # Several numerical problems were found prevent the solvers from finding
+    # the roots unless the starting values are very close to the final values.
+    # Thus, this primitive, time-wasting, brute-force stepping here to get
+    # an interval that can be fed into the ridder solver.
+    s_max_guess = max(N - B, 1.)
+    while func(s_max_guess) < 0:
+        s_max_guess += 1
+    S_max = findroot(func, [s_max_guess - 1, s_max_guess], solver='ridder',
+                     tol=tol)
     S_min = find_s_min(S_max, N, B)
     return float(S_min), float(S_max)
 
@@ -1229,17 +1253,17 @@ def _kraft_burrows_nousek(N, B, CL):
     '''Upper limit on a poisson count rate
 
     The implementation is based on Kraft, Burrows and Nousek in
-    `ApJ 374, 344 (1991) <http://adsabs.harvard.edu/abs/1991ApJ...374..344K>`_.
+    `ApJ 374, 344 (1991) <https://ui.adsabs.harvard.edu/abs/1991ApJ...374..344K>`_.
     The XMM-Newton upper limit server used the same formalism.
 
     Parameters
     ----------
-    N : int
+    N : int or np.int32/np.int64
         Total observed count number
-    B : float
+    B : float or np.float32/np.float64
         Background count rate (assumed to be known with negligible error
         from a large background area).
-    CL : float
+    CL : float or np.float32/np.float64
        Confidence level (number between 0 and 1)
 
     Returns
@@ -1248,21 +1272,11 @@ def _kraft_burrows_nousek(N, B, CL):
 
     Notes
     -----
-    This functions has an optional dependency: Either `scipy` or `mpmath
+    This functions has an optional dependency: Either :mod:`scipy` or `mpmath
     <http://mpmath.org/>`_  need to be available. (Scipy only works for
     N < 100).
     '''
-    try:
-        import scipy  # noqa
-        HAS_SCIPY = True
-    except ImportError:
-        HAS_SCIPY = False
-
-    try:
-        import mpmath  # noqa
-        HAS_MPMATH = True
-    except ImportError:
-        HAS_MPMATH = False
+    from astropy.utils.compat.optional_deps import HAS_SCIPY, HAS_MPMATH
 
     if HAS_SCIPY and N <= 100:
         try:
@@ -1480,16 +1494,16 @@ def fold_intervals(intervals):
 
     Parameters
     ----------
-    intervals : list of three-element tuples (ai,bi,wi)
-        The intervals to fold; ai and bi are the limits of the interval, and
-        wi is the weight to apply to the interval.
+    intervals : list of (3,) tuple
+        For each tuple (ai,bi,wi); ai and bi are the limits of the interval,
+        and wi is the weight to apply to the interval.
 
     Returns
     -------
-    breaks : array of floats length N
+    breaks : (N,) array of float
         The endpoints of a set of intervals covering [0,1]; breaks[0]=0 and
         breaks[-1] = 1
-    weights : array of floats of length N-1
+    weights : (N-1,) array of float
         The ith element is the sum of number of times the interval
         breaks[i],breaks[i+1] is included in each interval times the weight
         associated with that interval.
@@ -1527,9 +1541,9 @@ def cdf_from_intervals(breaks, totals):
 
     Parameters
     ----------
-    breaks : array of floats of length N
+    breaks : (N,) array of float
         The boundaries of successive intervals.
-    totals : array of floats of length N-1
+    totals : (N-1,) array of float
         The weight for each interval.
 
     Returns
@@ -1559,8 +1573,8 @@ def interval_overlap_length(i1, i2):
 
     Parameters
     ----------
-    i1, i2 : pairs of two floats
-        The two intervals.
+    i1, i2 : (float, float)
+        The two intervals, (interval 1, interval 2).
 
     Returns
     -------
@@ -1596,14 +1610,14 @@ def histogram_intervals(n, breaks, totals):
     ----------
     n : int
         The number of bins
-    breaks : array of floats of length N
+    breaks : (N,) array of float
         Endpoints of the intervals in the PDF
-    totals : array of floats of length N-1
+    totals : (N-1,) array of float
         Probability densities in each bin
 
     Returns
     -------
-    h : array of floats
+    h : array of float
         The average weight for each bin
 
     """

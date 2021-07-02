@@ -1,25 +1,19 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
+# pylint: disable=invalid-name
 
 import types
 
 import pytest
 import numpy as np
 from numpy.testing import assert_allclose
-from numpy.random import RandomState
+from numpy.random import default_rng
 
 from astropy.modeling.core import Fittable1DModel
 from astropy.modeling.parameters import Parameter
 from astropy.modeling import models
 from astropy.modeling import fitting
 from astropy.utils.exceptions import AstropyUserWarning
-
-from .utils import ignore_non_integer_warning
-
-try:
-    from scipy import optimize
-    HAS_SCIPY = True
-except ImportError:
-    HAS_SCIPY = False
+from astropy.utils.compat.optional_deps import HAS_SCIPY  # noqa
 
 
 class TestNonLinearConstraints:
@@ -30,8 +24,8 @@ class TestNonLinearConstraints:
         self.x = np.arange(10, 20, .1)
         self.y1 = self.g1(self.x)
         self.y2 = self.g2(self.x)
-        rsn = RandomState(1234567890)
-        self.n = rsn.randn(100)
+        rsn = default_rng(1234567890)
+        self.n = rsn.standard_normal(100)
         self.ny1 = self.y1 + 2 * self.n
         self.ny2 = self.y2 + 2 * self.n
 
@@ -57,6 +51,8 @@ class TestNonLinearConstraints:
 
     @pytest.mark.skipif('not HAS_SCIPY')
     def test_joint_fitter(self):
+        from scipy import optimize
+
         g1 = models.Gaussian1D(10, 14.9, stddev=.3)
         g2 = models.Gaussian1D(10, 13, stddev=.4)
         jf = fitting.JointFitter([g1, g2], {g1: ['amplitude'],
@@ -87,6 +83,8 @@ class TestNonLinearConstraints:
 
     @pytest.mark.skipif('not HAS_SCIPY')
     def test_no_constraints(self):
+        from scipy import optimize
+
         g1 = models.Gaussian1D(9.9, 14.5, stddev=.3)
 
         def func(p, x):
@@ -151,8 +149,7 @@ class TestBounds:
         line_model = models.Linear1D(guess_slope, guess_intercept,
                                      bounds=bounds)
         fitter = fitting.SLSQPLSQFitter()
-
-        with ignore_non_integer_warning():
+        with pytest.warns(AstropyUserWarning, match='consider using linear fitting methods'):
             model = fitter(line_model, self.x, self.y)
 
         slope = model.slope.value
@@ -198,20 +195,25 @@ class TestBounds:
                                   x_stddev=4., y_stddev=4., theta=0.5,
                                   bounds=bounds)
         gauss_fit = fitting.SLSQPLSQFitter()
-        with ignore_non_integer_warning():
+        # Warning does not appear in all the CI jobs.
+        # TODO: Rewrite the test for more consistent warning behavior.
+        with pytest.warns(None) as warning_lines:
             model = gauss_fit(gauss, X, Y, self.data)
-        x_mean = model.x_mean.value
-        y_mean = model.y_mean.value
-        x_stddev = model.x_stddev.value
-        y_stddev = model.y_stddev.value
-        assert x_mean + 10 ** -5 >= bounds['x_mean'][0]
-        assert x_mean - 10 ** -5 <= bounds['x_mean'][1]
-        assert y_mean + 10 ** -5 >= bounds['y_mean'][0]
-        assert y_mean - 10 ** -5 <= bounds['y_mean'][1]
-        assert x_stddev + 10 ** -5 >= bounds['x_stddev'][0]
-        assert x_stddev - 10 ** -5 <= bounds['x_stddev'][1]
-        assert y_stddev + 10 ** -5 >= bounds['y_stddev'][0]
-        assert y_stddev - 10 ** -5 <= bounds['y_stddev'][1]
+            x_mean = model.x_mean.value
+            y_mean = model.y_mean.value
+            x_stddev = model.x_stddev.value
+            y_stddev = model.y_stddev.value
+            assert x_mean + 10 ** -5 >= bounds['x_mean'][0]
+            assert x_mean - 10 ** -5 <= bounds['x_mean'][1]
+            assert y_mean + 10 ** -5 >= bounds['y_mean'][0]
+            assert y_mean - 10 ** -5 <= bounds['y_mean'][1]
+            assert x_stddev + 10 ** -5 >= bounds['x_stddev'][0]
+            assert x_stddev - 10 ** -5 <= bounds['x_stddev'][1]
+            assert y_stddev + 10 ** -5 >= bounds['y_stddev'][0]
+            assert y_stddev - 10 ** -5 <= bounds['y_stddev'][1]
+        for w in warning_lines:
+            assert issubclass(w.category, AstropyUserWarning)
+            assert 'The fit may be unsuccessful' in str(w.message)
 
 
 class TestLinearConstraints:
@@ -223,17 +225,15 @@ class TestLinearConstraints:
         self.p1.window = [0., 9.]
         self.x = np.arange(10)
         self.y = self.p1(self.x)
-        rsn = RandomState(1234567890)
-        self.n = rsn.randn(10)
+        rsn = default_rng(1234567890)
+        self.n = rsn.standard_normal(10)
         self.ny = self.y + self.n
 
     def test(self):
         self.p1.c0.fixed = True
         self.p1.c1.fixed = True
         pfit = fitting.LinearLSQFitter()
-        with pytest.warns(AstropyUserWarning,
-                          match=r'The fit may be poorly conditioned'):
-            model = pfit(self.p1, self.x, self.y)
+        model = pfit(self.p1, self.x, self.y)
         assert_allclose(self.y, model(self.x))
 
 # Test constraints as parameter properties
@@ -380,7 +380,7 @@ def test_fit_with_fixed_and_bound_constraints():
     assert fitted_1.amplitude == 3.0
 
     m.amplitude.fixed = False
-    fitted_2 = f(m, x, y)
+    _ = f(m, x, y)
     # It doesn't matter anymore what the amplitude ends up as so long as the
     # bounds constraint was still obeyed
     assert fitted_1.mean >= 4
@@ -421,7 +421,7 @@ def test_fit_with_bound_constraints_estimate_jacobian():
     m2 = MyModel()
     m2.a.bounds = (-2, 2)
     f2 = fitting.LevMarLSQFitter()
-    fitted_2 = f2(m2, x, y)
+    _ = f2(m2, x, y)
     assert np.allclose(fitted_1.a, 1.5)
     assert np.allclose(fitted_1.b, -3)
 
@@ -530,3 +530,51 @@ def test_2d_model():
         assert_allclose(m.parameters, p2.parameters, rtol=0.05)
         m = fitter(p2, x, y, z + 2 * n, weights=None)
         assert_allclose(m.parameters, p2.parameters, rtol=0.05)
+
+
+def test_set_prior_posterior():
+    model = models.Polynomial1D(1)
+    model.c0.prior = models.Gaussian1D(2.3, 2, .1)
+    assert model.c0.prior(2) == 2.3
+
+    model.c0.posterior = models.Linear1D(1, .2)
+    assert model.c0.posterior(1) == 1.2
+
+
+def test_set_constraints():
+    g = models.Gaussian1D()
+    p = models.Polynomial1D(1)
+
+    # Set bounds before model combination
+    g.stddev.bounds = (0, 3)
+    m = g + p
+    assert m.bounds == {'amplitude_0': (None, None),
+                        'mean_0': (None, None),
+                        'stddev_0': (0.0, 3.0),
+                        'c0_1': (None, None),
+                        'c1_1': (None, None)}
+
+    # Set bounds on the compound model
+    m.stddev_0.bounds = (1, 3)
+    assert m.bounds == {'amplitude_0': (None, None),
+                        'mean_0': (None, None),
+                        'stddev_0': (1.0, 3.0),
+                        'c0_1': (None, None),
+                        'c1_1': (None, None)}
+
+    # Set the bounds of a Parameter directly in the bounds dict
+    m.bounds['stddev_0'] = (4, 5)
+    assert m.bounds == {'amplitude_0': (None, None),
+                        'mean_0': (None, None),
+                        'stddev_0': (4, 5),
+                        'c0_1': (None, None),
+                        'c1_1': (None, None)}
+
+    # Set the bounds of a Parameter on the child model bounds dict
+    g.bounds['stddev'] = (1, 5)
+    m = g + p
+    assert m.bounds == {'amplitude_0': (None, None),
+                        'mean_0': (None, None),
+                        'stddev_0': (1, 5),
+                        'c0_1': (None, None),
+                        'c1_1': (None, None)}

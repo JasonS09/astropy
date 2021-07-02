@@ -12,15 +12,8 @@ from astropy import units as u
 from astropy.units import allclose as quantity_allclose
 from astropy.coordinates import Longitude, Latitude, Distance, CartesianRepresentation
 from astropy.coordinates.builtin_frames import ICRS, Galactic
-from astropy.tests.helper import catch_warnings
 from astropy.utils.exceptions import AstropyWarning
-
-try:
-    import scipy  # pylint: disable=W0611
-except ImportError:
-    HAS_SCIPY = False
-else:
-    HAS_SCIPY = True
+from astropy.utils.compat.optional_deps import HAS_SCIPY  # noqa
 
 
 def test_distances():
@@ -51,6 +44,7 @@ def test_distances():
     # 3D position
     c = Galactic(l=158.558650*u.degree, b=-43.350066*u.degree,
                  distance=Distance(12, u.parsec))
+    assert quantity_allclose(c.distance, 12 * u.pc)
 
     # or initialize distances via redshifts - this is actually tested in the
     # function below that checks for scipy. This is kept here as an example
@@ -233,13 +227,11 @@ def test_parallax():
     with pytest.raises(ValueError):
         Distance(parallax=[10, 1, -1] * u.mas)
 
-    with catch_warnings(AstropyWarning) as w:
+    with pytest.warns(AstropyWarning):
         Distance(parallax=-1 * u.mas, allow_negative=True)
-    assert len(w) > 0
 
-    with catch_warnings(AstropyWarning) as w:
+    with pytest.warns(AstropyWarning):
         Distance(parallax=[10, 1, -1] * u.mas, allow_negative=True)
-    assert len(w) > 0
 
 
 def test_distance_in_coordinates():

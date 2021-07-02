@@ -107,7 +107,7 @@ class CdsHeader(core.BaseHeader):
                                 re.VERBOSE)
 
         cols = []
-        for line in itertools.islice(lines, i_col_def+4, None):
+        for line in itertools.islice(lines, i_col_def + 4, None):
             if line.startswith(('------', '=======')):
                 break
             match = re_col_def.match(line)
@@ -126,7 +126,17 @@ class CdsHeader(core.BaseHeader):
                 col.type = self.get_col_type(col)
 
                 match = re.match(
-                    r'\? (?P<equal> =)? (?P<nullval> \S*) (\s+ (?P<descriptiontext> \S.*))?', col.description, re.VERBOSE)
+                    r'(?P<limits>[\[\]] \S* [\[\]])?'  # Matches limits specifier (eg [])
+                                                       # that may or may not be present
+                    r'\?'  # Matches '?' directly
+                    r'((?P<equal>=)(?P<nullval> \S*))?'  # Matches to nullval if and only
+                                                         # if '=' is present
+                    r'(?P<order>[-+]?[=]?)'  # Matches to order specifier:
+                                             # ('+', '-', '+=', '-=')
+                    r'(\s* (?P<descriptiontext> \S.*))?',  # Matches description text even
+                                                           # even if no whitespace is
+                                                           # present after '?'
+                    col.description, re.VERBOSE)
                 if match:
                     col.description = (match.group('descriptiontext') or '').strip()
                     if issubclass(col.type, core.FloatType):
@@ -139,9 +149,11 @@ class CdsHeader(core.BaseHeader):
                         # CDS tables can use -, --, ---, or ---- to mark missing values
                         # see https://github.com/astropy/astropy/issues/1335
                         for i in [1, 2, 3, 4]:
-                            self.data.fill_values.append(('-'*i, fillval, col.name))
+                            self.data.fill_values.append(('-' * i, fillval, col.name))
                     else:
                         col.null = match.group('nullval')
+                        if (col.null is None):
+                            col.null = ''
                         self.data.fill_values.append((col.null, fillval, col.name))
 
                 cols.append(col)
@@ -173,7 +185,7 @@ class CdsData(core.BaseData):
                       if x.startswith(('------', '======='))]
         if not i_sections:
             raise core.InconsistentTableError('No CDS section delimiter found')
-        return lines[i_sections[-1]+1:]
+        return lines[i_sections[-1]+1:]  # noqa
 
 
 class Cds(core.BaseReader):

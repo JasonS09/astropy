@@ -7,12 +7,10 @@ Index engine for Tables.
 
 from collections import OrderedDict
 from itertools import starmap
+from astropy.utils.compat.optional_deps import HAS_SORTEDCONTAINERS
 
-try:
+if HAS_SORTEDCONTAINERS:
     from sortedcontainers import SortedList
-    HAS_SOCO = True
-except ImportError:
-    HAS_SOCO = False
 
 
 class Node(object):
@@ -69,9 +67,11 @@ class SCEngine:
         Sorted columns of the original table
     row_index : Column object
         Row numbers corresponding to data columns
-    unique : bool (defaults to False)
-        Whether the values of the index must be unique
+    unique : bool
+        Whether the values of the index must be unique.
+        Defaults to False.
     '''
+
     def __init__(self, data, row_index, unique=False):
         node_keys = map(tuple, data)
         self._nodes = SortedList(starmap(Node, zip(node_keys, row_index)))
@@ -167,4 +167,9 @@ class SCEngine:
         self._nodes.update(nodes)
 
     def __repr__(self):
-        return '{!r}'.format(list(self._nodes))
+        if len(self._nodes) > 6:
+            nodes = list(self._nodes[:3]) + ['...'] + list(self._nodes[-3:])
+        else:
+            nodes = self._nodes
+        nodes_str = ', '.join(str(node) for node in nodes)
+        return f'<{self.__class__.__name__} nodes={nodes_str}>'

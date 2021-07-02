@@ -28,10 +28,10 @@ def convert_to_writable_filelike(fd, compressed=False):
 
     Parameters
     ----------
-    fd : file path string or writable file-like object
+    fd : str or file-like
         May be:
 
-            - a file path, in which case it is opened, and the file
+            - a file path string, in which case it is opened, and the file
               object is returned.
 
             - an object with a :meth:``write`` method, in which case that
@@ -42,7 +42,7 @@ def convert_to_writable_filelike(fd, compressed=False):
 
     Returns
     -------
-    fd : writable file-like object
+    fd : writable file-like
     """
     if isinstance(fd, str):
         if fd.endswith('.gz') or compressed:
@@ -147,7 +147,7 @@ def coerce_range_list_param(p, frames=None, numeric=True):
 
     def numeric_or_range(x):
         if isinstance(x, tuple) and len(x) == 2:
-            return '{}/{}'.format(str_or_none(x[0]), str_or_none(x[1]))
+            return f'{str_or_none(x[0])}/{str_or_none(x[1])}'
         else:
             return str_or_none(x)
 
@@ -169,7 +169,7 @@ def coerce_range_list_param(p, frames=None, numeric=True):
         if has_frame_of_reference:
             if frames is not None and p[-1] not in frames:
                 raise ValueError(
-                    "'{}' is not a valid frame of reference".format(p[-1]))
+                    f"'{p[-1]}' is not a valid frame of reference")
             out += ';' + p[-1]
             length += 1
 

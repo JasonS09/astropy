@@ -2,14 +2,19 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 """Test initalization and other aspects of Angle and subclasses"""
 
-import pytest
+import threading
+import warnings
+
 import numpy as np
+import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
+import astropy.units as u
 from astropy.coordinates.angles import Longitude, Latitude, Angle
-from astropy import units as u
-from astropy.coordinates.errors import (IllegalSecondError, IllegalMinuteError, IllegalHourError,
-                      IllegalSecondWarning, IllegalMinuteWarning)
+from astropy.coordinates.errors import (
+    IllegalSecondError, IllegalMinuteError, IllegalHourError,
+    IllegalSecondWarning, IllegalMinuteWarning)
+from astropy.utils.exceptions import AstropyDeprecationWarning
 
 
 def test_create_angles():
@@ -275,14 +280,13 @@ def test_angle_formatting():
     assert str(angle) == angle.to_string()
 
     res = 'Angle as HMS: 3h36m29.7888s'
-    assert "Angle as HMS: {}".format(angle.to_string(unit=u.hour)) == res
+    assert f"Angle as HMS: {angle.to_string(unit=u.hour)}" == res
 
     res = 'Angle as HMS: 3:36:29.7888'
-    assert "Angle as HMS: {}".format(angle.to_string(unit=u.hour, sep=":")) == res
+    assert f"Angle as HMS: {angle.to_string(unit=u.hour, sep=':')}" == res
 
     res = 'Angle as HMS: 3:36:29.79'
-    assert "Angle as HMS: {}".format(angle.to_string(unit=u.hour, sep=":",
-                                      precision=2)) == res
+    assert f"Angle as HMS: {angle.to_string(unit=u.hour, sep=':', precision=2)}" == res
 
     # Note that you can provide one, two, or three separators passed as a
     # tuple or list
@@ -297,22 +301,20 @@ def test_angle_formatting():
                                                    precision=4)) == res
 
     res = 'Angle as HMS: 3-36-29.7888'
-    assert "Angle as HMS: {}".format(angle.to_string(unit=u.hour, sep="-",
-                                                    precision=4)) == res
+    assert f"Angle as HMS: {angle.to_string(unit=u.hour, sep='-', precision=4)}" == res
 
     res = 'Angle as HMS: 03h36m29.7888s'
-    assert "Angle as HMS: {}".format(angle.to_string(unit=u.hour, precision=4,
-                                                  pad=True)) == res
+    assert f"Angle as HMS: {angle.to_string(unit=u.hour, precision=4, pad=True)}" == res
 
     # Same as above, in degrees
 
     angle = Angle("3 36 29.78880", unit=u.degree)
 
     res = 'Angle as DMS: 3d36m29.7888s'
-    assert "Angle as DMS: {}".format(angle.to_string(unit=u.degree)) == res
+    assert f"Angle as DMS: {angle.to_string(unit=u.degree)}" == res
 
     res = 'Angle as DMS: 3:36:29.7888'
-    assert "Angle as DMS: {}".format(angle.to_string(unit=u.degree, sep=":")) == res
+    assert f"Angle as DMS: {angle.to_string(unit=u.degree, sep=':')}" == res
 
     res = 'Angle as DMS: 3:36:29.79'
     assert "Angle as DMS: {}".format(angle.to_string(unit=u.degree, sep=":",
@@ -339,28 +341,28 @@ def test_angle_formatting():
                                                   pad=True)) == res
 
     res = 'Angle as rad: 0.0629763rad'
-    assert "Angle as rad: {}".format(angle.to_string(unit=u.radian)) == res
+    assert f"Angle as rad: {angle.to_string(unit=u.radian)}" == res
 
     res = 'Angle as rad decimal: 0.0629763'
-    assert "Angle as rad decimal: {}".format(angle.to_string(unit=u.radian, decimal=True)) == res
+    assert f"Angle as rad decimal: {angle.to_string(unit=u.radian, decimal=True)}" == res
 
     # check negative angles
 
     angle = Angle(-1.23456789, unit=u.degree)
     angle2 = Angle(-1.23456789, unit=u.hour)
 
-    assert angle.to_string() == '-1d14m04.4444s'
-    assert angle.to_string(pad=True) == '-01d14m04.4444s'
-    assert angle.to_string(unit=u.hour) == '-0h04m56.2963s'
-    assert angle2.to_string(unit=u.hour, pad=True) == '-01h14m04.4444s'
+    assert angle.to_string() == '-1d14m04.444404s'
+    assert angle.to_string(pad=True) == '-01d14m04.444404s'
+    assert angle.to_string(unit=u.hour) == '-0h04m56.2962936s'
+    assert angle2.to_string(unit=u.hour, pad=True) == '-01h14m04.444404s'
     assert angle.to_string(unit=u.radian, decimal=True) == '-0.0215473'
 
 
 def test_to_string_vector():
     # Regression test for the fact that vectorize doesn't work with Numpy 1.6
-    assert Angle([1./7., 1./7.], unit='deg').to_string()[0] == "0d08m34.2857s"
-    assert Angle([1./7.], unit='deg').to_string()[0] == "0d08m34.2857s"
-    assert Angle(1./7., unit='deg').to_string() == "0d08m34.2857s"
+    assert Angle([1./7., 1./7.], unit='deg').to_string()[0] == "0d08m34.28571429s"
+    assert Angle([1./7.], unit='deg').to_string()[0] == "0d08m34.28571429s"
+    assert Angle(1./7., unit='deg').to_string() == "0d08m34.28571429s"
 
 
 def test_angle_format_roundtripping():
@@ -554,8 +556,20 @@ def test_angle_string():
     with pytest.warns(IllegalSecondWarning):
         a = Angle('00:00:60', u.deg)
     assert str(a) == '0d01m00s'
+    a = Angle('00:00:59S', u.deg)
+    assert str(a) == '-0d00m59s'
+    a = Angle('00:00:59N', u.deg)
+    assert str(a) == '0d00m59s'
+    a = Angle('00:00:59E', u.deg)
+    assert str(a) == '0d00m59s'
+    a = Angle('00:00:59W', u.deg)
+    assert str(a) == '-0d00m59s'
     a = Angle('-00:00:10', u.hour)
     assert str(a) == '-0h00m10s'
+    a = Angle('00:00:59E', u.hour)
+    assert str(a) == '0h00m59s'
+    a = Angle('00:00:59W', u.hour)
+    assert str(a) == '-0h00m59s'
     a = Angle(3.2, u.radian)
     assert str(a) == '3.2rad'
     a = Angle(4.2, u.microarcsecond)
@@ -563,15 +577,68 @@ def test_angle_string():
     a = Angle('1.0uarcsec')
     assert a.value == 1.0
     assert a.unit == u.microarcsecond
+    a = Angle('1.0uarcsecN')
+    assert a.value == 1.0
+    assert a.unit == u.microarcsecond
+    a = Angle('1.0uarcsecS')
+    assert a.value == -1.0
+    assert a.unit == u.microarcsecond
+    a = Angle('1.0uarcsecE')
+    assert a.value == 1.0
+    assert a.unit == u.microarcsecond
+    a = Angle('1.0uarcsecW')
+    assert a.value == -1.0
+    assert a.unit == u.microarcsecond
     a = Angle("3d")
     assert_allclose(a.value, 3.0)
+    assert a.unit == u.degree
+    a = Angle("3dN")
+    assert str(a) == "3d00m00s"
+    assert a.unit == u.degree
+    a = Angle("3dS")
+    assert str(a) == "-3d00m00s"
+    assert a.unit == u.degree
+    a = Angle("3dE")
+    assert str(a) == "3d00m00s"
+    assert a.unit == u.degree
+    a = Angle("3dW")
+    assert str(a) == "-3d00m00s"
     assert a.unit == u.degree
     a = Angle('10"')
     assert_allclose(a.value, 10.0)
     assert a.unit == u.arcsecond
-    a = Angle("10'")
+    a = Angle("10'N")
     assert_allclose(a.value, 10.0)
     assert a.unit == u.arcminute
+    a = Angle("10'S")
+    assert_allclose(a.value, -10.0)
+    assert a.unit == u.arcminute
+    a = Angle("10'E")
+    assert_allclose(a.value, 10.0)
+    assert a.unit == u.arcminute
+    a = Angle("10'W")
+    assert_allclose(a.value, -10.0)
+    assert a.unit == u.arcminute
+    a = Angle('45°55′12″N')
+    assert str(a) == '45d55m12s'
+    assert_allclose(a.value, 45.92)
+    assert a.unit == u.deg
+    a = Angle('45°55′12″S')
+    assert str(a) == '-45d55m12s'
+    assert_allclose(a.value, -45.92)
+    assert a.unit == u.deg
+    a = Angle('45°55′12″E')
+    assert str(a) == '45d55m12s'
+    assert_allclose(a.value, 45.92)
+    assert a.unit == u.deg
+    a = Angle('45°55′12″W')
+    assert str(a) == '-45d55m12s'
+    assert_allclose(a.value, -45.92)
+    assert a.unit == u.deg
+    with pytest.raises(ValueError):
+        Angle('00h00m10sN')
+    with pytest.raises(ValueError):
+        Angle('45°55′12″NS')
 
 
 def test_angle_repr():
@@ -725,6 +792,17 @@ def test_longitude():
     lon3 = Longitude(lon, wrap_angle='180d')
     assert lon3.wrap_angle == 180 * u.deg
 
+    # check that wrap_angle is always an Angle
+    lon = Longitude(lon, wrap_angle=Longitude(180 * u.deg))
+    assert lon.wrap_angle == 180 * u.deg
+    assert lon.wrap_angle.__class__ is Angle
+
+    # check that wrap_angle is not copied
+    wrap_angle=180 * u.deg
+    lon = Longitude(lon, wrap_angle=wrap_angle)
+    assert lon.wrap_angle == 180 * u.deg
+    assert np.may_share_memory(lon.wrap_angle, wrap_angle)
+
     # check for problem reported in #2037 about Longitude initializing to -0
     lon = Longitude(0, u.deg)
     lonstr = lon.to_string()
@@ -806,6 +884,13 @@ def test_regression_formatting_negative():
     assert Angle(-1., unit='deg').to_string() == '-1d00m00s'
     assert Angle(-0., unit='hour').to_string() == '-0h00m00s'
     assert Angle(-1., unit='hour').to_string() == '-1h00m00s'
+
+
+def test_regression_formatting_default_precision():
+    # Regression test for issue #11140
+    assert Angle('10:20:30.12345678d').to_string() == '10d20m30.12345678s'
+    assert Angle('10d20m30.123456784564s').to_string() == '10d20m30.12345678s'
+    assert Angle('10d20m30.123s').to_string() == '10d20m30.123s'
 
 
 def test_empty_sep():
@@ -928,14 +1013,36 @@ def test_angle_with_cds_units_enabled():
     """
     from astropy.units import cds
     # the problem is with the parser, so remove it temporarily
-    from astropy.coordinates.angle_utilities import _AngleParser
-    del _AngleParser._parser
+    from astropy.coordinates.angle_formats import _AngleParser
+    del _AngleParser._thread_local._parser
     with cds.enable():
         Angle('5d')
-    del _AngleParser._parser
+    del _AngleParser._thread_local._parser
     Angle('5d')
 
 
 def test_longitude_nan():
     # Check that passing a NaN to Longitude doesn't raise a warning
     Longitude([0, np.nan, 1] * u.deg)
+
+
+def test_latitude_nan():
+    # Check that passing a NaN to Latitude doesn't raise a warning
+    Latitude([0, np.nan, 1] * u.deg)
+
+
+def test_angle_wrap_at_nan():
+    # Check that passing a NaN to Latitude doesn't raise a warning
+    Angle([0, np.nan, 1] * u.deg).wrap_at(180*u.deg)
+
+
+def test_angle_multithreading():
+    """
+    Regression test for issue #7168
+    """
+    angles = ['00:00:00']*10000
+
+    def parse_test(i=0):
+        Angle(angles, unit='hour')
+    for i in range(10):
+        threading.Thread(target=parse_test, args=(i,)).start()

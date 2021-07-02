@@ -1,8 +1,6 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 
-
 import contextlib
-import pathlib
 import re
 import sys
 import inspect
@@ -13,7 +11,6 @@ from operator import itemgetter
 
 import numpy as np
 
-
 __all__ = ['register_reader', 'register_writer', 'register_identifier',
            'identify_format', 'get_reader', 'get_writer', 'read', 'write',
            'get_formats', 'IORegistryError', 'delay_doc_updates',
@@ -22,12 +19,11 @@ __all__ = ['register_reader', 'register_writer', 'register_identifier',
 
 __doctest_skip__ = ['register_identifier']
 
-
 _readers = OrderedDict()
 _writers = OrderedDict()
 _identifiers = OrderedDict()
 
-PATH_TYPES = (str, pathlib.Path)
+PATH_TYPES = (str, os.PathLike)
 
 
 class IORegistryError(Exception):
@@ -84,7 +80,7 @@ def get_formats(data_class=None, readwrite=None):
 
     Parameters
     ----------
-    data_class : classobj, optional
+    data_class : class, optional
         Filter readers/writer to match data class (default = all classes).
 
     readwrite : str or None, optional
@@ -95,7 +91,7 @@ def get_formats(data_class=None, readwrite=None):
 
     Returns
     -------
-    format_table : Table
+    format_table : :class:`~astropy.table.Table`
         Table of available I/O formats.
     """
     from astropy.table import Table
@@ -208,7 +204,7 @@ def _update__doc__(data_class, readwrite):
             class_readwrite_func.__func__.__doc__ = '\n'.join(lines)
 
 
-def register_reader(data_format, data_class, function, force=False):
+def register_reader(data_format, data_class, function, force=False, priority=0):
     """
     Register a reader function.
 
@@ -217,17 +213,21 @@ def register_reader(data_format, data_class, function, force=False):
     data_format : str
         The data format identifier. This is the string that will be used to
         specify the data type when reading.
-    data_class : classobj
+    data_class : class
         The class of the object that the reader produces.
     function : function
         The function to read in a data object.
     force : bool, optional
         Whether to override any existing function if already present.
         Default is ``False``.
+    priority : int, optional
+        The priority of the reader, used to compare possible formats when trying
+        to determine the best reader to use. Higher priorities are preferred
+        over lower priorities, with the default priority being 0 (negative
+        numbers are allowed though).
     """
-
     if not (data_format, data_class) in _readers or force:
-        _readers[(data_format, data_class)] = function
+        _readers[(data_format, data_class)] = function, priority
     else:
         raise IORegistryError("Reader for format '{}' and class '{}' is "
                               'already defined'
@@ -245,7 +245,7 @@ def unregister_reader(data_format, data_class):
     ----------
     data_format : str
         The data format identifier.
-    data_class : classobj
+    data_class : class
         The class of the object that the reader produces.
     """
 
@@ -259,7 +259,7 @@ def unregister_reader(data_format, data_class):
         _update__doc__(data_class, 'read')
 
 
-def register_writer(data_format, data_class, function, force=False):
+def register_writer(data_format, data_class, function, force=False, priority=0):
     """
     Register a table writer function.
 
@@ -268,17 +268,21 @@ def register_writer(data_format, data_class, function, force=False):
     data_format : str
         The data format identifier. This is the string that will be used to
         specify the data type when writing.
-    data_class : classobj
+    data_class : class
         The class of the object that can be written.
     function : function
         The function to write out a data object.
     force : bool, optional
         Whether to override any existing function if already present.
         Default is ``False``.
+    priority : int, optional
+        The priority of the writer, used to compare possible formats when trying
+        to determine the best writer to use. Higher priorities are preferred
+        over lower priorities, with the default priority being 0 (negative
+        numbers are allowed though).
     """
-
     if not (data_format, data_class) in _writers or force:
-        _writers[(data_format, data_class)] = function
+        _writers[(data_format, data_class)] = function, priority
     else:
         raise IORegistryError("Writer for format '{}' and class '{}' is "
                               'already defined'
@@ -296,7 +300,7 @@ def unregister_writer(data_format, data_class):
     ----------
     data_format : str
         The data format identifier.
-    data_class : classobj
+    data_class : class
         The class of the object that can be written.
     """
 
@@ -319,7 +323,7 @@ def register_identifier(data_format, data_class, identifier, force=False):
     data_format : str
         The data format identifier. This is the string that is used to
         specify the data type when reading/writing.
-    data_class : classobj
+    data_class : class
         The class of the object that can be written.
     identifier : function
         A function that checks the argument specified to `read` or `write` to
@@ -371,7 +375,7 @@ def unregister_identifier(data_format, data_class):
     ----------
     data_format : str
         The data format identifier.
-    data_class : classobj
+    data_class : class
         The class of the object that can be read/written.
     """
 
@@ -393,9 +397,9 @@ def identify_format(origin, data_class_required, path, fileobj, args, kwargs):
     data_class_required : object
         The specified class for the result of `read` or the class that is to be
         written.
-    path : str, other path object or None
+    path : str or path-like or None
         The path to the file or None.
-    fileobj : File object or None.
+    fileobj : file-like or None.
         An open file object to read the file's contents, or ``None`` if the
         file could not be opened.
     args : sequence
@@ -435,7 +439,7 @@ def get_reader(data_format, data_class):
     data_format : str
         The data format identifier. This is the string that is used to
         specify the data type when reading/writing.
-    data_class : classobj
+    data_class : class
         The class of the object that can be written.
 
     Returns
@@ -446,7 +450,7 @@ def get_reader(data_format, data_class):
     readers = [(fmt, cls) for fmt, cls in _readers if fmt == data_format]
     for reader_format, reader_class in readers:
         if _is_best_match(data_class, reader_class, readers):
-            return _readers[(reader_format, reader_class)]
+            return _readers[(reader_format, reader_class)][0]
     else:
         format_table_str = _get_format_table_str(data_class, 'Read')
         raise IORegistryError(
@@ -463,7 +467,7 @@ def get_writer(data_format, data_class):
     data_format : str
         The data format identifier. This is the string that is used to
         specify the data type when reading/writing.
-    data_class : classobj
+    data_class : class
         The class of the object that can be written.
 
     Returns
@@ -474,7 +478,7 @@ def get_writer(data_format, data_class):
     writers = [(fmt, cls) for fmt, cls in _writers if fmt == data_format]
     for writer_format, writer_class in writers:
         if _is_best_match(data_class, writer_class, writers):
-            return _writers[(writer_format, writer_class)]
+            return _writers[(writer_format, writer_class)][0]
     else:
         format_table_str = _get_format_table_str(data_class, 'Write')
         raise IORegistryError(
@@ -483,7 +487,7 @@ def get_writer(data_format, data_class):
                 data_format, data_class.__name__, format_table_str))
 
 
-def read(cls, *args, format=None, **kwargs):
+def read(cls, *args, format=None, cache=False, **kwargs):
     """
     Read in data.
 
@@ -497,14 +501,14 @@ def read(cls, *args, format=None, **kwargs):
             fileobj = None
 
             if len(args):
-                if isinstance(args[0], PATH_TYPES):
+                if isinstance(args[0], PATH_TYPES) and not os.path.isdir(args[0]):
                     from astropy.utils.data import get_readable_fileobj
-                    # path might be a pathlib.Path object
-                    if isinstance(args[0], pathlib.Path):
-                        args = (str(args[0]),) + args[1:]
+                    # path might be a os.PathLike object
+                    if isinstance(args[0], os.PathLike):
+                        args = (os.fspath(args[0]),) + args[1:]
                     path = args[0]
                     try:
-                        ctx = get_readable_fileobj(args[0], encoding='binary')
+                        ctx = get_readable_fileobj(args[0], encoding='binary', cache=cache)
                         fileobj = ctx.__enter__()
                     except OSError:
                         raise
@@ -550,9 +554,9 @@ def write(data, *args, format=None, **kwargs):
         fileobj = None
         if len(args):
             if isinstance(args[0], PATH_TYPES):
-                # path might be a pathlib.Path object
-                if isinstance(args[0], pathlib.Path):
-                    args = (str(args[0]),) + args[1:]
+                # path might be a os.PathLike object
+                if isinstance(args[0], os.PathLike):
+                    args = (os.fspath(args[0]),) + args[1:]
                 path = args[0]
                 fileobj = None
             elif hasattr(args[0], 'read'):
@@ -602,11 +606,44 @@ def _get_valid_format(mode, cls, path, fileobj, args, kwargs):
                               "The available formats are:\n"
                               "{}".format(format_table_str))
     elif len(valid_formats) > 1:
-        raise IORegistryError(
-            "Format is ambiguous - options are: {}".format(
-                ', '.join(sorted(valid_formats, key=itemgetter(0)))))
+        return _get_highest_priority_format(mode, cls, valid_formats)
 
     return valid_formats[0]
+
+
+def _get_highest_priority_format(mode, cls, valid_formats):
+    """
+    Returns the reader or writer with the highest priority. If it is a tie,
+    error.
+    """
+    if mode == "read":
+        format_dict = _readers
+        mode_loader = "reader"
+    elif mode == "write":
+        format_dict = _writers
+        mode_loader = "writer"
+
+    best_formats = []
+    current_priority = - np.inf
+    for format in valid_formats:
+        try:
+            _, priority = format_dict[(format, cls)]
+        except KeyError:
+            # We could throw an exception here, but get_reader/get_writer handle
+            # this case better, instead maximally deprioritise the format.
+            priority = - np.inf
+
+        if priority == current_priority:
+            best_formats.append(format)
+        elif priority > current_priority:
+            best_formats = [format]
+            current_priority = priority
+
+    if len(best_formats) > 1:
+        raise IORegistryError("Format is ambiguous - options are: {}".format(
+            ', '.join(sorted(valid_formats, key=itemgetter(0)))
+        ))
+    return best_formats[0]
 
 
 class UnifiedReadWrite:
@@ -648,7 +685,7 @@ class UnifiedReadWrite:
         ----------
         format : str
             Unified I/O format name, e.g. 'fits' or 'ascii.ecsv'
-        out : None or file handle object
+        out : None or path-like
             Output destination (default is stdout via a pager)
         """
         cls = self._cls
@@ -669,15 +706,15 @@ class UnifiedReadWrite:
                 doc = read_write_func.__doc__
             else:
                 # General docs
-                header = ('{}.{} general documentation\n'
-                          .format(cls.__name__, method_name))
+                header = f'{cls.__name__}.{method_name} general documentation\n'
                 doc = getattr(cls, method_name).__doc__
 
             reader_doc = re.sub('.', '=', header)
             reader_doc += header
             reader_doc += re.sub('.', '=', header)
             reader_doc += os.linesep
-            reader_doc += inspect.cleandoc(doc)
+            if doc is not None:
+                reader_doc += inspect.cleandoc(doc)
 
         if out is None:
             import pydoc
@@ -702,7 +739,7 @@ class UnifiedReadWrite:
         return out
 
 
-class UnifiedReadWriteMethod:
+class UnifiedReadWriteMethod(property):
     """Descriptor class for creating read() and write() methods in unified I/O.
 
     The canonical example is in the ``Table`` class, where the ``connect.py``
@@ -720,8 +757,12 @@ class UnifiedReadWriteMethod:
         Class that defines read or write functionality
 
     """
-    def __init__(self, func):
-        self.func = func
-
+    # We subclass property to ensure that __set__ is defined and that,
+    # therefore, we are a data descriptor, which cannot be overridden.
+    # This also means we automatically inherit the __doc__ of fget (which will
+    # be a UnifiedReadWrite subclass), and that this docstring gets recognized
+    # and properly typeset by sphinx (which was previously an issue; see
+    # gh-11554).
+    # We override __get__ to pass both instance and class to UnifiedReadWrite.
     def __get__(self, instance, owner_cls):
-        return self.func(instance, owner_cls)
+        return self.fget(instance, owner_cls)

@@ -14,6 +14,7 @@ from astropy.utils.misc import isiterable
 from . import si
 from . import cgs
 from . import astrophys
+from . import misc
 from .function import units as function_units
 from . import dimensionless_unscaled
 from .core import UnitsError, Unit
@@ -24,7 +25,7 @@ __all__ = ['parallax', 'spectral', 'spectral_density', 'doppler_radio',
            'brightness_temperature', 'thermodynamic_temperature',
            'beam_angular_area', 'dimensionless_angles', 'logarithmic',
            'temperature', 'temperature_energy', 'molar_mass_amu',
-           'pixel_scale', 'plate_scale', 'with_H0']
+           'pixel_scale', 'plate_scale', 'with_H0', "Equivalency"]
 
 
 class Equivalency(UserList):
@@ -105,7 +106,7 @@ def parallax():
 def spectral():
     """
     Returns a list of equivalence pairs that handle spectral
-    wavelength, wave number, frequency, and energy equivalences.
+    wavelength, wave number, frequency, and energy equivalencies.
 
     Allows conversions between wavelength units, wave number units,
     frequency units, and energy units as they relate to light.
@@ -173,6 +174,7 @@ def spectral_density(wav, factor=None):
     la_f_la = nu_f_nu
     phot_f_la = astrophys.photon / (si.cm ** 2 * si.s * si.AA)
     phot_f_nu = astrophys.photon / (si.cm ** 2 * si.s * si.Hz)
+    la_phot_f_la = astrophys.photon / (si.cm ** 2 * si.s)
 
     # luminosity density
     L_nu = cgs.erg / si.s / si.Hz
@@ -182,7 +184,7 @@ def spectral_density(wav, factor=None):
     phot_L_la = astrophys.photon / (si.s * si.AA)
     phot_L_nu = astrophys.photon / (si.s * si.Hz)
 
-    # surface brigthness (flux equiv)
+    # surface brightness (flux equiv)
     S_la = cgs.erg / si.angstrom / si.cm ** 2 / si.s / si.sr
     S_nu = cgs.erg / si.Hz / si.cm ** 2 / si.s / si.sr
     nu_S_nu = cgs.erg / si.cm ** 2 / si.s / si.sr
@@ -270,6 +272,8 @@ def spectral_density(wav, factor=None):
         (phot_f_la, phot_f_nu, converter_phot_f_la_phot_f_nu, iconverter_phot_f_la_phot_f_nu),
         (phot_f_nu, f_nu, converter_phot_f_nu_to_f_nu, iconverter_phot_f_nu_to_f_nu),
         (phot_f_nu, f_la, converter_phot_f_nu_to_f_la, iconverter_phot_f_nu_to_f_la),
+        # integrated flux
+        (la_phot_f_la, la_f_la, converter_phot_f_la_to_f_la, iconverter_phot_f_la_to_f_la),
         # luminosity
         (L_la, L_nu, converter, iconverter),
         (L_nu, nu_L_nu, converter_L_nu_to_nu_L_nu, iconverter_L_nu_to_nu_L_nu),
@@ -316,7 +320,7 @@ def doppler_radio(rest):
 
     References
     ----------
-    `NRAO site defining the conventions <http://www.gb.nrao.edu/~fghigo/gbtdoc/doppler.html>`_
+    `NRAO site defining the conventions <https://www.gb.nrao.edu/~fghigo/gbtdoc/doppler.html>`_
 
     Examples
     --------
@@ -381,7 +385,7 @@ def doppler_optical(rest):
 
     References
     ----------
-    `NRAO site defining the conventions <http://www.gb.nrao.edu/~fghigo/gbtdoc/doppler.html>`_
+    `NRAO site defining the conventions <https://www.gb.nrao.edu/~fghigo/gbtdoc/doppler.html>`_
 
     Examples
     --------
@@ -447,7 +451,7 @@ def doppler_relativistic(rest):
 
     References
     ----------
-    `NRAO site defining the conventions <http://www.gb.nrao.edu/~fghigo/gbtdoc/doppler.html>`_
+    `NRAO site defining the conventions <https://www.gb.nrao.edu/~fghigo/gbtdoc/doppler.html>`_
 
     Examples
     --------
@@ -509,7 +513,7 @@ def molar_mass_amu():
     Returns the equivalence between amu and molar mass.
     """
     return Equivalency([
-        (si.g/si.mol, astrophys.u)
+        (si.g/si.mol, misc.u)
     ], "molar_mass_amu")
 
 
@@ -549,14 +553,14 @@ def brightness_temperature(frequency, beam_area=None):
 
     Parameters
     ----------
-    frequency : `~astropy.units.Quantity` with spectral units
+    frequency : `~astropy.units.Quantity`
         The observed ``spectral`` equivalent `~astropy.units.Unit` (e.g.,
         frequency or wavelength).  The variable is named 'frequency' because it
         is more commonly used in radio astronomy.
         BACKWARD COMPATIBILITY NOTE: previous versions of the brightness
         temperature equivalency used the keyword ``disp``, which is no longer
         supported.
-    beam_area : angular area equivalent
+    beam_area : `~astropy.units.Quantity` ['solid angle']
         Beam area in angular units, i.e. steradian equivalent
 
     Examples
@@ -637,8 +641,9 @@ def beam_angular_area(beam_area):
 
     Parameters
     ----------
-    beam_area : angular area equivalent
+    beam_area : unit-like
         The area of the beam in angular area units (e.g., steradians)
+        Must have angular area equivalent units.
     """
     return Equivalency([(astrophys.beam, Unit(beam_area)),
                         (astrophys.beam**-1, Unit(beam_area)**-1),
@@ -658,12 +663,12 @@ def thermodynamic_temperature(frequency, T_cmb=None):
 
     Parameters
     ----------
-    frequency : `~astropy.units.Quantity` with spectral units
+    frequency : `~astropy.units.Quantity`
         The observed `spectral` equivalent `~astropy.units.Unit` (e.g.,
-        frequency or wavelength)
-    T_cmb :  `~astropy.units.Quantity` with temperature units or None
+        frequency or wavelength). Must have spectral units.
+    T_cmb :  `~astropy.units.Quantity` ['temperature'] or None
         The CMB temperature at z=0.  If `None`, the default cosmology will be
-        used to get this temperature.
+        used to get this temperature. Must have units of temperature.
 
     Notes
     -----
@@ -710,15 +715,18 @@ def thermodynamic_temperature(frequency, T_cmb=None):
 
 
 def temperature():
-    """Convert between Kelvin, Celsius, and Fahrenheit here because
+    """Convert between Kelvin, Celsius, Rankine and Fahrenheit here because
     Unit and CompositeUnit cannot do addition or subtraction properly.
     """
-    from .imperial import deg_F
+    from .imperial import deg_F, deg_R
     return Equivalency([
         (si.K, si.deg_C, lambda x: x - 273.15, lambda x: x + 273.15),
         (si.deg_C, deg_F, lambda x: x * 1.8 + 32.0, lambda x: (x - 32.0) / 1.8),
         (si.K, deg_F, lambda x: (x - 273.15) * 1.8 + 32.0,
-         lambda x: ((x - 32.0) / 1.8) + 273.15)], "temperature")
+         lambda x: ((x - 32.0) / 1.8) + 273.15),
+        (deg_R, deg_F, lambda x: x - 459.67, lambda x: x + 459.67),
+        (deg_R, si.deg_C, lambda x: (x - 491.67) * (5/9), lambda x: x * 1.8 + 491.67),
+        (deg_R, si.K, lambda x: x * (5/9), lambda x: x * 1.8)], "temperature")
 
 
 def temperature_energy():
@@ -738,24 +746,29 @@ def assert_is_spectral_unit(value):
 
 def pixel_scale(pixscale):
     """
-    Convert between pixel distances (in units of ``pix``) and angular units,
+    Convert between pixel distances (in units of ``pix``) and other units,
     given a particular ``pixscale``.
 
     Parameters
     ----------
     pixscale : `~astropy.units.Quantity`
-        The pixel scale either in units of angle/pixel or pixel/angle.
+        The pixel scale either in units of <unit>/pixel or pixel/<unit>.
     """
-    if pixscale.unit.is_equivalent(si.arcsec/astrophys.pix):
-        pixscale_val = pixscale.to_value(si.radian/astrophys.pix)
-    elif pixscale.unit.is_equivalent(astrophys.pix/si.arcsec):
-        pixscale_val = (1/pixscale).to_value(si.radian/astrophys.pix)
-    else:
-        raise UnitsError("The pixel scale must be in angle/pixel or "
-                         "pixel/angle")
 
-    return Equivalency([(astrophys.pix, si.radian,
-                         lambda px: px*pixscale_val, lambda rad: rad/pixscale_val)],
+    decomposed = pixscale.unit.decompose()
+    dimensions = dict(zip(decomposed.bases, decomposed.powers))
+    pix_power = dimensions.get(misc.pix, 0)
+
+    if pix_power == -1:
+        physical_unit = Unit(pixscale * misc.pix)
+    elif pix_power == 1:
+        physical_unit = Unit(misc.pix / pixscale)
+    else:
+        raise UnitsError(
+                "The pixel scale unit must have"
+                " pixel dimensionality of 1 or -1.")
+
+    return Equivalency([(misc.pix, physical_unit)],
                        "pixel_scale", {'pixscale': pixscale})
 
 
@@ -787,7 +800,7 @@ def with_H0(H0=None):
 
     Parameters
     ----------
-    H0 : `None` or `~astropy.units.Quantity`
+    H0 : None or `~astropy.units.Quantity` ['frequency']
         The value of the Hubble constant to assume. If a `~astropy.units.Quantity`,
         will assume the quantity *is* ``H0``.  If `None` (default), use the
         ``H0`` attribute from the default `astropy.cosmology` cosmology.

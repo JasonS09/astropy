@@ -1,13 +1,15 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
-
+# pylint: disable=invalid-name
 import operator
 
 import numpy as np
+import pytest
 
-from astropy.tests.helper import catch_warnings
 from astropy.utils.exceptions import AstropyDeprecationWarning
 from astropy.modeling.utils import ExpressionTree as ET, ellipse_extent
 from astropy.modeling.models import Ellipse2D
+
+from astropy.modeling.utils import _SpecialOperatorsDict
 
 
 def test_traverse_postorder_duplicate_subtrees():
@@ -16,15 +18,13 @@ def test_traverse_postorder_duplicate_subtrees():
     where given an expression like ``(1 + 2) + (1 + 2)`` where the two proper
     subtrees are actually the same object.
     """
-    with catch_warnings(AstropyDeprecationWarning):
+    with pytest.warns(AstropyDeprecationWarning):
         subtree = ET('+', ET(1), ET(2))
         tree = ET('+', subtree, subtree)
     traversal = [n.value for n in tree.traverse_postorder()]
     assert traversal == [1, 2, '+', 1, 2, '+', '+']
 
 
-# TODO: It might prove useful to implement a simple expression parser to build
-# trees; this would be easy and might find use elsewhere
 def test_tree_evaluate_subexpression():
     """Test evaluating a subexpression from an expression tree."""
 
@@ -32,7 +32,7 @@ def test_tree_evaluate_subexpression():
                  '/': operator.truediv, '**': operator.pow}
     # The full expression represented by this tree is:
     # 1.0 + 2 - 3 * 4 / 5 ** 6 (= 2.999232 if you must know)
-    with catch_warnings(AstropyDeprecationWarning):
+    with pytest.warns(AstropyDeprecationWarning):
         tree = ET('+', ET(1.0), ET('-', ET(2.0),
                                    ET('*', ET(3.0), ET('/', ET(4.0),
                                                        ET('**', ET(5.0), ET(6.0))))))
@@ -103,3 +103,64 @@ def test_ellipse_extent():
         s = actual.sum(axis=i)
         diff = np.abs(limits[2 * i] - np.where(s > 0)[0][0])
         assert diff < 1
+
+
+def test__SpecialOperatorsDict__set_value():
+    key = 'test'
+    val = 'value'
+
+    special_operators = _SpecialOperatorsDict()
+    assert key not in special_operators
+
+    special_operators._set_value(key, val)
+    assert key in special_operators
+    assert special_operators[key] == val
+
+    with pytest.raises(ValueError, match='Special operator "test" already exists'):
+        special_operators._set_value(key, val)
+
+
+def test__SpecialOperatorsDict___setitem__():
+    key = 'test'
+    val = 'value'
+
+    special_operators = _SpecialOperatorsDict()
+    assert key not in special_operators
+
+    with pytest.deprecated_call():
+        special_operators[key] = val
+    assert key in special_operators
+    assert special_operators[key] == val
+
+
+def test__SpecialOperatorsDict__get_unique_id():
+    special_operators = _SpecialOperatorsDict()
+    assert special_operators._unique_id == 0
+
+    assert special_operators._get_unique_id() == 1
+    assert special_operators._unique_id == 1
+
+    assert special_operators._get_unique_id() == 2
+    assert special_operators._unique_id == 2
+
+    assert special_operators._get_unique_id() == 3
+    assert special_operators._unique_id == 3
+
+
+def test__SpecialOperatorsDict_add():
+    special_operators = _SpecialOperatorsDict()
+
+    operator_name = 'test'
+    operator = 'operator'
+
+    key0 = special_operators.add(operator_name, operator)
+    assert key0 == (operator_name, special_operators._unique_id)
+    assert key0 in special_operators
+    assert special_operators[key0] == operator
+
+    key1 = special_operators.add(operator_name, operator)
+    assert key1 == (operator_name, special_operators._unique_id)
+    assert key1 in special_operators
+    assert special_operators[key1] == operator
+
+    assert key0 != key1

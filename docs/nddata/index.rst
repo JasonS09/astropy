@@ -55,7 +55,7 @@ additional ``meta`` attributes:
     >>> ndd = NDData(data, mask=mask, unit=unit, uncertainty=uncertainty,
     ...              meta=meta)
     >>> ndd
-    NDData([1, 2, 3, 4])
+    NDData([1, 2, 3, 4], unit='erg / s')
 
 The representation only displays the ``data``; the other attributes need to be
 accessed directly, for example, ``ndd.mask`` to access the mask.
@@ -76,14 +76,14 @@ Instances are created in the same way::
     >>> from astropy.nddata import NDDataRef
     >>> ndd = NDDataRef(ndd)
     >>> ndd
-    NDDataRef([1, 2, 3, 4])
+    NDDataRef([1, 2, 3, 4], unit='erg / s')
 
 But also support arithmetic (:ref:`nddata_arithmetic`) like addition::
 
     >>> import astropy.units as u
     >>> ndd2 = ndd.add([4, -3.5, 3, 2.5] * u.erg / u.s)
     >>> ndd2
-    NDDataRef([ 5. , -1.5,  6. ,  6.5])
+    NDDataRef([ 5. , -1.5,  6. ,  6.5], unit='erg / s')
 
 Because these operations have a wide range of options, these are not available
 using arithmetic operators like ``+``.
@@ -92,9 +92,9 @@ Slicing or indexing (:ref:`nddata_slicing`) is possible (with warnings issued if
 some attribute cannot be sliced)::
 
     >>> ndd2[2:]  # discard the first two elements  # doctest: +FLOAT_CMP
-    NDDataRef([6. , 6.5])
+    NDDataRef([6. , 6.5], unit='erg / s')
     >>> ndd2[1]   # get the second element  # doctest: +FLOAT_CMP
-    NDDataRef(-1.5)
+    NDDataRef(-1.5, unit='erg / s')
 
 
 Working with Two-Dimensional Data Like Images
@@ -106,7 +106,7 @@ images. To get started, we will construct a two-dimensional image with a few
 sources, some Gaussian noise, and a "cosmic ray" which we will later mask out.
 
 Examples
---------
+^^^^^^^^
 
 ..
   EXAMPLE START
@@ -205,7 +205,7 @@ propagation of uncertainties. Three uncertainty types are supported: variance
 (`~astropy.nddata.InverseVariance`).
 
 Examples
---------
+^^^^^^^^
 
 ..
   EXAMPLE START
@@ -270,7 +270,7 @@ Though slicing directly is one way to extract a subframe,
 data.
 
 Examples
-^^^^^^^^
+~~~~~~~~
 
 ..
   EXAMPLE START
@@ -367,7 +367,7 @@ The functions `~astropy.nddata.block_reduce` and
 `~astropy.nddata.block_replicate` resize images.
 
 Example
-^^^^^^^
+~~~~~~~
 
 ..
   EXAMPLE START
@@ -505,4 +505,4 @@ Reference/API
 .. automodapi:: astropy.nddata.utils
     :no-inheritance-diagram:
 
-.. _APE 7: https://github.com/astropy/astropy-APEs/blob/master/APE7.rst
+.. _APE 7: https://github.com/astropy/astropy-APEs/blob/main/APE7.rst

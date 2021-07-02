@@ -16,23 +16,19 @@ Examples
 ...                fill_value=None, method='nearest')
 
 """
-
+# pylint: disable=invalid-name
 import abc
 
 import numpy as np
 
-from .core import Model
 from astropy import units as u
-from astropy.utils import minversion
+from .core import Model
 
 try:
-    import scipy
     from scipy.interpolate import interpn
     has_scipy = True
 except ImportError:
     has_scipy = False
-
-has_scipy = has_scipy and minversion(scipy, "0.14")
 
 __all__ = ['tabular_model', 'Tabular1D', 'Tabular2D']
 
@@ -45,10 +41,12 @@ class _Tabular(Model):
 
     Parameters
     ----------
-    points : tuple of ndarray of float, with shapes (m1, ), ..., (mn, ), optional
+    points : tuple of ndarray of float, optional
         The points defining the regular grid in n dimensions.
-    lookup_table : array-like, shape (m1, ..., mn, ...)
+        ndarray must have shapes (m1, ), ..., (mn, ),
+    lookup_table : array-like
         The data on a regular grid in n dimensions.
+        Must have shapes (m1, ..., mn, ...)
     method : str, optional
         The method of interpolation to perform. Supported are "linear" and
         "nearest", and "splinef2d". "splinef2d" is only supported for
@@ -169,15 +167,13 @@ class _Tabular(Model):
         pts = self.points[0]
         if not isinstance(pts, u.Quantity):
             return None
-        else:
-            return dict([(x, pts.unit) for x in self.inputs])
+        return dict([(x, pts.unit) for x in self.inputs])
 
     @property
     def return_units(self):
         if not isinstance(self.lookup_table, u.Quantity):
             return None
-        else:
-            return {'y': self.lookup_table.unit}
+        return {self.outputs[0]: self.lookup_table.unit}
 
     @property
     def bounding_box(self):
@@ -208,17 +204,19 @@ class _Tabular(Model):
 
         Parameters
         ----------
-        inputs : list of scalars or ndarrays
+        inputs : list of scalar or list of ndarray
             Input coordinates. The number of inputs must be equal
             to the dimensions of the lookup table.
         """
+        inputs = np.broadcast_arrays(*inputs)
+
         if isinstance(inputs, u.Quantity):
             inputs = inputs.value
         shape = inputs[0].shape
         inputs = [inp.flatten() for inp in inputs[: self.n_inputs]]
         inputs = np.array(inputs).T
         if not has_scipy:  # pragma: no cover
-            raise ImportError("This model requires scipy >= v0.14")
+            raise ImportError("Tabular model requires scipy.")
         result = interpn(self.points, self.lookup_table, inputs,
                          method=self.method, bounds_error=self.bounds_error,
                          fill_value=self.fill_value)
@@ -251,10 +249,10 @@ class _Tabular(Model):
             else:
                 # equal-valued or double-valued lookup_table
                 raise NotImplementedError
-            return Tabular1D(points=points, lookup_table=lookup_table)
-        else:
-            raise NotImplementedError("An analytical inverse transform "
-                "has not been implemented for this model.")
+            return Tabular1D(points=points, lookup_table=lookup_table, method=self.method,
+                             bounds_error=self.bounds_error, fill_value=self.fill_value)
+        raise NotImplementedError("An analytical inverse transform "
+                                  "has not been implemented for this model.")
 
 
 def tabular_model(dim, name=None):
@@ -280,7 +278,7 @@ def tabular_model(dim, name=None):
 
     >>> tab = tabular_model(2, name='Tabular2D')
     >>> print(tab)
-    <class 'abc.Tabular2D'>
+    <class 'astropy.modeling.tabular.Tabular2D'>
     Name: Tabular2D
     N_inputs: 2
     N_outputs: 1
@@ -312,7 +310,9 @@ def tabular_model(dim, name=None):
         _Tabular._id += 1
         name = f'Tabular{model_id}'
 
-    return type(str(name), (_Tabular,), members)
+    model_class = type(str(name), (_Tabular,), members)
+    model_class.__module__ = 'astropy.modeling.tabular'
+    return model_class
 
 
 Tabular1D = tabular_model(1, name='Tabular1D')
@@ -367,9 +367,11 @@ Tabular2D.__doc__ = """
 
     Parameters
     ----------
-    points : tuple of ndarray of float, with shapes (m1, m2), optional
+    points : tuple of ndarray of float, optional
         The points defining the regular grid in n dimensions.
-    lookup_table : array-like, shape (m1, m2)
+        ndarray with shapes (m1, m2).
+    lookup_table : array-like
         The data on a regular grid in 2 dimensions.
+        Shape (m1, m2).
 
 """ + _tab_docs

@@ -22,7 +22,7 @@ def get_grouped_by_powers(bases, powers):
     ----------
     bases : list of `astropy.units.UnitBase` instances
 
-    powers : list of ints
+    powers : list of int
 
     Returns
     -------
@@ -109,6 +109,9 @@ def decompose_to_known_units(unit, func):
                 return decompose_to_known_units(unit._represents, func)
             raise
         return unit
+    else:
+        raise TypeError("unit argument must be a 'NamedUnit' or 'CompositeUnit', "
+                        f"not {type(unit)}")
 
 
 def format_power(power):
@@ -208,8 +211,7 @@ def unit_deprecation_warning(s, unit, standard_name, format_decomposed):
     """
     from astropy.units.core import UnitsWarning
 
-    message = "The unit '{}' has been deprecated in the {} standard.".format(
-        s, standard_name)
+    message = f"The unit '{s}' has been deprecated in the {standard_name} standard."
     decomposed = _try_decomposed(unit, format_decomposed)
     if decomposed is not None:
         message += f" Suggested: {decomposed}."

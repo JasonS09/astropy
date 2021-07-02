@@ -15,11 +15,12 @@ def extirpolate(x, y, N=None, M=4):
     """
     Extirpolate the values (x, y) onto an integer grid range(N),
     using lagrange polynomial weights on the M nearest points.
+
     Parameters
     ----------
-    x : array_like
+    x : array-like
         array of abscissas
-    y : array_like
+    y : array-like
         array of ordinates
     N : int
         number of integer bins to use. For best performance, N should be larger
@@ -34,8 +35,8 @@ def extirpolate(x, y, N=None, M=4):
 
     Example
     -------
-    >>> rng = np.random.RandomState(0)
-    >>> x = 100 * rng.rand(20)
+    >>> rng = np.random.default_rng(0)
+    >>> x = 100 * rng.random(20)
     >>> y = np.sin(x)
     >>> y_hat = extirpolate(x, y)
     >>> x_hat = np.arange(len(y_hat))
@@ -80,26 +81,28 @@ def extirpolate(x, y, N=None, M=4):
 def trig_sum(t, h, df, N, f0=0, freq_factor=1,
              oversampling=5, use_fft=True, Mfft=4):
     """Compute (approximate) trigonometric sums for a number of frequencies
-    This routine computes weighted sine and cosine sums:
+    This routine computes weighted sine and cosine sums::
+
         S_j = sum_i { h_i * sin(2 pi * f_j * t_i) }
         C_j = sum_i { h_i * cos(2 pi * f_j * t_i) }
+
     Where f_j = freq_factor * (f0 + j * df) for the values j in 1 ... N.
     The sums can be computed either by a brute force O[N^2] method, or
     by an FFT-based O[Nlog(N)] method.
 
     Parameters
     ----------
-    t : array_like
+    t : array-like
         array of input times
-    h : array_like
+    h : array-like
         array weights for the sum
     df : float
         frequency spacing
     N : int
         number of frequency bins to return
-    f0 : float (optional, default=0)
+    f0 : float, optional
         The low frequency to use
-    freq_factor : float (optional, default=1)
+    freq_factor : float, optional
         Factor which multiplies the frequency
     use_fft : bool
         if True, use the approximate FFT algorithm to compute the result.
@@ -115,7 +118,7 @@ def trig_sum(t, h, df, N, f0=0, freq_factor=1,
 
     Returns
     -------
-    S, C : ndarrays
+    S, C : ndarray
         summation arrays for frequencies f = df * np.arange(1, N + 1)
     """
     df *= freq_factor

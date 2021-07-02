@@ -214,8 +214,9 @@ class TestArithmetic():
             in_rep + (in_rep / u.s)
         r2 = in_rep - in_rep
         assert isinstance(r2, representation)
-        assert np.all(representation_equal(
-            r2.to_cartesian(), CartesianRepresentation(0.*u.m, 0.*u.m, 0.*u.m)))
+        assert_representation_allclose(
+            r2.to_cartesian(), CartesianRepresentation(0.*u.m, 0.*u.m, 0.*u.m),
+            atol=1e-15*u.kpc)
         r3 = in_rep - in_rep / 2.
         assert isinstance(r3, representation)
         expected = in_rep / 2.
@@ -701,8 +702,6 @@ class TestSphericalDifferential():
             self.SD_cls.from_cartesian(c)
         with pytest.raises(TypeError):
             self.SD_cls.from_cartesian(c, SphericalRepresentation)
-        with pytest.raises(TypeError):
-            self.SD_cls.from_cartesian(c, c)
 
 
 @pytest.mark.parametrize('omit_coslat', [False, True], scope='class')

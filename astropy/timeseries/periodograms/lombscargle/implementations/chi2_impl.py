@@ -13,27 +13,27 @@ def lombscargle_chi2(t, y, dy, frequency, normalization='standard',
 
     Parameters
     ----------
-    t, y, dy : array_like (NOT astropy.Quantities)
+    t, y, dy : array-like
         times, values, and errors of the data points. These should be
-        broadcastable to the same shape.
-    frequency : array_like
+        broadcastable to the same shape. None should be `~astropy.units.Quantity``.
+    frequency : array-like
         frequencies (not angular frequencies) at which to calculate periodogram
-    normalization : string (optional, default='standard')
+    normalization : str, optional
         Normalization to use for the periodogram.
         Options are 'standard', 'model', 'log', or 'psd'.
-    fit_mean : bool (optional, default=True)
+    fit_mean : bool, optional
         if True, include a constant offset as part of the model at each
         frequency. This can lead to more accurate results, especially in the
         case of incomplete phase coverage.
-    center_data : bool (optional, default=True)
+    center_data : bool, optional
         if True, pre-center the data by subtracting the weighted mean
         of the input data. This is especially important if ``fit_mean = False``
-    nterms : int (optional, default=1)
+    nterms : int, optional
         Number of Fourier terms in the fit
 
     Returns
     -------
-    power : array_like
+    power : array-like
         Lomb-Scargle power associated with each frequency.
         Units of the result depend on the normalization.
 
@@ -82,6 +82,5 @@ def lombscargle_chi2(t, y, dy, frequency, normalization='standard',
     elif normalization == 'standard':
         p /= chi2_ref
     else:
-        raise ValueError("normalization='{}' "
-                         "not recognized".format(normalization))
+        raise ValueError(f"normalization='{normalization}' not recognized")
     return p

@@ -40,23 +40,27 @@ Example uses of fitscheck:
 """
 
 
-import argparse
-import logging
 import sys
+import logging
+import argparse
+import warnings
 
-from astropy.tests.helper import catch_warnings
 from astropy.io import fits
-
+from astropy import __version__
 
 log = logging.getLogger('fitscheck')
 
-_DESCRIPTION = """
+DESCRIPTION = """
 e.g. fitscheck example.fits
 
 Verifies and optionally re-writes the CHECKSUM and DATASUM keywords
 for a .fits file.
 Optionally detects and fixes FITS standard compliance problems.
-"""
+
+This script is part of the Astropy package. See
+https://docs.astropy.org/en/latest/io/fits/usage/scripts.html#module-astropy.io.fits.scripts.fitscheck
+for further documentation.
+""".strip()
 
 
 def handle_options(args):
@@ -64,8 +68,12 @@ def handle_options(args):
         args = ['-h']
 
     parser = argparse.ArgumentParser(
-        description=_DESCRIPTION,
+        description=DESCRIPTION,
         formatter_class=argparse.RawDescriptionHelpFormatter)
+
+    parser.add_argument(
+        '--version', action='version',
+        version=f'%(prog)s {__version__}')
 
     parser.add_argument(
         'fits_files', metavar='file', nargs='+',
@@ -106,6 +114,8 @@ def handle_options(args):
 
     if OPTIONS.checksum_kind == 'none':
         OPTIONS.checksum_kind = False
+    elif OPTIONS.checksum_kind == 'standard':
+        OPTIONS.checksum_kind = True
     elif OPTIONS.checksum_kind == 'remove':
         OPTIONS.write_file = True
         OPTIONS.force = True
@@ -114,6 +124,8 @@ def handle_options(args):
 
 
 def setup_logging():
+    log.handlers.clear()
+
     if OPTIONS.verbose:
         log.setLevel(logging.INFO)
     else:
@@ -128,8 +140,8 @@ def verify_checksums(filename):
     """
     Prints a message if any HDU in `filename` has a bad checksum or datasum.
     """
-
-    with catch_warnings() as wlist:
+    with warnings.catch_warnings(record=True) as wlist:
+        warnings.simplefilter('always')
         with fits.open(filename, checksum=OPTIONS.checksum_kind) as hdulist:
             for i, hdu in enumerate(hdulist):
                 # looping on HDUs is needed to read them and verify the
@@ -175,9 +187,17 @@ def update(filename):
     """
 
     output_verify = 'silentfix' if OPTIONS.compliance else 'ignore'
-    with fits.open(filename, do_not_scale_image_data=True,
-                   checksum=OPTIONS.checksum_kind, mode='update') as hdulist:
-        hdulist.flush(output_verify=output_verify)
+
+    # For unit tests we reset temporarily the warning filters. Indeed, before
+    # updating the checksums, fits.open will verify the existing checksums and
+    # raise warnings, which are later catched and converted to log.warning...
+    # which is an issue when testing, using the "error" action to convert
+    # warnings to exceptions.
+    with warnings.catch_warnings():
+        warnings.resetwarnings()
+        with fits.open(filename, do_not_scale_image_data=True,
+                       checksum=OPTIONS.checksum_kind, mode='update') as hdulist:
+            hdulist.flush(output_verify=output_verify)
 
 
 def process_file(filename):

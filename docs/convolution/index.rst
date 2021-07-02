@@ -153,7 +153,14 @@ algorithm, while :func:`~astropy.convolution.convolve_fft` uses a Fast Fourier
 Transform (FFT). Thus, the former is better for small kernels, while the latter
 is much more efficient for larger kernels.
 
-For example, to convolve a 1D dataset with a user-specified kernel, you can do::
+Example
+-------
+
+..
+  EXAMPLE START
+  Convolution for User-Specified Kernels
+
+To convolve a 1D dataset with a user-specified kernel, you can do::
 
     >>> from astropy.convolution import convolve
     >>> convolve([1, 4, 5, 6, 5, 7, 8], [0.2, 0.6, 0.2])  # doctest: +FLOAT_CMP
@@ -175,8 +182,18 @@ The values at the end are computed assuming that any value below the first
 point is ``1``, and any value above the last point is ``8``. For a more
 detailed discussion of boundary treatment, see :doc:`using`.
 
-This module also includes built-in kernels that can be imported as, for
-example::
+..
+  EXAMPLE END
+
+Example
+-------
+
+..
+  EXAMPLE START
+  Convolution for Built-In Kernels
+
+The convolution module also includes built-in kernels that can be imported as,
+for example::
 
     >>> from astropy.convolution import Gaussian1DKernel
 
@@ -225,6 +242,8 @@ The kernel can then be used directly when calling
     plt.legend(loc='best')
     plt.show()
 
+..
+  EXAMPLE END
 
 Using ``astropy``'s Convolution to Replace Bad Data
 ---------------------------------------------------
@@ -259,6 +278,13 @@ Some contexts in which you might want to use kernel-based interpolation include:
     cover potential contiguous regions of NaN values.
     An ``AstropyUserWarning`` is raised if NaN values are detected post-
     convolution, in which case the kernel size should be increased.
+
+Example
+^^^^^^^
+
+..
+  EXAMPLE START
+  Kernel Interpolation to Fill in Flagged-Out Pixels
 
 The script below shows an example of kernel interpolation to fill in
 flagged-out pixels:
@@ -314,6 +340,16 @@ flagged-out pixels:
    ax2.set_title("Fixed")
    ax2.set_xticklabels([])
    ax2.set_yticklabels([])
+
+..
+  EXAMPLE END
+
+Example
+^^^^^^^
+
+..
+  EXAMPLE START
+  Kernel Interpolation to Reconstruct Images from Sparse Sampling.
 
 This script shows the power of this technique for reconstructing images from
 sparse sampling. Note that the image is not perfect: the pointlike sources
@@ -379,31 +415,8 @@ eye.
    ax2.set_xticklabels([])
    ax2.set_yticklabels([])
 
-
-.. _astropy_convolve_compat:
-
-A Note on Backward Compatibility (pre v2.0)
--------------------------------------------
-
-The behavior of ``astropy``'s direct convolution
-(:func:`~astropy.convolution.convolve`) changed in version 2.0. Generally, the
-old version is undesirable. However, to recover the behavior of the old
-(``astropy`` version <2.0) direct convolution function, you can interpolate and
-then convolve, for example:
-
-.. code-block:: python
-
-    from astropy.convolution import interpolate_replace_nans, convolve
-    interped_result = interpolate_replace_nans(image, kernel)
-    result = convolve(interped_image, kernel)
-
-Note that the default behavior of both `~astropy.convolution.convolve` and
-`~astropy.convolution.convolve_fft` is to perform *normalized convolution* and
-interpolate NaNs during that process. The example given in this note, and what
-was previously done only in direct convolution in old versions of ``astropy``
-now does a two-step process: first, it replaces the NaNs with their
-interpolated values while leaving all non-NaN values unchanged, then it
-convolves the resulting image with the specified kernel.
+..
+  EXAMPLE END
 
 Using `astropy.convolution`
 ===========================

@@ -2,18 +2,13 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-try:
-    import scipy
-except ImportError:
-    HAS_SCIPY = False
-else:
-    HAS_SCIPY = True
-
 import astropy.units as u
 from astropy.timeseries.periodograms.lombscargle import LombScargle
 from astropy.timeseries.periodograms.lombscargle._statistics import (fap_single, inv_fap_single,
                                                                      METHODS)
-from astropy.timeseries.periodograms.lombscargle.utils import convert_normalization, compute_chi2_ref
+from astropy.timeseries.periodograms.lombscargle.utils import convert_normalization, compute_chi2_ref  # noqa: E501
+
+from astropy.utils.compat.optional_deps import HAS_SCIPY
 
 METHOD_KWDS = dict(bootstrap={'n_bootstraps': 20, 'random_seed': 42})
 NORMALIZATIONS = ['standard', 'psd', 'log', 'model']
@@ -21,12 +16,12 @@ NORMALIZATIONS = ['standard', 'psd', 'log', 'model']
 
 def make_data(N=100, period=1, theta=[10, 2, 3], dy=1, rseed=0, units=False):
     """Generate some data for testing"""
-    rng = np.random.RandomState(rseed)
-    t = 5 * period * rng.rand(N)
+    rng = np.random.default_rng(rseed)
+    t = 5 * period * rng.random(N)
     omega = 2 * np.pi / period
     y = theta[0] + theta[1] * np.sin(omega * t) + theta[2] * np.cos(omega * t)
-    dy = dy * (0.5 + rng.rand(N))
-    y += dy * rng.randn(N)
+    dy = dy * (0.5 + rng.random(N))
+    y += dy * rng.standard_normal(N)
 
     fmax = 5
 
@@ -38,10 +33,10 @@ def make_data(N=100, period=1, theta=[10, 2, 3], dy=1, rseed=0, units=False):
 
 def null_data(N=1000, dy=1, rseed=0, units=False):
     """Generate null hypothesis data"""
-    rng = np.random.RandomState(rseed)
-    t = 100 * rng.rand(N)
-    dy = 0.5 * dy * (1 + rng.rand(N))
-    y = dy * rng.randn(N)
+    rng = np.random.default_rng(rseed)
+    t = 100 * rng.random(N)
+    dy = 0.5 * dy * (1 + rng.random(N))
+    y = dy * rng.standard_normal(N)
     fmax = 40
 
     if units:
@@ -149,7 +144,7 @@ def test_false_alarm_smoketest(method, normalization, units):
         pytest.skip("SciPy required")
 
     kwds = METHOD_KWDS.get(method, None)
-    t, y, dy, fmax = make_data(units=units)
+    t, y, dy, fmax = make_data(rseed=42, units=units)
 
     ls = LombScargle(t, y, dy, normalization=normalization)
     freq, power = ls.autopower(maximum_frequency=fmax)

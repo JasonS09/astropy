@@ -34,8 +34,8 @@ function.
 
 References
 ----------
-.. [1] http://adsabs.harvard.edu/abs/2012arXiv1207.5578S
-.. [2] http://astroml.org/ https://github.com//astroML/astroML/
+.. [1] https://ui.adsabs.harvard.edu/abs/2013ApJ...764..167S
+.. [2] https://www.astroml.org/ https://github.com//astroML/astroML/
 """
 import warnings
 
@@ -59,11 +59,11 @@ def bayesian_blocks(t, x=None, sigma=None,
 
     Parameters
     ----------
-    t : array_like
+    t : array-like
         data times (one dimensional, length N)
-    x : array_like (optional)
+    x : array-like, optional
         data values
-    sigma : array_like or float (optional)
+    sigma : array-like or float, optional
         data errors
     fitness : str or object
         the fitness function to use for the model.
@@ -137,7 +137,7 @@ def bayesian_blocks(t, x=None, sigma=None,
     References
     ----------
     .. [1] Scargle, J et al. (2012)
-       http://adsabs.harvard.edu/abs/2012arXiv1207.5578S
+       https://ui.adsabs.harvard.edu/abs/2013ApJ...764..167S
 
     See Also
     --------
@@ -192,7 +192,7 @@ class FitnessFunc:
     References
     ----------
     .. [1] Scargle, J et al. (2012)
-       http://adsabs.harvard.edu/abs/2012arXiv1207.5578S
+       https://ui.adsabs.harvard.edu/abs/2013ApJ...764..167S
     """
     def __init__(self, p0=0.05, gamma=None, ncp_prior=None):
         self.p0 = p0
@@ -204,16 +204,16 @@ class FitnessFunc:
 
         Parameters
         ----------
-        t : array_like
+        t : array-like
             times of observations
-        x : array_like (optional)
+        x : array-like, optional
             values observed at each time
-        sigma : float or array_like (optional)
+        sigma : float or array-like, optional
             errors in values x
 
         Returns
         -------
-        t, x, sigma : array_like, float or None
+        t, x, sigma : array-like, float or None
             validated and perhaps modified versions of inputs
         """
         # validate array input
@@ -304,11 +304,11 @@ class FitnessFunc:
 
         Parameters
         ----------
-        t : array_like
+        t : array-like
             data times (one dimensional, length N)
-        x : array_like (optional)
+        x : array-like, optional
             data values
-        sigma : array_like or float (optional)
+        sigma : array-like or float, optional
             data errors
 
         Returns
@@ -404,7 +404,7 @@ class Events(FitnessFunc):
 
     Parameters
     ----------
-    p0 : float (optional)
+    p0 : float, optional
         False alarm probability, used to compute the prior on
         :math:`N_{\rm blocks}` (see eq. 21 of Scargle 2012). For the Events
         type data, ``p0`` does not seem to be an accurate representation of the
@@ -413,11 +413,11 @@ class Events(FitnessFunc):
         statistical trials on signal-free noise to determine an appropriate
         value of ``gamma`` or ``ncp_prior`` to use for a desired false alarm
         rate.
-    gamma : float (optional)
+    gamma : float, optional
         If specified, then use this gamma to compute the general prior form,
         :math:`p \sim {\tt gamma}^{N_{\rm blocks}}`.  If gamma is specified, p0
         is ignored.
-    ncp_prior : float (optional)
+    ncp_prior : float, optional
         If specified, use the value of ``ncp_prior`` to compute the prior as
         above, using the definition :math:`{\tt ncp\_prior} = -\ln({\tt
         gamma})`.
@@ -426,7 +426,7 @@ class Events(FitnessFunc):
 
     def fitness(self, N_k, T_k):
         # eq. 19 from Scargle 2012
-        return N_k * (np.log(N_k) - np.log(T_k))
+        return N_k * (np.log(N_k / T_k))
 
     def validate_input(self, t, x, sigma):
         t, x, sigma = super().validate_input(t, x, sigma)
@@ -446,11 +446,11 @@ class RegularEvents(FitnessFunc):
     ----------
     dt : float
         tick rate for data
-    p0 : float (optional)
+    p0 : float, optional
         False alarm probability, used to compute the prior on :math:`N_{\rm
         blocks}` (see eq. 21 of Scargle 2012). If gamma is specified, p0 is
         ignored.
-    ncp_prior : float (optional)
+    ncp_prior : float, optional
         If specified, use the value of ``ncp_prior`` to compute the prior as
         above, using the definition :math:`{\tt ncp\_prior} = -\ln({\tt
         gamma})`.  If ``ncp_prior`` is specified, ``gamma`` and ``p0`` are
@@ -488,11 +488,11 @@ class PointMeasures(FitnessFunc):
 
     Parameters
     ----------
-    p0 : float (optional)
+    p0 : float, optional
         False alarm probability, used to compute the prior on :math:`N_{\rm
         blocks}` (see eq. 21 of Scargle 2012). If gamma is specified, p0 is
         ignored.
-    ncp_prior : float (optional)
+    ncp_prior : float, optional
         If specified, use the value of ``ncp_prior`` to compute the prior as
         above, using the definition :math:`{\tt ncp\_prior} = -\ln({\tt
         gamma})`.  If ``ncp_prior`` is specified, ``gamma`` and ``p0`` are

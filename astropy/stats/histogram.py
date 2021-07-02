@@ -3,7 +3,7 @@
 """
 Methods for selecting the bin width of histograms
 
-Ported from the astroML project: http://astroml.org/
+Ported from the astroML project: https://www.astroml.org/
 """
 
 import numpy as np
@@ -15,26 +15,26 @@ __all__ = ['histogram', 'scott_bin_width', 'freedman_bin_width',
 
 def calculate_bin_edges(a, bins=10, range=None, weights=None):
     """
-    Calculate histogram bin edges like `numpy.histogram_bin_edges`.
+    Calculate histogram bin edges like ``numpy.histogram_bin_edges``.
 
     Parameters
     ----------
 
-    a : array_like
+    a : array-like
         Input data. The bin edges are calculated over the flattened array.
 
-    bins : int or list or str (optional)
+    bins : int, list, or str, optional
         If ``bins`` is an int, it is the number of bins. If it is a list
         it is taken to be the bin edges. If it is a string, it must be one
         of  'blocks', 'knuth', 'scott' or 'freedman'. See
         `~astropy.stats.histogram` for a description of each method.
 
-    range : tuple or None (optional)
+    range : tuple or None, optional
         The minimum and maximum range for the histogram.  If not specified,
         it will be (a.min(), a.max()). However, if bins is a list it is
         returned unmodified regardless of the range argument.
 
-    weights : array_like, optional
+    weights : array-like, optional
         An array the same shape as ``a``. If given, the histogram accumulates
         the value of the weight corresponding to ``a`` instead of returning the
         count of values. This argument does not affect determination of bin
@@ -93,10 +93,10 @@ def histogram(a, bins=10, range=None, weights=None, **kwargs):
 
     Parameters
     ----------
-    a : array_like
+    a : array-like
         array of data to be histogrammed
 
-    bins : int or list or str (optional)
+    bins : int, list, or str, optional
         If bins is a string, then it must be one of:
 
         - 'blocks' : use bayesian blocks for dynamic bin widths
@@ -107,11 +107,11 @@ def histogram(a, bins=10, range=None, weights=None, **kwargs):
 
         - 'freedman' : use the Freedman-Diaconis rule to determine bins
 
-    range : tuple or None (optional)
+    range : tuple or None, optional
         the minimum and maximum range for the histogram.  If not specified,
         it will be (x.min(), x.max())
 
-    weights : array_like, optional
+    weights : array-like, optional
         An array the same shape as ``a``. If given, the histogram accumulates
         the value of the weight corresponding to ``a`` instead of returning the
         count of values. This argument does not affect determination of bin
@@ -148,7 +148,7 @@ def scott_bin_width(data, return_bins=False):
     ----------
     data : array-like, ndim=1
         observed (one-dimensional) data
-    return_bins : bool (optional)
+    return_bins : bool, optional
         if True, then return the bin edges
 
     Returns
@@ -209,7 +209,7 @@ def freedman_bin_width(data, return_bins=False):
     ----------
     data : array-like, ndim=1
         observed (one-dimensional) data
-    return_bins : bool (optional)
+    return_bins : bool, optional
         if True, then return the bin edges
 
     Returns
@@ -282,9 +282,9 @@ def knuth_bin_width(data, return_bins=False, quiet=True):
     ----------
     data : array-like, ndim=1
         observed (one-dimensional) data
-    return_bins : bool (optional)
+    return_bins : bool, optional
         if True, then return the bin edges
-    quiet : bool (optional)
+    quiet : bool, optional
         if True (default) then suppress stdout output from scipy.optimize
 
     Returns

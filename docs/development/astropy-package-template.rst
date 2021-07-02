@@ -28,41 +28,49 @@ by ``CHANGES.md`` in the instructions.
           we recommend that you read over the more complete astropy
           :doc:`releasing` and adapt them for your package.
 
-#. Make sure that Travis and any other continuous integration is passing.
+#. Make sure that continuous integration is passing.
 
 #. Update the ``CHANGES.rst`` file to make sure that all the changes are listed,
    and update the release date, which should currently be set to
    ``unreleased``, to the current date in ``yyyy-mm-dd`` format.
 
 #. Update the version number in ``setup.cfg`` to the version you're about to
-   release, without the ``.dev`` suffix (e.g. ``0.1``).
+   release, without the ``.dev`` suffix (e.g. ``0.1``). If your package uses
+   setuptools_scm to manage version numbers, you can skip this step.
 
 #. Run ``git clean -fxd`` to remove any untracked files (WARNING: this will
    permanently remove any files that have not been previously committed, so
    make sure that you don't need to keep any of these files).
 
-#. Run::
+#. At this point, the command to run to build the tar file will depend on
+   whether your package has a ``pyproject.toml`` file or not. If it does
+   not, then::
 
         python setup.py build sdist --format=gztar
 
-   and make sure that generated file is good to
-   go by going inside ``dist``, expanding the tar file, going inside the
-   expanded directory, and running the tests with::
+   If it does, then first make sure the `build <https://pypi.org/project/build/>`_
+   package is installed and up-to-date::
 
-        python setup.py test
+        pip install build --upgrade
+
+   then create the source distribution with::
+
+        python -m build --sdist .
+
+   All following instructions will assume you have ``pyproject.toml``.
+   If you do not use ``pyproject.toml`` yet, please see
+   https://docs.astropy.org/en/v4.0.x/development/astropy-package-template.html
+   instead.
+
+   In both cases, make sure that generated file is good to go by going inside
+   ``dist``, expanding the tar file, going inside the expanded directory, and
+   running the tests with::
+
+        pip install -e .[test]
+        pytest
 
    You may need to add the ``--remote-data`` flag or any other flags that you
    normally add when fully testing your package.
-
-   .. note::
-
-       Running ``python setup.py build sdist`` runs two setup commands in
-       succession.  First it runs ``build``, then immediately runs ``sdist``
-       to create the source distribution.  The reason to do this is that
-       there are several generated source files that must be included in the
-       source distribution for it to be valid.  Running ``build`` first
-       ensures that those files will be generated and packaged in the source
-       distribution.
 
 #. Go back to the root of the directory and remove the generated files with::
 
@@ -109,7 +117,7 @@ by ``CHANGES.md`` in the instructions.
 
        conda create -n myaffilpkg_rel_test astropy <any more dependencies here>
        source activate myaffilpkg_rel_test
-       python setup.py sdist
+       python -m build --sdist .
        cd dist
        pip install myaffilpkg-version.tar.gz
        python -c 'import myaffilpkg; myaffilpkg.test()'
@@ -121,7 +129,7 @@ by ``CHANGES.md`` in the instructions.
    all pass, you can proceed on.
 
 #. If you did the previous step, do ``git clean -fxd`` again to remove anything
-   you made there.  Run ``python setup.py build sdist --format=gztar`` to
+   you made there.  Run ``python -m build --sdist .`` to
    create the files for upload.  Then you can upload to PyPI via ``twine``::
 
         twine upload dist/*
@@ -130,10 +138,10 @@ by ``CHANGES.md`` in the instructions.
    instructions. Check that the entry on PyPI is correct, and that
    the tarfile is present.
 
-#. Go back to the master branch and push your changes to github::
+#. Go back to the main branch and push your changes to github::
 
-        git checkout master
-        git push --tags origin master
+        git checkout main
+        git push --tags origin main
 
    Once you have done this, if you use Read the Docs, trigger a ``latest`` build
    then go to the project settings, and under **Versions** you should see the
@@ -156,7 +164,7 @@ Modifications for a beta/release candidate release
 
    * When entering the new version number, instead of just removing the
      ``.dev``, enter "1.2b1" or "1.2rc1".  It is critical that you follow this
-     numbering scheme (``x.yb#`` or ``x.y.zrc#``), as it will ensure the release
+     numbering scheme (``X.Yb#`` or ``X.Y.Zrc#``), as it will ensure the release
      is ordered "before" the main release by various automated tools, and also
      tells PyPI that this is a "pre-release".
 

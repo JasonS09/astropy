@@ -71,7 +71,7 @@ class HTMLInputter(core.BaseInputter):
     Input lines of HTML in a valid form.
 
     This requires `BeautifulSoup
-        <http://www.crummy.com/software/BeautifulSoup/>`_ to be installed.
+    <http://www.crummy.com/software/BeautifulSoup/>`_ to be installed.
     """
 
     def process_lines(self, lines):
@@ -84,7 +84,7 @@ class HTMLInputter(core.BaseInputter):
             from bs4 import BeautifulSoup
         except ImportError:
             raise core.OptionalTableImportError('BeautifulSoup must be '
-                                        'installed to read HTML tables')
+                                                'installed to read HTML tables')
 
         if 'parser' not in self.html:
             with warnings.catch_warnings():
@@ -100,9 +100,9 @@ class HTMLInputter(core.BaseInputter):
                 break
         else:
             if isinstance(self.html['table_id'], int):
-                err_descr = 'number {}'.format(self.html['table_id'])
+                err_descr = f"number {self.html['table_id']}"
             else:
-                err_descr = "id '{}'".format(self.html['table_id'])
+                err_descr = f"id '{self.html['table_id']}'"
             raise core.InconsistentTableError(
                 f'ERROR: HTML table {err_descr} not found')
 
@@ -129,7 +129,7 @@ class HTMLSplitter(core.BaseSplitter):
             if header_elements:
                 # Return multicolumns as tuples for HTMLHeader handling
                 yield [(el.text.strip(), el['colspan']) if el.has_attr('colspan')
-                        else el.text.strip() for el in header_elements]
+                       else el.text.strip() for el in header_elements]
             data_elements = soup.find_all('td')
             if data_elements:
                 yield [el.text.strip() for el in data_elements]
@@ -147,10 +147,9 @@ class HTMLOutputter(core.TableOutputter):
     of <th>).
     """
 
-    default_converters = [core.convert_numpy(numpy.int),
-                          core.convert_numpy(numpy.float),
-                          core.convert_numpy(numpy.str),
-                          core.convert_numpy(numpy.unicode)]
+    default_converters = [core.convert_numpy(int),
+                          core.convert_numpy(float),
+                          core.convert_numpy(str)]
 
     def __call__(self, cols, meta):
         """
@@ -232,7 +231,7 @@ class HTMLData(core.BaseData):
             if soup.td is not None:
                 if soup.th is not None:
                     raise core.InconsistentTableError('HTML tables cannot '
-                                'have headings and data in the same row')
+                                                      'have headings and data in the same row')
                 return i
 
         raise core.InconsistentTableError('No start line found for HTML data')
@@ -321,6 +320,8 @@ class HTML(core.BaseReader):
     data_class = HTMLData
     inputter_class = HTMLInputter
 
+    max_ndim = 2  # HTML supports writing 2-d columns with shape (n, m)
+
     def __init__(self, htmldict={}):
         """
         Initialize classes for HTML reading and writing.
@@ -345,6 +346,9 @@ class HTML(core.BaseReader):
         """
         Return data in ``table`` converted to HTML as a list of strings.
         """
+        # Check that table has only 1-d or 2-d columns. Above that fails.
+        self._check_multidim_table(table)
+
         cols = list(table.columns.values())
 
         self.data.header.cols = cols
@@ -374,7 +378,7 @@ class HTML(core.BaseReader):
                 with w.tag('meta', attrib={'charset': 'utf-8'}):
                     pass
                 with w.tag('meta', attrib={'http-equiv': 'Content-type',
-                                    'content': 'text/html;charset=UTF-8'}):
+                                           'content': 'text/html;charset=UTF-8'}):
                     pass
                 if 'css' in self.html:
                     with w.tag('style'):
@@ -429,7 +433,8 @@ class HTML(core.BaseReader):
                                     # Split up multicolumns into separate columns
                                     new_col = Column([el[i] for el in col])
 
-                                    new_col_iter_str_vals = self.fill_values(col, new_col.info.iter_str_vals())
+                                    new_col_iter_str_vals = self.fill_values(
+                                        col, new_col.info.iter_str_vals())
                                     col_str_iters.append(new_col_iter_str_vals)
                                     new_cols_escaped.append(col_escaped)
                                     new_cols.append(new_col)

@@ -1,25 +1,15 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 
 import functools
-import numpy as np
 
+import numpy as np
+import pytest
+
+from astropy import units as u
 from astropy.utils import iers
-from astropy.tests.helper import pytest
 from astropy.time import Time
 from astropy.table import Table
-
-try:
-    import h5py  # pylint: disable=W0611  # noqa
-except ImportError:
-    HAS_H5PY = False
-else:
-    HAS_H5PY = True
-
-try:
-    import yaml  # pylint: disable=W0611  # noqa
-    HAS_YAML = True
-except ImportError:
-    HAS_YAML = False
+from astropy.utils.compat.optional_deps import HAS_H5PY
 
 allclose_sec = functools.partial(np.allclose, rtol=2. ** -52,
                                  atol=2. ** -52 * 24 * 3600)  # 20 ps atol
@@ -176,8 +166,7 @@ def test_serialize_fits_masked(tmpdir):
     assert np.all(t2['col0'].value == t['col0'].value)
 
 
-@pytest.mark.skipif(not HAS_YAML or not HAS_H5PY,
-                    reason='Need both h5py and yaml')
+@pytest.mark.skipif(not HAS_H5PY, reason='Needs h5py')
 def test_serialize_hdf5_masked(tmpdir):
     tm = Time([1, 2, 3], format='cxcsec')
     tm[1] = np.ma.masked
@@ -192,15 +181,14 @@ def test_serialize_hdf5_masked(tmpdir):
     assert np.all(t2['col0'].value == t['col0'].value)
 
 
-@pytest.mark.skipif('not HAS_YAML')
-def test_serialize_ecsv_masked(tmpdir):
+# Ignore warning in MIPS https://github.com/astropy/astropy/issues/9750
+@pytest.mark.filterwarnings('ignore:invalid value encountered')
+@pytest.mark.parametrize('serialize_method', ['jd1_jd2', 'formatted_value'])
+def test_serialize_ecsv_masked(serialize_method, tmpdir):
     tm = Time([1, 2, 3], format='cxcsec')
     tm[1] = np.ma.masked
 
-    # Serializing in the default way for ECSV fails to round-trip
-    # because it writes out a "nan" instead of "".  But for jd1/jd2
-    # this works OK.
-    tm.info.serialize_method['ecsv'] = 'jd1_jd2'
+    tm.info.serialize_method['ecsv'] = serialize_method
 
     fn = str(tmpdir.join('tempfile.ecsv'))
     t = Table([tm])
@@ -209,6 +197,6 @@ def test_serialize_ecsv_masked(tmpdir):
 
     assert t2['col0'].masked
     assert np.all(t2['col0'].mask == [False, True, False])
-    # Serializing floats to ASCII loses some precision so use allclose
-    # and 1e-7 seconds tolerance.
-    assert np.allclose(t2['col0'].value, t['col0'].value, rtol=0, atol=1e-7)
+    # Serializing formatted_value loses some precision.
+    atol = 0.1*u.us if serialize_method == 'formatted_value' else 1*u.ps
+    assert np.all(abs(t2['col0'] - t['col0']) <= atol)

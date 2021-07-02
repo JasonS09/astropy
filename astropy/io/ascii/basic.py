@@ -159,7 +159,7 @@ class CommentedHeader(Basic):
             idx = self.header.start_line
             if idx < 0:
                 idx = len(out.meta['comments']) + idx
-            out.meta['comments'] = out.meta['comments'][:idx] + out.meta['comments'][idx+1:]
+            out.meta['comments'] = out.meta['comments'][:idx] + out.meta['comments'][idx + 1:]
             if not out.meta['comments']:
                 del out.meta['comments']
 
@@ -258,6 +258,12 @@ class Csv(Basic):
     from the typical default for `astropy.io.ascii` in which missing values are
     indicated by ``--``.
 
+    Since the `CSV format <https://tools.ietf.org/html/rfc4180>`_ does not
+    formally support comments, any comments defined for the table via
+    ``tbl.meta['comments']`` are ignored by default. If you would still like to
+    write those comments then include a keyword ``comment='#'`` to the
+    ``write()`` call.
+
     Example::
 
       num,ra,dec,radius,mag
@@ -337,10 +343,12 @@ class RdbHeader(TabHeader):
         self.names, raw_types = header_vals_list
 
         if len(self.names) != len(raw_types):
-            raise core.InconsistentTableError('RDB header mismatch between number of column names and column types.')
+            raise core.InconsistentTableError(
+                'RDB header mismatch between number of column names and column types.')
 
         if any(not re.match(r'\d*(N|S)$', x, re.IGNORECASE) for x in raw_types):
-            raise core.InconsistentTableError(f'RDB types definitions do not all match [num](N|S): {raw_types}')
+            raise core.InconsistentTableError(
+                f'RDB types definitions do not all match [num](N|S): {raw_types}')
 
         self._set_cols_from_names()
         for col, raw_type in zip(self.cols, raw_types):
@@ -369,7 +377,7 @@ class Rdb(Tab):
     """Tab-separated file with an extra line after the column definition line that
     specifies either numeric (N) or string (S) data.
 
-    See: https://compbio.soe.ucsc.edu/rdb/
+    See: https://www.drdobbs.com/rdb-a-unix-command-line-database/199101326
 
     Example::
 

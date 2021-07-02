@@ -60,7 +60,7 @@ def pdf_single(z, N, normalization, dH=1, dK=3):
         The number of data points from which the periodogram was computed.
     normalization : {'standard', 'model', 'log', 'psd'}
         The periodogram normalization.
-    dH, dK : integers, optional
+    dH, dK : int, optional
         The number of parameters in the null hypothesis and the model.
 
     Returns
@@ -92,8 +92,7 @@ def pdf_single(z, N, normalization, dH=1, dK=3):
     elif normalization == 'log':
         return 0.5 * Nk * np.exp(-0.5 * Nk * z)
     else:
-        raise ValueError("normalization='{}' is not recognized"
-                         "".format(normalization))
+        raise ValueError(f"normalization='{normalization}' is not recognized")
 
 
 def fap_single(z, N, normalization, dH=1, dK=3):
@@ -111,7 +110,7 @@ def fap_single(z, N, normalization, dH=1, dK=3):
         The number of data points from which the periodogram was computed.
     normalization : {'standard', 'model', 'log', 'psd'}
         The periodogram normalization.
-    dH, dK : integers, optional
+    dH, dK : int, optional
         The number of parameters in the null hypothesis and the model.
 
     Returns
@@ -143,8 +142,7 @@ def fap_single(z, N, normalization, dH=1, dK=3):
     elif normalization == 'log':
         return np.exp(-0.5 * Nk * z)
     else:
-        raise ValueError("normalization='{}' is not recognized"
-                         "".format(normalization))
+        raise ValueError(f"normalization='{normalization}' is not recognized")
 
 
 def inv_fap_single(fap, N, normalization, dH=1, dK=3):
@@ -162,7 +160,7 @@ def inv_fap_single(fap, N, normalization, dH=1, dK=3):
         The number of data points from which the periodogram was computed.
     normalization : {'standard', 'model', 'log', 'psd'}
         The periodogram normalization.
-    dH, dK : integers, optional
+    dH, dK : int, optional
         The number of parameters in the null hypothesis and the model.
 
     Returns
@@ -197,8 +195,7 @@ def inv_fap_single(fap, N, normalization, dH=1, dK=3):
         elif normalization == 'log':
             return -2 / Nk * np.log(fap)
         else:
-            raise ValueError("normalization='{}' is not recognized"
-                             "".format(normalization))
+            raise ValueError(f"normalization='{normalization}' is not recognized")
 
 
 def cdf_single(z, N, normalization, dH=1, dK=3):
@@ -215,7 +212,7 @@ def cdf_single(z, N, normalization, dH=1, dK=3):
         The number of data points from which the periodogram was computed.
     normalization : {'standard', 'model', 'log', 'psd'}
         The periodogram normalization.
-    dH, dK : integers, optional
+    dH, dK : int, optional
         The number of parameters in the null hypothesis and the model.
 
     Returns
@@ -342,10 +339,10 @@ def inv_fap_baluev(p, fmax, t, y, dy, normalization='standard'):
 def _bootstrap_max(t, y, dy, fmax, normalization, random_seed, n_bootstrap=1000):
     """Generate a sequence of bootstrap estimates of the max"""
     from .core import LombScargle
-    rng = np.random.RandomState(random_seed)
+    rng = np.random.default_rng(random_seed)
     power_max = []
     for _ in range(n_bootstrap):
-        s = rng.randint(0, len(y), len(y))  # sample with replacement
+        s = rng.integers(0, len(y), len(y))  # sample with replacement
         ls_boot = LombScargle(t, y[s], dy if dy is None else dy[s],
                               normalization=normalization)
         freq, power = ls_boot.autopower(maximum_frequency=fmax)

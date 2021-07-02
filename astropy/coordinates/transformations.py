@@ -21,8 +21,8 @@ import subprocess
 from warnings import warn
 
 from abc import ABCMeta, abstractmethod
-from collections import defaultdict, OrderedDict
-from contextlib import suppress
+from collections import defaultdict
+from contextlib import suppress, contextmanager
 from inspect import signature
 
 import numpy as np
@@ -156,7 +156,7 @@ class TransformGraph:
             The coordinate frame class to start from.
         tosys : class
             The coordinate frame class to transform into.
-        transform : CoordinateTransform or similar callable
+        transform : `CoordinateTransform`
             The transformation object. Typically a `CoordinateTransform` object,
             although it may be some other callable that is called with the same
             signature.
@@ -210,15 +210,15 @@ class TransformGraph:
 
         Parameters
         ----------
-        fromsys : class or `None`
+        fromsys : class or None
             The coordinate frame *class* to start from. If `None`,
             ``transform`` will be searched for and removed (``tosys`` must
             also be `None`).
-        tosys : class or `None`
+        tosys : class or None
             The coordinate frame *class* to transform into. If `None`,
             ``transform`` will be searched for and removed (``fromsys`` must
             also be `None`).
-        transform : callable or `None`
+        transform : callable or None
             The transformation object to be removed or `None`.  If `None`
             and ``tosys`` and ``fromsys`` are supplied, there will be no
             check to ensure the correct object is removed.
@@ -233,12 +233,16 @@ class TransformGraph:
             for a in self._graph:
                 agraph = self._graph[a]
                 for b in agraph:
-                    if b is transform:
+                    if agraph[b] is transform:
                         del agraph[b]
+                        fromsys = a
                         break
+
+                # If the transform was found, need to break out of the outer for loop too
+                if fromsys:
+                    break
             else:
-                raise ValueError('Could not find transform {} in the '
-                                 'graph'.format(transform))
+                raise ValueError(f'Could not find transform {transform} in the graph')
 
         else:
             if transform is None:
@@ -250,6 +254,11 @@ class TransformGraph:
                 else:
                     raise ValueError('Current transform from {} to {} is not '
                                      '{}'.format(fromsys, tosys, transform))
+
+        # Remove the subgraph if it is now empty
+        if self._graph[fromsys] == {}:
+            self._graph.pop(fromsys)
+
         self.invalidate_cache()
 
     def find_shortest_path(self, fromsys, tosys):
@@ -266,11 +275,11 @@ class TransformGraph:
 
         Returns
         -------
-        path : list of classes or `None`
+        path : list of class or None
             The path from ``fromsys`` to ``tosys`` as an in-order sequence
             of classes.  This list includes *both* ``fromsys`` and
             ``tosys``. Is `None` if there is no possible path.
-        distance : number
+        distance : float or int
             The total distance/priority from ``fromsys`` to ``tosys``.  If
             priorities are not set this is the number of transforms
             needed. Is ``inf`` if there is no possible path.
@@ -384,7 +393,7 @@ class TransformGraph:
 
         Returns
         -------
-        trans : `CompositeTransform` or `None`
+        trans : `CompositeTransform` or None
             If there is a path from ``fromsys`` to ``tosys``, this is a
             transform object for that path.   If no path could be found, this is
             `None`.
@@ -432,7 +441,7 @@ class TransformGraph:
 
         Returns
         -------
-        coordcls
+        `BaseCoordinateFrame` subclass
             The coordinate class corresponding to the ``name`` or `None` if
             no such class exists.
         """
@@ -468,7 +477,7 @@ class TransformGraph:
         addnodes : sequence of str
             Additional coordinate systems to add (this can include systems
             already in the transform graph, but they will only appear once).
-        savefn : `None` or str
+        savefn : None or str
             The file name to save this graph to or `None` to not save
             to a file.
         savelayout : str
@@ -573,8 +582,8 @@ class TransformGraph:
 
         Returns
         -------
-        nxgraph : `networkx.Graph <https://networkx.github.io/documentation/stable/reference/classes/graph.html>`_
-            This `TransformGraph` as a `networkx.Graph`_.
+        nxgraph : ``networkx.Graph``
+            This `TransformGraph` as a `networkx.Graph <https://networkx.github.io/documentation/stable/reference/classes/graph.html>`_.
         """
         import networkx as nx
 
@@ -615,7 +624,7 @@ class TransformGraph:
             The coordinate frame class to start from.
         tosys : class
             The coordinate frame class to transform into.
-        priority : number
+        priority : float or int
             The priority if this transform when finding the shortest
             coordinate transform path - large numbers are lower priorities.
 
@@ -665,6 +674,37 @@ class TransformGraph:
             return func
         return deco
 
+    @contextmanager
+    def impose_finite_difference_dt(self, dt):
+        """
+        Context manager to impose a finite-difference time step on all applicable transformations
+
+        For each transformation in this transformation graph that has the attribute
+        ``finite_difference_dt``, that attribute is set to the provided value.  The only standard
+        transformation with this attribute is
+        `~astropy.coordinates.transformations.FunctionTransformWithFiniteDifference`.
+
+        Parameters
+        ----------
+        dt : `~astropy.units.Quantity` ['time'] or callable
+            If a quantity, this is the size of the differential used to do the finite difference.
+            If a callable, should accept ``(fromcoord, toframe)`` and return the ``dt`` value.
+        """
+        key = 'finite_difference_dt'
+        saved_settings = []
+
+        try:
+            for to_frames in self._graph.values():
+                for transform in to_frames.values():
+                    if hasattr(transform, key):
+                        old_setting = (transform, key, getattr(transform, key))
+                        saved_settings.append(old_setting)
+                        setattr(transform, key, dt)
+            yield
+        finally:
+            for setting in saved_settings:
+                setattr(*setting)
+
 
 # <-------------------Define the builtin transform classes-------------------->
 
@@ -677,14 +717,14 @@ class CoordinateTransform(metaclass=ABCMeta):
 
     Parameters
     ----------
-    fromsys : class
+    fromsys : `~astropy.coordinates.BaseCoordinateFrame` subclass
         The coordinate frame class to start from.
-    tosys : class
+    tosys : `~astropy.coordinates.BaseCoordinateFrame` subclass
         The coordinate frame class to transform into.
-    priority : number
+    priority : float or int
         The priority if this transform when finding the shortest
         coordinate transform path - large numbers are lower priorities.
-    register_graph : `TransformGraph` or `None`
+    register_graph : `TransformGraph` or None
         A graph to register this transformation with on creation, or
         `None` to leave it unregistered.
     """
@@ -722,7 +762,7 @@ class CoordinateTransform(metaclass=ABCMeta):
 
         Parameters
         ----------
-        graph : a TransformGraph object
+        graph : `TransformGraph` object
             The graph to register this transformation with.
         """
         graph.add_transform(self.fromsys, self.tosys, self)
@@ -752,7 +792,7 @@ class CoordinateTransform(metaclass=ABCMeta):
 
         Parameters
         ----------
-        fromcoord : fromsys object
+        fromcoord : `~astropy.coordinates.BaseCoordinateFrame` subclass instance
             An object of class matching ``fromsys`` that is to be transformed.
         toframe : object
             An object that has the attributes necessary to fully specify the
@@ -763,7 +803,7 @@ class CoordinateTransform(metaclass=ABCMeta):
 
         Returns
         -------
-        tocoord : tosys object
+        tocoord : `BaseCoordinateFrame` subclass instance
             The new coordinate after the transform has been applied.
         """
 
@@ -784,10 +824,10 @@ class FunctionTransform(CoordinateTransform):
         The coordinate frame class to start from.
     tosys : class
         The coordinate frame class to transform into.
-    priority : number
+    priority : float or int
         The priority if this transform when finding the shortest
         coordinate transform path - large numbers are lower priorities.
-    register_graph : `TransformGraph` or `None`
+    register_graph : `TransformGraph` or None
         A graph to register this transformation with on creation, or
         `None` to leave it unregistered.
 
@@ -821,7 +861,7 @@ class FunctionTransform(CoordinateTransform):
         res = self.func(fromcoord, toframe)
         if not isinstance(res, self.tosys):
             raise TypeError(f'the transformation function yielded {res} but '
-                            'should have been of type {self.tosys}')
+                            f'should have been of type {self.tosys}')
         if fromcoord.data.differentials and not res.data.differentials:
             warn("Applied a FunctionTransform to a coordinate frame with "
                  "differentials, but the FunctionTransform does not handle "
@@ -854,7 +894,7 @@ class FunctionTransformWithFiniteDifference(FunctionTransform):
         attribute, but only one needs to have it. If None, no velocity
         component induced from the frame itself will be included - only the
         re-orientation of any existing differential.
-    finite_difference_dt : `~astropy.units.Quantity` or callable
+    finite_difference_dt : `~astropy.units.Quantity` ['time'] or callable
         If a quantity, this is the size of the differential used to do the
         finite difference.  If a callable, should accept
         ``(fromcoord, toframe)`` and return the ``dt`` value.
@@ -1171,10 +1211,10 @@ class AffineTransform(BaseAffineTransform):
         The coordinate frame class to start from.
     tosys : class
         The coordinate frame class to transform into.
-    priority : number
+    priority : float or int
         The priority if this transform when finding the shortest
         coordinate transform path - large numbers are lower priorities.
-    register_graph : `TransformGraph` or `None`
+    register_graph : `TransformGraph` or None
         A graph to register this transformation with on creation, or
         `None` to leave it unregistered.
 
@@ -1222,10 +1262,10 @@ class StaticMatrixTransform(BaseAffineTransform):
         The coordinate frame class to start from.
     tosys : class
         The coordinate frame class to transform into.
-    priority : number
+    priority : float or int
         The priority if this transform when finding the shortest
         coordinate transform path - large numbers are lower priorities.
-    register_graph : `TransformGraph` or `None`
+    register_graph : `TransformGraph` or None
         A graph to register this transformation with on creation, or
         `None` to leave it unregistered.
 
@@ -1270,10 +1310,10 @@ class DynamicMatrixTransform(BaseAffineTransform):
         The coordinate frame class to start from.
     tosys : class
         The coordinate frame class to transform into.
-    priority : number
+    priority : float or int
         The priority if this transform when finding the shortest
         coordinate transform path - large numbers are lower priorities.
-    register_graph : `TransformGraph` or `None`
+    register_graph : `TransformGraph` or None
         A graph to register this transformation with on creation, or
         `None` to leave it unregistered.
 
@@ -1314,16 +1354,16 @@ class CompositeTransform(CoordinateTransform):
 
     Parameters
     ----------
-    transforms : sequence of `CoordinateTransform` objects
+    transforms : sequence of `CoordinateTransform` object
         The sequence of transformations to apply.
     fromsys : class
         The coordinate frame class to start from.
     tosys : class
         The coordinate frame class to transform into.
-    priority : number
+    priority : float or int
         The priority if this transform when finding the shortest
         coordinate transform path - large numbers are lower priorities.
-    register_graph : `TransformGraph` or `None`
+    register_graph : `TransformGraph` or None
         A graph to register this transformation with on creation, or
         `None` to leave it unregistered.
     collapse_static_mats : bool
@@ -1387,7 +1427,7 @@ class CompositeTransform(CoordinateTransform):
 
 
 # map class names to colorblind-safe colors
-trans_to_color = OrderedDict()
+trans_to_color = {}
 trans_to_color[AffineTransform] = '#555555'  # gray
 trans_to_color[FunctionTransform] = '#783001'  # dark red-ish/brown
 trans_to_color[FunctionTransformWithFiniteDifference] = '#d95f02'  # red-ish

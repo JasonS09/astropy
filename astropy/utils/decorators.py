@@ -6,6 +6,7 @@
 import functools
 import inspect
 import textwrap
+import threading
 import types
 import warnings
 from inspect import signature
@@ -30,7 +31,7 @@ def deprecated(since, message='', name='', alternative='', pending=False,
     To mark an attribute as deprecated, use `deprecated_attribute`.
 
     Parameters
-    ------------
+    ----------
     since : str
         The release at which this API became deprecated.  This is
         required.
@@ -67,7 +68,7 @@ def deprecated(since, message='', name='', alternative='', pending=False,
         The type of this object, if the automatically determined one
         needs to be overridden.
 
-    warning_type : warning
+    warning_type : Warning
         Warning to be issued.
         Default is `~astropy.utils.exceptions.AstropyDeprecationWarning`.
     """
@@ -239,7 +240,7 @@ def deprecated_attribute(name, since, message=None, alternative=None,
         If True, uses a AstropyPendingDeprecationWarning instead of
         ``warning_type``.
 
-    warning_type : warning
+    warning_type : Warning
         Warning to be issued.
         Default is `~astropy.utils.exceptions.AstropyDeprecationWarning`.
 
@@ -287,17 +288,17 @@ def deprecated_renamed_argument(old_name, new_name, since,
 
     Parameters
     ----------
-    old_name : str or list/tuple thereof
+    old_name : str or sequence of str
         The old name of the argument.
 
-    new_name : str or list/tuple thereof or `None`
+    new_name : str or sequence of str or None
         The new name of the argument. Set this to `None` to remove the
         argument ``old_name`` instead of renaming it.
 
-    since : str or number or list/tuple thereof
+    since : str or number or sequence of str or number
         The release at which the old argument became deprecated.
 
-    arg_in_kwargs : bool or list/tuple thereof, optional
+    arg_in_kwargs : bool or sequence of bool, optional
         If the argument is not a named argument (for example it
         was meant to be consumed by ``**kwargs``) set this to
         ``True``.  Otherwise the decorator will throw an Exception
@@ -305,18 +306,18 @@ def deprecated_renamed_argument(old_name, new_name, since,
         the decorated function.
         Default is ``False``.
 
-    relax : bool or list/tuple thereof, optional
+    relax : bool or sequence of bool, optional
         If ``False`` a ``TypeError`` is raised if both ``new_name`` and
         ``old_name`` are given.  If ``True`` the value for ``new_name`` is used
         and a Warning is issued.
         Default is ``False``.
 
-    pending : bool or list/tuple thereof, optional
+    pending : bool or sequence of bool, optional
         If ``True`` this will hide the deprecation warning and ignore the
         corresponding ``relax`` parameter value.
         Default is ``False``.
 
-    warning_type : warning
+    warning_type : Warning
         Warning to be issued.
         Default is `~astropy.utils.exceptions.AstropyDeprecationWarning`.
 
@@ -440,7 +441,7 @@ def deprecated_renamed_argument(old_name, new_name, since,
                 pass
             else:
                 if new_name[i] is None:
-                    continue
+                    param = arguments[old_name[i]]
                 elif new_name[i] in arguments:
                     param = arguments[new_name[i]]
                 # In case the argument is not found in the list of arguments
@@ -449,16 +450,19 @@ def deprecated_renamed_argument(old_name, new_name, since,
                 # This case has to be explicitly specified, otherwise throw
                 # an exception!
                 else:
-                    raise TypeError('"{}" was not specified in the function '
-                                    'signature. If it was meant to be part of '
-                                    '"**kwargs" then set "arg_in_kwargs" to "True"'
-                                    '.'.format(new_name[i]))
+                    raise TypeError(
+                        f'"{new_name[i]}" was not specified in the function '
+                        'signature. If it was meant to be part of '
+                        '"**kwargs" then set "arg_in_kwargs" to "True"')
 
                 # There are several possibilities now:
 
                 # 1.) Positional or keyword argument:
                 if param.kind == param.POSITIONAL_OR_KEYWORD:
-                    position[i] = keys.index(new_name[i])
+                    if new_name[i] is None:
+                        position[i] = keys.index(old_name[i])
+                    else:
+                        position[i] = keys.index(new_name[i])
 
                 # 2.) Keyword only argument:
                 elif param.kind == param.KEYWORD_ONLY:
@@ -468,12 +472,16 @@ def deprecated_renamed_argument(old_name, new_name, since,
                 # 3.) positional-only argument, varargs, varkwargs or some
                 #     unknown type:
                 else:
-                    raise TypeError('cannot replace argument "{}" of kind '
-                                    '{!r}.'.format(new_name[i], param.kind))
+                    raise TypeError(f'cannot replace argument "{new_name[i]}" '
+                                    f'of kind {repr(param.kind)}.')
 
         @functools.wraps(function)
         def wrapper(*args, **kwargs):
             for i in range(n):
+                message = (f'"{old_name[i]}" was deprecated in version '
+                           f'{since[i]} and will be removed in a future '
+                           'version. ')
+
                 # The only way to have oldkeyword inside the function is
                 # that it is passed as kwarg because the oldkeyword
                 # parameter was renamed to newkeyword.
@@ -482,15 +490,10 @@ def deprecated_renamed_argument(old_name, new_name, since,
                     # Display the deprecation warning only when it's not
                     # pending.
                     if not pending[i]:
-                        message = ('"{}" was deprecated in version {} '
-                                   'and will be removed in a future version. '
-                                   .format(old_name[i], since[i]))
                         if new_name[i] is not None:
-                            message += ('Use argument "{}" instead.'
-                                        .format(new_name[i]))
+                            message += f'Use argument "{new_name[i]}" instead.'
                         elif alternative:
-                            message += ('\n        Use {} instead.'
-                                        .format(alternative))
+                            message += f'\n        Use {alternative} instead.'
                         warnings.warn(message, warning_type, stacklevel=2)
 
                     # Check if the newkeyword was given as well.
@@ -504,19 +507,31 @@ def deprecated_renamed_argument(old_name, new_name, since,
                             # True or raise an Exception is relax is False.
                             if relax[i]:
                                 warnings.warn(
-                                    '"{0}" and "{1}" keywords were set. '
-                                    'Using the value of "{1}".'
-                                    ''.format(old_name[i], new_name[i]),
+                                    f'"{old_name[i]}" and "{new_name[i]}" '
+                                    'keywords were set. '
+                                    f'Using the value of "{new_name[i]}".',
                                     AstropyUserWarning)
                             else:
                                 raise TypeError(
-                                    'cannot specify both "{}" and "{}"'
-                                    '.'.format(old_name[i], new_name[i]))
+                                    f'cannot specify both "{old_name[i]}" and '
+                                    f'"{new_name[i]}".')
                     else:
                         # Pass the value of the old argument with the
                         # name of the new argument to the function
                         if new_name[i] is not None:
                             kwargs[new_name[i]] = value
+                        # If old argument has no replacement, cast it back.
+                        # https://github.com/astropy/astropy/issues/9914
+                        else:
+                            kwargs[old_name[i]] = value
+
+                # Deprecated keyword without replacement is given as
+                # positional argument.
+                elif (not pending[i] and not new_name[i] and position[i] and
+                      len(args) > position[i]):
+                    if alternative:
+                        message += f'\n        Use {alternative} instead.'
+                    warnings.warn(message, warning_type, stacklevel=2)
 
             return function(*args, **kwargs)
 
@@ -639,6 +654,7 @@ class classproperty(property):
     def __init__(self, fget, doc=None, lazy=False):
         self._lazy = lazy
         if lazy:
+            self._lock = threading.RLock()   # Protects _cache
             self._cache = {}
         fget = self._wrap_fget(fget)
 
@@ -653,17 +669,20 @@ class classproperty(property):
             self.__doc__ = doc
 
     def __get__(self, obj, objtype):
-        if self._lazy and objtype in self._cache:
-            return self._cache[objtype]
-
-        # The base property.__get__ will just return self here;
-        # instead we pass objtype through to the original wrapped
-        # function (which takes the class as its sole argument)
-        val = self.fget.__wrapped__(objtype)
-
         if self._lazy:
-            self._cache[objtype] = val
-
+            val = self._cache.get(objtype, _NotFound)
+            if val is _NotFound:
+                with self._lock:
+                    # Check if another thread initialised before we locked.
+                    val = self._cache.get(objtype, _NotFound)
+                    if val is _NotFound:
+                        val = self.fget.__wrapped__(objtype)
+                        self._cache[objtype] = val
+        else:
+            # The base property.__get__ will just return self here;
+            # instead we pass objtype through to the original wrapped
+            # function (which takes the class as its sole argument)
+            val = self.fget.__wrapped__(objtype)
         return val
 
     def getter(self, fget):
@@ -694,6 +713,8 @@ class classproperty(property):
         return fget
 
 
+# Adapted from the recipe at
+# http://code.activestate.com/recipes/363602-lazy-property-evaluation
 class lazyproperty(property):
     """
     Works similarly to property(), but computes the value only once.
@@ -727,23 +748,25 @@ class lazyproperty(property):
     already sets the new value in ``__dict__`` and returns that value and the
     returned value is not ``None``.
 
-    Adapted from the recipe at
-    http://code.activestate.com/recipes/363602-lazy-property-evaluation
     """
 
     def __init__(self, fget, fset=None, fdel=None, doc=None):
         super().__init__(fget, fset, fdel, doc)
         self._key = self.fget.__name__
+        self._lock = threading.RLock()
 
     def __get__(self, obj, owner=None):
         try:
-            val = obj.__dict__.get(self._key, _NotFound)
-            if val is not _NotFound:
-                return val
-            else:
-                val = self.fget(obj)
-                obj.__dict__[self._key] = val
-                return val
+            obj_dict = obj.__dict__
+            val = obj_dict.get(self._key, _NotFound)
+            if val is _NotFound:
+                with self._lock:
+                    # Check if another thread beat us to it.
+                    val = obj_dict.get(self._key, _NotFound)
+                    if val is _NotFound:
+                        val = self.fget(obj)
+                        obj_dict[self._key] = val
+            return val
         except AttributeError:
             if obj is None:
                 return self
@@ -754,17 +777,16 @@ class lazyproperty(property):
         if self.fset:
             ret = self.fset(obj, val)
             if ret is not None and obj_dict.get(self._key) is ret:
-                # By returning the value set the setter signals that it took
-                # over setting the value in obj.__dict__; this mechanism allows
-                # it to override the input value
+                # By returning the value set the setter signals that it
+                # took over setting the value in obj.__dict__; this
+                # mechanism allows it to override the input value
                 return
         obj_dict[self._key] = val
 
     def __delete__(self, obj):
         if self.fdel:
             self.fdel(obj)
-        if self._key in obj.__dict__:
-            del obj.__dict__[self._key]
+        obj.__dict__.pop(self._key, None)    # Delete if present
 
 
 class sharedmethod(classmethod):

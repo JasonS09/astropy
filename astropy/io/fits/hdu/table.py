@@ -82,7 +82,7 @@ class _TableLikeHDU(_ValidHDU):
 
         Parameters
         ----------
-        columns : sequence of `Column`, `ColDefs`, or other
+        columns : sequence of `Column`, `ColDefs` -like
             The columns from which to create the table data, or an object with
             a column-like structure from which a `ColDefs` can be instantiated.
             This includes an existing `BinTableHDU` or `TableHDU`, or a
@@ -142,7 +142,7 @@ class _TableLikeHDU(_ValidHDU):
     @property
     def _nrows(self):
         """
-        Table-like HDUs must provide an attribute that specifies the number of
+        table-like HDUs must provide an attribute that specifies the number of
         rows in the HDU's table.
 
         For now this is an internal-only attribute.
@@ -165,8 +165,9 @@ class _TableLikeHDU(_ValidHDU):
             # We have a heap; include it in the raw_data
             raw_data = self._get_raw_data(self._data_size, np.uint8,
                                           self._data_offset)
-            data = raw_data[:self._theap].view(dtype=columns.dtype,
-                                               type=np.rec.recarray)
+            tbsize = self._header['NAXIS1'] * self._header['NAXIS2']
+            data = raw_data[:tbsize].view(dtype=columns.dtype,
+                                          type=np.rec.recarray)
         else:
             raw_data = self._get_raw_data(self._nrows, columns.dtype,
                                           self._data_offset)
@@ -206,31 +207,32 @@ class _TableLikeHDU(_ValidHDU):
         # new data placed in the column object above
         del columns._arrays
 
+    def _update_load_data(self):
+        """Load the data if asked to."""
+        if not self._data_loaded:
+            self.data
+
     def _update_column_added(self, columns, column):
         """
         Update the data upon addition of a new column through the `ColDefs`
         interface.
         """
-
-        # TODO: It's not clear that this actually works--it probably does not.
-        # This is what the code used to do before introduction of the
-        # notifier interface, but I don't believe it actually worked (there are
-        # several bug reports related to this...)
-        if self._data_loaded:
-            del self.data
+        # recreate data from the columns
+        self.data = FITS_rec.from_columns(
+            self.columns, nrows=self._nrows, fill=False,
+            character_as_bytes=self._character_as_bytes
+        )
 
     def _update_column_removed(self, columns, col_idx):
         """
         Update the data upon removal of a column through the `ColDefs`
         interface.
         """
-
-        # For now this doesn't do anything fancy--it just deletes the data
-        # attribute so that it is forced to be recreated again.  It doesn't
-        # change anything on the existing data recarray (this is also how this
-        # worked before introducing the notifier interface)
-        if self._data_loaded:
-            del self.data
+        # recreate data from the columns
+        self.data = FITS_rec.from_columns(
+            self.columns, nrows=self._nrows, fill=False,
+            character_as_bytes=self._character_as_bytes
+        )
 
 
 class _TableBaseHDU(ExtensionHDU, _TableLikeHDU):
@@ -350,6 +352,7 @@ class _TableBaseHDU(ExtensionHDU, _TableLikeHDU):
                 self._header['TFIELDS'] = len(self.data._coldefs)
 
                 self.columns = self.data._coldefs
+                self.columns._add_listener(self.data)
                 self.update()
 
                 with suppress(TypeError, AttributeError):
@@ -435,9 +438,12 @@ class _TableBaseHDU(ExtensionHDU, _TableLikeHDU):
                 new_columns = self._columns_type(data.columns)
                 data = FITS_rec.from_columns(new_columns)
 
+            if 'data' in self.__dict__:
+                self.columns._remove_listener(self.__dict__['data'])
             self.__dict__['data'] = data
 
             self.columns = self.data.columns
+            self.columns._add_listener(self.data)
             self.update()
 
             with suppress(TypeError, AttributeError):
@@ -537,7 +543,7 @@ class _TableBaseHDU(ExtensionHDU, _TableLikeHDU):
                 self._header[0].rstrip() == self._extension):
 
             err_text = 'The XTENSION keyword must match the HDU type.'
-            fix_text = 'Converted the XTENSION keyword to {}.'.format(self._extension)
+            fix_text = f'Converted the XTENSION keyword to {self._extension}.'
 
             def fix(header=self._header):
                 header[0] = (self._extension, self._ext_comment)
@@ -949,14 +955,12 @@ class BinTableHDU(_TableBaseHDU):
                     for row in field:
                         if len(row) > 0:
                             nbytes += row.nbytes
-                            if not fileobj.simulateonly:
-                                fileobj.writearray(row)
+                            fileobj.writearray(row)
             else:
                 heap_data = data._get_heap_data()
                 if len(heap_data) > 0:
                     nbytes += len(heap_data)
-                    if not fileobj.simulateonly:
-                        fileobj.writearray(heap_data)
+                    fileobj.writearray(heap_data)
 
             data._heapsize = nbytes - data._gap
             size += nbytes
@@ -1053,16 +1057,16 @@ class BinTableHDU(_TableBaseHDU):
 
         Parameters
         ----------
-        datafile : file path, file object or file-like object, optional
+        datafile : path-like or file-like, optional
             Output data file.  The default is the root name of the
             fits file associated with this HDU appended with the
             extension ``.txt``.
 
-        cdfile : file path, file object or file-like object, optional
+        cdfile : path-like or file-like, optional
             Output column definitions file.  The default is `None`, no
             column definitions output is produced.
 
-        hfile : file path, file object or file-like object, optional
+        hfile : path-like or file-like, optional
             Output header parameters file.  The default is `None`,
             no header parameters output is produced.
 
@@ -1126,10 +1130,10 @@ class BinTableHDU(_TableBaseHDU):
 
         Parameters
         ----------
-        datafile : file path, file object or file-like object
+        datafile : path-like or file-like
             Input data file containing the table data in ASCII format.
 
-        cdfile : file path, file object, file-like object, optional
+        cdfile : path-like or file-like, optional
             Input column definition file containing the names,
             formats, display formats, physical units, multidimensional
             array dimensions, undefined values, scale factors, and
@@ -1137,18 +1141,18 @@ class BinTableHDU(_TableBaseHDU):
             `None`, the column definitions are taken from the current
             values in this object.
 
-        hfile : file path, file object, file-like object, optional
+        hfile : path-like or file-like, optional
             Input parameter definition file containing the header
             parameter definitions to be associated with the table.  If
             `None`, the header parameter definitions are taken from
             the current values in this objects header.
 
-        replace : bool
+        replace : bool, optional
             When `True`, indicates that the entire header should be
             replaced with the contents of the ASCII file instead of
             just updating the current header.
 
-        header : Header object
+        header : `~astropy.io.fits.Header`, optional
             When the cdfile and hfile are missing, use this Header object in
             the creation of the new table and HDU.  Otherwise this Header
             supersedes the keywords from hfile, which is only used to update
@@ -1244,7 +1248,7 @@ class BinTableHDU(_TableBaseHDU):
                     # the length of the array for this row and set the format
                     # for the VLA data
                     line.append('VLA_Length=')
-                    line.append('{:21d}'.format(len(row[column.name])))
+                    line.append(f'{len(row[column.name]):21d}')
                     _, dtype, option = _parse_tformat(column.format)
                     vla_format = FITS2NUMPY[option[0]][0]
 
